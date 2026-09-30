@@ -251,24 +251,35 @@ AIModels/
 summary.
 
 ### Phase 0 — New home, same behavior
-**Precondition:** nothing is running in `opencode-bench/` (`pgrep -af 'bench.py|nav_bench|opencode
-run'`), and the AGENTS.md migration's pilot is finished or its owner agrees to the move.
-1. [J] `git init` `AIModels/agent-testing/`; write `AGENTS.md` and the one-line `CLAUDE.md`; commit
-   this plan.
-2. [M] Copy the harness from `system-library/.../opencode-bench-tools/` (cite `27de087`), including
-   the migration's untracked `nav_bench.py` and `nested_canary.sh`. Import the archived results.
-3. [J] Replace the hard-coded `BENCH` with a repo-relative path. Move `xdg/` and `tracked/`; never
-   read or print `dummy.key`. Rebuild the legacy fixture from `c0dc449` so the contaminated copy is
-   retired.
-4. [M] Repoint every live reference to the old paths (about 9 files); dated findings stay unedited.
-   Coordinate with the migration plan, which names `opencode-bench/bench/*` paths.
-5. [M] Write `AIModels/README.md`.
-6. [O] Confirm deletion of the old harness copy, the old `opencode-bench/` directory and its 3.1 GB
-   of `runs/` (keep `outside-canary.md`).
+**Status 2026-09-30: copied and proven; the old copy is deliberately left in place.** Owner decision
+(2026-09-30): the migration session was still writing new scripts and results into `opencode-bench/`
+minutes before, so the harness was **copied, not moved**. Repointing references and deleting the old
+directory wait until that session is finished and the owner confirms.
+1. **Done:** `git init`, `AGENTS.md`, `CLAUDE.md` (`@AGENTS.md` only), `AIModels/README.md`.
+2. **Done:** the tracked harness (system-library `27de087`: `bench.py`, `rescore_verify.py`,
+   `variant_probe.py`, the role prompts, `oc.sh`, `new-run.sh`, `spike07.sh`, `precommit-check`) was
+   imported verbatim as its own commit (`7665136`), then repointed in a second commit so the diff of
+   the path changes is reviewable. It lives in `legacy_bench/` and `bin/` (see `legacy_bench/README.md`).
+   The 2026-09-23 results are in `results/archive/2026-09-23-phase2/`. `dummy.key` was copied without
+   being read. **Not imported:** the migration session's untracked scripts (`nav_bench.py`,
+   `nav_claude.py`, `nav_rescore.py`, `pref_bench.py`, `web_bench.py`, `nested_canary.sh`) and its
+   results; they belong to an active session.
+3. **Done:** paths derive from the repo root; the legacy fixture was rebuilt from the pinned commit
+   `c0dc449` (`fixtures/legacy/`, with `MANIFEST.toml` and `fetch.sh`; zero dirty or ignored files),
+   replacing the copy that had gained 24 `__pycache__` directories.
+4. **Open:** repoint the ~9 live references to the old paths (`opencode-bench.md`, `opencode/README.md`,
+   `OPENCODE_AGENT_WORKFLOW.md`, `AGENTS_MD_MIGRATION.md`, the old tools' own scripts and README) and turn
+   `system-library`'s tools directory into a pointer. Dated findings stay unedited.
+5. **Done:** `AIModels/README.md`.
+6. **Open, owner decision:** delete the old harness copy, `opencode-bench/` and its 5.3 GB of `runs/`
+   (keep `outside-canary.md`).
 
-**Acceptance:** the existing `selftest` passes from the new location; one legacy trial per role runs
-end to end; no live reference to the old paths; the real `~/.config/opencode` and `opencode.db`
-mtimes are unchanged across a trial.
+**Acceptance so far:** `selftest` passes from the new location (also as a test); one pass of every
+legacy role ran end to end from here (research 10/10, verify 3/3, git 5/5 on `gpt-oss:20b`; coder
+2/3 on `devstral-small-2:24b`, its miss being the delete-two-lines fixture, n=1, in line with the
+archive's "gpt-oss and nemotron fail that one, devstral passes" only loosely); the live
+`~/.config/opencode` and `opencode.db` timestamps did not change. **Not yet checked:** that no
+live reference to the old paths remains (step 4).
 
 ### Phase 1 — Sandbox
 **Status 2026-09-30: `bench/sandbox.py` and `bench/preflight.py` done (28 tests, ruff and
