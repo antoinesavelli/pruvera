@@ -9,8 +9,9 @@ Shared operating discipline (execution loop, ask-first, verification, concurrent
 
 ## Status
 
-Draft. No phase has started as of 2026-09-29. `PLAN.md` §6 holds each phase's status; update it in
-the same change that moves a phase.
+Built and in use as of 2026-09-30: sandbox, fixture v2, real agent config, trial runner, planted issues,
+and the realism check (`PLAN.md` §6 has each phase's status and what is still open). Run
+`python -m bench.cli check` before a session; `python -m bench.cli trial --help` for a trial.
 
 ## Rules
 
