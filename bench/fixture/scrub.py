@@ -39,23 +39,24 @@ class Result:
     stops: list[int] = field(default_factory=list)  # line numbers with a match in real code
 
 
+def _parse_rule(parts: list[str], raw: str) -> Rule:
+    kind = parts[0]
+    if kind == "G" and len(parts) == 3:
+        return Rule("G", None, re.compile(parts[1], re.I), parts[2])
+    if kind == "C" and len(parts) == 4:
+        return Rule("C", re.compile(parts[1], re.I), re.compile(parts[2], re.I), parts[3])
+    if kind == "P" and len(parts) == 4:
+        return Rule("P", None, re.compile(parts[2], re.I), parts[3], path=parts[1])
+    raise ValueError(f"unparseable token rule: {raw[:60]!r}")
+
+
 def load_rules(path: Path) -> list[Rule]:
     rules: list[Rule] = []
     for raw in path.read_text().splitlines():
         line = re.split(r"\s{2,}#", raw, maxsplit=1)[0].rstrip()
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        parts = [p.strip() for p in line.split(" | ")]
-        if parts[0] == "G" and len(parts) == 3:
-            rules.append(Rule("G", None, re.compile(parts[1], re.I), parts[2]))
-        elif parts[0] == "C" and len(parts) == 4:
-            rules.append(
-                Rule("C", re.compile(parts[1], re.I), re.compile(parts[2], re.I), parts[3])
-            )
-        elif parts[0] == "P" and len(parts) == 4:
-            rules.append(Rule("P", None, re.compile(parts[2], re.I), parts[3], path=parts[1]))
-        else:
-            raise ValueError(f"unparseable token rule: {raw[:60]!r}")
+        rules.append(_parse_rule([p.strip() for p in line.split(" | ")], raw))
     return rules
 
 
@@ -91,30 +92,31 @@ def _matches(rules: list[Rule], lines: list[str], i: int, line: str) -> bool:
     return any(_applies(rule, lines, i) and rule.pattern.search(line) for rule in rules)
 
 
+def _docstring_lines(tree: ast.AST) -> set[int]:
+    prose: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        first = node.body[0] if node.body else None
+        is_doc = (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        )
+        if is_doc and first is not None:
+            prose.update(range(first.lineno, (first.end_lineno or first.lineno) + 1))
+    return prose
+
+
 def _prose_lines(source: str) -> set[int] | None:
     """1-based line numbers that are comments or docstring text; None if the file will not parse."""
     try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return None
-    prose: set[int] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
-            body = node.body
-            first = body[0] if body else None
-            if (
-                isinstance(first, ast.Expr)
-                and isinstance(first.value, ast.Constant)
-                and isinstance(first.value.value, str)
-            ):
-                prose.update(range(first.lineno, (first.end_lineno or first.lineno) + 1))
-    try:
+        prose = _docstring_lines(ast.parse(source))
         for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            # a comment-only line; a trailing comment sits on a code line
             if tok.type == tokenize.COMMENT and not tok.line[: tok.start[1]].strip():
-                prose.add(
-                    tok.start[0]
-                )  # a comment-only line; a trailing comment sits on a code line
-    except (tokenize.TokenError, IndentationError):
+                prose.add(tok.start[0])
+    except (SyntaxError, tokenize.TokenError, IndentationError):
         return None
     return prose
 
@@ -182,6 +184,27 @@ def _code_comment_split(line: str) -> tuple[str, str]:
     return line, ""
 
 
+def _scrub_line(
+    rules: list[Rule],
+    lines: list[str],
+    i: int,
+    is_python: bool,
+    prose: set[int] | None,
+    spans: dict[int, list[tuple[int, int]]],
+) -> tuple[str, bool]:
+    """(new text of line `i`, whether a code-region match stops the build)."""
+    line = lines[i]
+    if not is_python:
+        return _redact_line(rules, lines, i, line), False
+    if prose is None:
+        return line, False  # unparseable Python: leave alone, verification flags any residue
+    if (i + 1) in prose:
+        return _redact_line(rules, lines, i, line), False
+    code, comment = _code_comment_split(line)
+    new_code, stopped = _redact_code(rules, lines, i, code, spans.get(i + 1, []))
+    return new_code + (_redact_line(rules, lines, i, comment) if comment else ""), stopped
+
+
 def scrub_text(text: str, rules: list[Rule], is_python: bool, path: str = "") -> Result:
     """Redact `text`; in Python only prose and string literals change, code matches become stops."""
     lines = text.split("\n")
@@ -191,16 +214,9 @@ def scrub_text(text: str, rules: list[Rule], is_python: bool, path: str = "") ->
     prose = _prose_lines(text) if is_python else None
     spans = _string_spans(text, lines) if is_python else {}
     for i, line in enumerate(lines):
-        if is_python and prose is not None and (i + 1) not in prose:
-            code, comment = _code_comment_split(line)
-            new_code, stopped = _redact_code(rules, lines, i, code, spans.get(i + 1, []))
-            if stopped:
-                result.stops.append(i + 1)
-            new = new_code + (_redact_line(rules, lines, i, comment) if comment else "")
-        elif is_python and prose is None:
-            new = line  # unparseable Python: leave alone, verification flags any residue
-        else:
-            new = _redact_line(rules, lines, i, line)
+        new, stopped = _scrub_line(rules, lines, i, is_python, prose, spans)
+        if stopped:
+            result.stops.append(i + 1)
         if new != line:
             result.changes.append((i + 1, hashlib.sha256(line.encode()).hexdigest(), new))
             lines[i] = new
