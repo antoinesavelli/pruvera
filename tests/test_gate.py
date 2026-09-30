@@ -139,3 +139,20 @@ def test_run_gate_refuses_profiles_that_plant_different_issues(
     monkeypatch.setattr(cli, "load", lambda _v, p: Fx(("a",) if p == "x" else ("b",)))
     with pytest.raises(ValueError, match="different issues"):
         gate.run_gate("x", "y", 1, tmp_path / "o.jsonl")
+
+
+def test_calibration_shows_the_gate_is_safe_and_honest_about_its_power() -> None:
+    """At the full design a real loss is never cleared and a big gain nearly always is."""
+    loss = gate.calibrate(-0.30, reps=30, draws=300)
+    assert loss["REJECT"] == 30 and loss["CLEAR"] == 0
+    serious = gate.calibrate(-0.10, reps=40, draws=300)
+    assert serious["CLEAR"] == 0, "a true loss at the allowed limit must never be cleared"
+    null = gate.calibrate(0.0, reps=40, draws=300)
+    assert null["REJECT"] <= 3, "an unchanged rule set is almost never rejected"
+    gain = gate.calibrate(0.10, reps=30, draws=300)
+    assert gain["CLEAR"] >= 24
+
+
+def test_calibrate_command_prints_counts(capsys: pytest.CaptureFixture[str]) -> None:
+    assert gate.main(["calibrate", "--true-diff", "0.2", "--reps", "5"]) == 0
+    assert set(json.loads(capsys.readouterr().out)) == {"CLEAR", "REJECT", "INCONCLUSIVE"}
