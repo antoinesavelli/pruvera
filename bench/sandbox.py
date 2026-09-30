@@ -1,0 +1,236 @@
+"""Sandbox for one agent trial: allowlisted bwrap root, read-only base under an overlay, no egress.
+
+Depends on: bwrap and socat on the host; a trial directory the caller owns (see Spec).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import hashlib
+import os
+import shutil
+import stat
+import subprocess
+import tempfile
+import time
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Literal
+
+HOME = "/home/trial"
+WORKDIR = "/work"
+OLLAMA_PORT = 11434
+# Host files a trial legitimately needs (name resolution, TLS roots, uid lookup, dynamic linker).
+# Everything else under /etc is absent: an allowlist, not a mask, so nothing leaks by default.
+ETC_ALLOW = (
+    "resolv.conf",
+    "hosts",
+    "passwd",
+    "group",
+    "nsswitch.conf",
+    "ld.so.cache",
+    "localtime",
+    "ssl",
+    "ca-certificates",
+    "alternatives",
+)
+Net = Literal["none", "ollama", "host"]
+
+
+class SandboxError(RuntimeError):
+    """The sandbox cannot be built or a precondition failed."""
+
+
+@dataclass(frozen=True)
+class Spec:
+    """Everything one trial needs; the caller creates upper/work/xdg empty on the trial's disk."""
+
+    base: Path  # read-only fixture tree, including its .git
+    upper: Path  # overlay upper dir: every write a trial makes lands here
+    work: Path  # overlay workdir: empty, same filesystem as upper
+    xdg: Path  # trial-private config/data/state root (writable)
+    ro_binds: tuple[tuple[Path, str], ...] = ()  # (host path, path inside): venv, opencode, data
+    env: Mapping[str, str] = field(default_factory=dict)
+    net: Net = "ollama"
+    ollama_port: int = OLLAMA_PORT
+
+
+def _usr_layout() -> list[str]:
+    """Recreate the merged-/usr layout: symlink what the host symlinks, bind what it does not."""
+    argv = ["--ro-bind", "/usr", "/usr"]
+    for name in ("bin", "sbin", "lib", "lib64"):
+        host = Path("/") / name
+        if host.is_symlink():
+            argv += ["--symlink", os.readlink(host), f"/{name}"]
+        elif host.exists():
+            argv += ["--ro-bind", str(host), f"/{name}"]
+    return argv
+
+
+def _etc_layout() -> list[str]:
+    argv: list[str] = []
+    for name in ETC_ALLOW:
+        host = Path("/etc") / name
+        if host.exists():
+            argv += ["--ro-bind", str(host.resolve()), f"/etc/{name}"]
+    return argv
+
+
+def trial_env(spec: Spec) -> dict[str, str]:
+    """The only environment a trial sees; the host's is never inherited."""
+    env = {
+        "PATH": "/opt/bin:/usr/local/bin:/usr/bin:/bin",  # /opt/bin: where ro_binds put tools
+        "HOME": HOME,
+        "XDG_CONFIG_HOME": f"{HOME}/.config",
+        "XDG_DATA_HOME": f"{HOME}/.local/share",
+        "XDG_STATE_HOME": f"{HOME}/.local/state",
+        "TMPDIR": "/tmp",
+        "LANG": "C.UTF-8",
+        "TERM": "dumb",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONPYCACHEPREFIX": "/tmp/pycache",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+    env.update(spec.env)
+    return env
+
+
+def build_argv(spec: Spec, cmd: Sequence[str], proxy_sock: Path | None = None) -> list[str]:
+    """Pure function: the full bwrap command line for one trial (unit-testable without bwrap)."""
+    if spec.net == "ollama" and proxy_sock is None:
+        raise SandboxError("net='ollama' needs the host-side proxy socket")
+    argv = ["bwrap", "--die-with-parent", "--new-session", "--unshare-user", "--unshare-pid"]
+    argv += ["--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try"]
+    if spec.net != "host":
+        argv.append("--unshare-net")
+    argv += _usr_layout() + _etc_layout()
+    argv += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", HOME]
+    argv += ["--overlay-src", str(spec.base), "--overlay", str(spec.upper), str(spec.work), WORKDIR]
+    for sub, dest in (("config", ".config"), ("data", ".local/share"), ("state", ".local/state")):
+        argv += ["--bind", str(spec.xdg / sub), f"{HOME}/{dest}"]
+    for host, inside in spec.ro_binds:
+        argv += ["--ro-bind", str(host), inside]
+    if proxy_sock is not None:
+        argv += ["--ro-bind", str(proxy_sock), "/run/ollama.sock"]
+    argv += ["--chdir", WORKDIR, "--clearenv"]
+    for key, value in trial_env(spec).items():
+        argv += ["--setenv", key, value]
+    if spec.net == "ollama":
+        # Loopback inside the new netns is empty: bridge the one allowed service in from the host.
+        bridge = f"socat TCP-LISTEN:{spec.ollama_port},bind=127.0.0.1,fork,reuseaddr "
+        bridge += 'UNIX-CONNECT:/run/ollama.sock & exec "$@"'
+        return [*argv, "sh", "-c", bridge, "sandbox", *cmd]
+    return [*argv, *cmd]
+
+
+@contextlib.contextmanager
+def ollama_proxy(port: int = OLLAMA_PORT) -> Iterator[Path]:
+    """Host-side unix-socket bridge to Ollama: the one service a no-net trial can reach."""
+    if shutil.which("socat") is None:
+        raise SandboxError("socat not found")
+    with tempfile.TemporaryDirectory(prefix="ollama-proxy-") as d:
+        sock = Path(d) / "ollama.sock"
+        proc = subprocess.Popen(
+            ["socat", f"UNIX-LISTEN:{sock},fork,mode=600", f"TCP:127.0.0.1:{port}"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            for _ in range(100):
+                if sock.exists():
+                    break
+                if proc.poll() is not None:
+                    raise SandboxError("socat proxy exited early")
+                time.sleep(0.05)
+            else:
+                raise SandboxError("socat proxy socket never appeared")
+            yield sock
+        finally:
+            proc.terminate()
+            proc.wait(timeout=5)
+
+
+def run(
+    spec: Spec, cmd: Sequence[str], timeout: float | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run one command inside the sandbox; the caller decides what a non-zero exit means."""
+    if shutil.which("bwrap") is None:
+        raise SandboxError("bwrap not found")
+    check_layout(spec)
+    with contextlib.ExitStack() as stack:
+        sock = stack.enter_context(ollama_proxy(spec.ollama_port)) if spec.net == "ollama" else None
+        return subprocess.run(
+            build_argv(spec, cmd, sock),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            stdin=subprocess.DEVNULL,
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+            check=False,
+        )
+
+
+def check_layout(spec: Spec) -> None:
+    """Refuse to start on a layout that would let a write escape the overlay or share state."""
+    for label, path in (("base", spec.base), ("upper", spec.upper), ("work", spec.work)):
+        if not path.is_dir():
+            raise SandboxError(f"{label} is not a directory: {path}")
+    if {p.name for p in spec.work.iterdir()} - {"work"}:
+        # The kernel keeps its own `work` subdir between mounts; anything else is foreign.
+        raise SandboxError("overlay workdir must start empty")
+    if spec.upper.stat().st_dev != spec.work.stat().st_dev:
+        raise SandboxError("overlay upper and work must be on the same filesystem")
+    for sub in ("config", "data", "state"):
+        if not (spec.xdg / sub).is_dir():
+            raise SandboxError(f"xdg/{sub} missing under {spec.xdg}")
+    trial_roots = {spec.upper.resolve(), spec.work.resolve(), spec.xdg.resolve()}
+    if spec.base.resolve() in trial_roots or len(trial_roots) != 3:
+        raise SandboxError("base, upper, work and xdg must be four distinct directories")
+
+
+def tree_hash(root: Path) -> str:
+    """Content hash of a tree (paths, modes, bytes); a base that drifts changes it."""
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*")):
+        rel = path.relative_to(root).as_posix().encode()
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode):
+            digest.update(b"L" + rel + os.readlink(path).encode())
+        elif stat.S_ISREG(info.st_mode):
+            digest.update(b"F" + rel + f"{info.st_mode & 0o111}".encode() + path.read_bytes())
+        elif stat.S_ISDIR(info.st_mode):
+            digest.update(b"D" + rel)
+    return digest.hexdigest()
+
+
+def verify_base(base: Path, expected: str) -> None:
+    """Refuse to run on a base whose tree hash differs from its manifest."""
+    actual = tree_hash(base)
+    if actual != expected:
+        raise SandboxError(f"base drifted: expected {expected[:12]}, got {actual[:12]}")
+
+
+def overlay_changes(upper: Path) -> dict[str, list[str]]:
+    """What a trial changed, read from the overlay upper dir: written vs deleted (whiteouts)."""
+    changes: dict[str, list[str]] = {"written": [], "deleted": []}
+    for path in sorted(upper.rglob("*")):
+        info = path.lstat()
+        rel = path.relative_to(upper).as_posix()
+        if stat.S_ISCHR(info.st_mode) and info.st_rdev == 0:
+            changes["deleted"].append(rel)
+        elif stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+            changes["written"].append(rel)
+    return changes
+
+
+def remove_trial_dirs(*dirs: Path) -> None:
+    """Delete overlay dirs; the kernel leaves an unreadable workdir/work, so reopen it first."""
+    for root in dirs:
+        for dirpath, dirnames, _ in os.walk(root):
+            for name in dirnames:
+                with contextlib.suppress(OSError):
+                    (Path(dirpath) / name).chmod(0o700)
+        shutil.rmtree(root, ignore_errors=True)
