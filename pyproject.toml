@@ -17,3 +17,11 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-p no:cacheprovider"
+
+[tool.mypy]
+strict = true
+
+[[tool.mypy.overrides]]
+# The harness's own venv has no pandas stubs; synthdata runs under the fixture venv.
+module = ["pandas", "pandas.*", "numpy", "numpy.*"]
+ignore_missing_imports = true

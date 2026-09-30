@@ -64,16 +64,26 @@ def repo(tmp_path: Path) -> tuple[Path, dict[str, str]]:
 KEPT = {"pkg/__init__.py", "pkg/m.py", "pkg/big.py", "tests/test_m.py", "README.md"}
 
 
-def test_select_keeps_small_source_fixes_and_drops_the_rest(
-    repo: tuple[Path, dict[str, str]],
+def test_select_keeps_source_fixes_in_kept_files_and_size_is_checked_when_inverting(
+    repo: tuple[Path, dict[str, str]], tmp_path: Path
 ) -> None:
     src, commits = repo
     chosen = miner.select(src, "HEAD", KEPT)
-    assert [s.commit for s in chosen] == [commits["fix"]]
+    assert [s.commit for s in chosen] == [
+        commits["fix"],
+        chosen[1].commit,
+    ]  # the fix and "fix big drift"
     assert chosen[0].sources == ("pkg/m.py",) and chosen[0].tests == ("tests/test_m.py",)
-    assert miner.select(src, "HEAD", KEPT - {"pkg/m.py"}) == [], (
+    assert miner.select(src, "HEAD", KEPT - {"pkg/m.py"})[0].commit != commits["fix"], (
         "a fix in a file the fixture dropped"
     )
+    tree = tmp_path / "tree"
+    (tree / "pkg").mkdir(parents=True)
+    (tree / "pkg" / "big.py").write_text("\n".join(f"x{i} = {i + 1}" for i in range(50)) + "\n")
+    big = chosen[1]
+    diff = miner.source_diff(src, big.commit, big.sources)
+    assert miner.inverse(big, diff, tree) == "too large"
+    assert isinstance(miner.inverse(big, diff, tree, max_lines=500), miner.Candidate)
 
 
 def test_parse_hunks_and_inverse_edits_plant_the_original_bug(
@@ -145,12 +155,14 @@ def test_accept_takes_one_per_file_of_the_wanted_kind_and_to_issue_is_valid() ->
     assert "became" in issue.summary or "reverted" in issue.summary
 
 
-def test_kind_separates_assertion_failures_from_exceptions() -> None:
-    assert miner._kind(check.Result(1, ("a",), "", {"a": "assert 1 == 2"})) == "caught_assertion"
-    assert (
-        miner._kind(check.Result(1, ("a",), "", {"a": "AssertionError: x"})) == "caught_assertion"
+def test_kind_separates_assertion_failures_from_exceptions_and_import_breaks() -> None:
+    assert miner._kind(check.Result(1, ("a",), "", {}, ("assert",))) == "caught_assertion"
+    assert miner._kind(check.Result(1, ("a",), "", {}, ("AssertionError",))) == "caught_assertion"
+    assert miner._kind(check.Result(1, ("a",), "", {}, ("NameError",))) == "caught_exception"
+    broken = check.Result(1, (), "", {}, ("AssertionError",), collection_error=True)
+    assert miner._kind(broken) == "caught_exception", (
+        "an import break must not count as a caught bug"
     )
-    assert miner._kind(check.Result(1, ("a",), "", {"a": "NameError: y"})) == "caught_exception"
     assert miner._kind(check.Result(0)) == "survived"
 
 
@@ -178,3 +190,27 @@ def test_evaluate_classifies_a_real_planted_fix(tmp_path: Path) -> None:
     untested = miner.Candidate("e" * 40, ("pkg/m.py",), (), edits, 2)
     assert miner.evaluate(env, untested).kind == "survived"
     assert sandbox.tree_hash(tree) == sandbox.tree_hash(tree), "the tree must not change"
+
+
+def test_behavioural_ignores_comments_docstrings_and_whitespace_but_sees_code() -> None:
+    base = 'def f(x):\n    """Doc."""\n    # note\n    return x + 1\n'
+    assert not miner.behavioural(
+        base, base.replace("Doc.", "Other doc.").replace("# note", "# new")
+    )
+    assert not miner.behavioural(base, base.replace("x + 1", "x  +  1"))
+    assert miner.behavioural(base, base.replace("x + 1", "x + 2"))
+    assert miner.behavioural("def f(:\n", "def f():\n    pass\n"), (
+        "unparseable: keep and let tests decide"
+    )
+
+
+def test_inverse_skips_hunks_that_only_change_comments(tmp_path: Path) -> None:
+    sel = miner.Selected("c" * 40, ("pkg/m.py",), ("tests/t.py",), -1)
+    diff = (
+        b"diff --git a/pkg/m.py b/pkg/m.py\n--- a/pkg/m.py\n+++ b/pkg/m.py\n"
+        b"@@ -1,3 +1,3 @@\n def f():\n-    # old note\n+    # new note\n     return 1\n"
+    )
+    tree = tmp_path / "tree"
+    (tree / "pkg").mkdir(parents=True)
+    (tree / "pkg" / "m.py").write_text("def f():\n    # new note\n    return 1\n")
+    assert "only comment or docstring" in str(miner.inverse(sel, diff, tree))
