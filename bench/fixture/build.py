@@ -65,7 +65,7 @@ def _scrub_tree(tree: Path, rules: list[scrub.Rule]) -> list[dict[str, object]]:
         data = path.read_bytes()
         if not scrub.is_text(data):
             continue
-        res = scrub.scrub_text(data.decode("utf-8"), rules, is_python=rel.endswith(".py"))
+        res = scrub.scrub_text(data.decode("utf-8"), rules, rel.endswith(".py"), rel)
         if res.changes:
             path.write_bytes(res.text.encode("utf-8"))
             changes += [
@@ -125,7 +125,7 @@ def build(
     gone_modules = {m for p in gone if (m := denylist.module_name(p))} - {
         m for p in provided if (m := denylist.module_name(p))
     }
-    followers = denylist.dependent_tests(tree, kept, gone_modules)
+    followers = denylist.dependent_files(tree, kept, gone_modules)
     _remove(tree, followers)
     rules = scrub.load_rules(tokens_path)
     changes = _scrub_tree(tree, rules)
@@ -150,7 +150,7 @@ def build(
         "tree_hash": sandbox.tree_hash(tree, (".git",)),  # .git: base commit recorded instead
         "denylist_sha256": hashlib.sha256(denylist_path.read_bytes()).hexdigest(),
         "excluded_paths": len(gone),
-        "dependent_tests_dropped": len(followers),
+        "dependent_files_dropped": len(followers),
         "stubs": sorted(provided),
         "redactions": len(changes),
         "kept_paths": len(kept) - len(followers) + len(provided),

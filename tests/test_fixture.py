@@ -201,7 +201,7 @@ def test_build_end_to_end(repo: Path, tmp_path: Path) -> None:
     assert not (tree / "tests/test_uses_recipe.py").exists(), "dependent test must follow out"
     assert (tree / "tests/test_keeps.py").exists()
     m = result.manifest
-    assert m["dependent_tests_dropped"] == 1 and m["redactions"] == 2
+    assert m["dependent_files_dropped"] == 1 and m["redactions"] == 2
     assert (out / "MANIFEST.json").exists() and (out / "redaction_report.json").exists()
     report = (out / "redaction_report.json").read_text()
     assert "0.XXX" not in report and "before_sha256" in report, "originals are stored as hashes"
@@ -232,3 +232,34 @@ def test_identifier_leaks_reports_names_defined_only_in_excluded_files(tmp_path:
     excluded = {"gone.py": "LONG_RECIPE_NAME = 5\ndef kept_function_name():\n    pass\n"}
     assert verify.identifier_leaks(excluded, tree, provided=set()) == {"LONG_RECIPE_NAME": 1}
     assert verify.identifier_leaks(excluded, tree, provided={"LONG_RECIPE_NAME"}) == {}
+
+
+def test_string_literals_are_redacted_but_numeric_code_is_not(tmp_path: Path) -> None:
+    rules = _rules(tmp_path, "G | \\b0\\.6737\\b | 0.XXXX\n")
+    src = 'MSG = "seed was 0.XXX then"\nY = 0.XXX\nZ = f"value {0.XXX}"\n'
+    out = scrub.scrub_text(src, rules, is_python=True)
+    assert 'MSG = "seed was 0.XXXX then"' in out.text
+    assert "Y = 0.XXX" in out.text and out.stops == [2, 3]
+
+
+def test_patch_rule_edits_only_its_own_file(tmp_path: Path) -> None:
+    rules = _rules(tmp_path, "P | tests/test_a.py | (KNOB\\s*==\\s*)0\\.60\\b | \\g<1>0.33\n")
+    src = "assert c.KNOB == 0.60\n"
+    hit = scrub.scrub_text(src, rules, is_python=True, path="tests/test_a.py")
+    assert hit.text == "assert c.KNOB == 0.33\n" and len(hit.changes) == 1
+    assert scrub.scrub_text(src, rules, is_python=True, path="tests/test_b.py").text == src
+
+
+def test_dependent_files_cascade_to_a_fixpoint(tmp_path: Path) -> None:
+    files = {
+        "pkg/a.py": "from pkg import b\n",
+        "pkg/b.py": "import gone.thing\n",
+        "pkg/c.py": "X = 1\n",
+        "tests/test_a.py": "from pkg.a import x\n",
+        "tests/test_c.py": "from pkg.c import X\n",
+    }
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+    dropped = denylist.dependent_files(tmp_path, list(files), {"gone.thing"})
+    assert dropped == {"pkg/b.py", "pkg/a.py", "tests/test_a.py"}
