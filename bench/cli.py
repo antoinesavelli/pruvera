@@ -1,4 +1,4 @@
-"""Command line for the trial runner: run one trial or check a fixture version.
+"""Command line for the trial runner: run one trial, check a fixture version, replay a diff.
 
 Depends on: bench.{runner,preflight,layout}; the layout under fixtures/paramo/.
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from bench import layout, preflight, runner
 from bench.layout import ROOT
@@ -54,12 +55,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     chk.add_argument("--version", default=layout.VERSION)
     chk.add_argument("--profile", default="realistic2")
+    rp = sub.add_parser("replay", help="re-derive a kept trial's diff from its overlay")
+    rp.add_argument("trial_dir", type=Path, help="overlays/<trial_id> of a kept trial")
+    rp.add_argument("--version", default=layout.VERSION)
+    rp.add_argument("--profile", default="realistic2")
     return ap
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     fx = load(args.version, args.profile)
+    if args.cmd == "replay":
+        print(runner.reproduce_diff(fx, args.trial_dir), end="")
+        return 0
     if args.cmd == "check":
         runner.check_fixture(fx)
         found = preflight.problems()

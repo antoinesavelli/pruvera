@@ -2,7 +2,7 @@
 
 Run once after a build (`python -m bench.fixture.pins --version v2`) and whenever the venv or the
 data slice is rebuilt on purpose; a trial then refuses to run if any of them drifted.
-Depends on: bench.sandbox (hashes), bench.cli (paths of the venv and data slice).
+Depends on: bench.sandbox (hashes), bench.layout (paths), bench.cli (data version).
 """
 
 from __future__ import annotations

@@ -112,3 +112,14 @@ def test_unreachable_upstream_is_a_502_not_a_hang(tmp_path: Path) -> None:
     sock = tmp_path / "f.sock"
     with ollama_filter.serve(sock, port):
         assert call(sock, "GET", "/api/tags")[0] == 502
+
+
+def test_a_refused_call_with_a_large_body_gets_a_clean_403_not_a_reset(
+    tmp_path: Path, upstream: int
+) -> None:
+    """Regression: refusing without reading the body made the client see a connection reset."""
+    sock = tmp_path / "f.sock"
+    with ollama_filter.serve(sock, upstream):
+        for _ in range(20):
+            assert call(sock, "POST", "/api/pull", b"x" * 300_000)[0] == 403
+        assert call(sock, "POST", "/api/chat", b"x" * 10)[0] == 200

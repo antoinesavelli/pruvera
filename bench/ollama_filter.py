@@ -62,9 +62,6 @@ def make_handler(upstream_port: int) -> type[http.server.BaseHTTPRequestHandler]
             self.wfile.write(body)
 
         def _forward(self) -> None:
-            if not allowed(self.command, self.path):
-                self._refuse(403, "blocked by the trial sandbox: inference calls only")
-                return
             if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
                 self._refuse(411, "chunked request bodies are not supported")
                 return
@@ -72,7 +69,12 @@ def make_handler(upstream_port: int) -> type[http.server.BaseHTTPRequestHandler]
             if length > MAX_BODY:
                 self._refuse(413, "request too large")
                 return
+            # Read the body before any refusal: closing with unread bytes resets the connection
+            # and the client would see a reset instead of the 403.
             body = self.rfile.read(length) if length else None
+            if not allowed(self.command, self.path):
+                self._refuse(403, "blocked by the trial sandbox: inference calls only")
+                return
             headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_BY_HOP}
             headers.pop("Host", None)
             conn = http.client.HTTPConnection("127.0.0.1", upstream_port, timeout=900)

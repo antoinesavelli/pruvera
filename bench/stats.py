@@ -27,11 +27,9 @@ def wilson(k: int, n: int, z: float = Z95) -> tuple[float, float]:
 
 
 def pass_hat_k(outcomes: Mapping[str, Sequence[bool]], k: int) -> float:
-    """pass^k: mean over tasks of the chance that k independent tries all succeed.
-
-    Per task the unbiased estimate is C(c, k) / C(n, k) for c successes in n >= k trials; tasks
-    with fewer than k trials are skipped. Reliability, not luck: pass^1 is the plain pass rate.
-    """
+    """pass^k: mean over tasks of the chance that k independent tries all succeed."""
+    # Per task the unbiased estimate is C(c, k) / C(n, k) for c successes in n >= k trials; tasks
+    # with fewer than k trials are skipped. pass^1 is the plain pass rate.
     scores = []
     for results in outcomes.values():
         n, c = len(results), sum(results)
@@ -53,10 +51,8 @@ def bootstrap_diff(
     draws: int = 4000,
     seed: int = 1,
 ) -> tuple[float, float, float]:
-    """(difference b - a in cluster rate, lower, upper 95%) resampling the shared tasks.
-
-    Trials within a task are resampled too, so both sources of noise are in the interval.
-    """
+    """(difference b - a in cluster rate, lower, upper 95%) resampling the shared tasks."""
+    # Trials within a task are resampled too, so both sources of noise are in the interval.
     tasks = sorted(set(a) & set(b))
     if not tasks:
         return float("nan"), float("nan"), float("nan")
@@ -120,10 +116,8 @@ def bootstrap_ratio(
 
 
 def min_detectable_effect(n_tasks: int, trials_per_task: int, p: float = 0.5) -> float:
-    """Rough smallest true difference in rates detectable at 80% power, two-sided 5%.
-
-    Uses the between-task spread of a binary outcome as the worst case (design effect from
-    clustering is ignored, so treat it as optimistic): about 2.8 standard errors of a difference.
-    """
+    """Rough smallest true difference in rates detectable at 80% power, two-sided 5%."""
+    # About 2.8 standard errors of a difference, at the worst-case binary spread; the design effect
+    # from clustering is ignored, so treat it as optimistic.
     n = max(1, n_tasks * trials_per_task)
     return 2.8 * math.sqrt(2 * p * (1 - p) / n)
