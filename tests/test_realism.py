@@ -93,18 +93,14 @@ def _git_source(tmp_path: Path) -> Path:
     return source
 
 
+EVENT = '{"type":"text","part":{"text":"hi"}}'
 needs_bwrap = pytest.mark.skipif(not _bwrap_works(), reason="unprivileged bwrap unavailable")
 
 
-@needs_bwrap
-def test_reference_runner_uses_a_disposable_copy_and_records_the_same_shape(tmp_path: Path) -> None:
-    source = _git_source(tmp_path)
+def _reference(tmp_path: Path, source: Path, script: str, spec: runner.TrialSpec) -> dict[str, Any]:
     cfg = tmp_path / "real.json"
     cfg.write_text(json.dumps(CONFIG))
-    hooks = (runner.Hook("dirty", "pkg/m.py", "# dirt\n"),)
-    spec = runner.TrialSpec(agent="a", model="m", prompt="p", label="t1", hooks=hooks)
-    script = 'echo \'{"type":"text","part":{"text":"hi"}}\'; echo new > added.txt'
-    rec = reference.run_reference(
+    return reference.run_reference(
         spec,
         source,
         tmp_path / "artifacts",
@@ -112,9 +108,20 @@ def test_reference_runner_uses_a_disposable_copy_and_records_the_same_shape(tmp_
         tmp_path / "r.jsonl",
         agent_argv=["sh", "-c", script],
         config_source=cfg,
+        check=lambda force=False: [],
+        venv=None,
     )
+
+
+@needs_bwrap
+def test_reference_runner_uses_a_disposable_copy_and_records_the_same_shape(tmp_path: Path) -> None:
+    source = _git_source(tmp_path)
+    hooks = (runner.Hook("dirty", "pkg/m.py", "# dirt\n"),)
+    spec = runner.TrialSpec(agent="a", model="m", prompt="p", label="t1", hooks=hooks, net="none")
+    script = f"echo '{EVENT}'; echo new > {sandbox.WORKDIR}/added.txt"
+    rec = _reference(tmp_path, source, script, spec)
     assert rec["environment"] == "reference" and rec["label"] == "t1"
-    assert rec["outcome"] == "completed"
+    assert rec["trial_id"] == f"ref-{spec.trial_id}" and rec["outcome"] == "completed"
     adir = Path(rec["artifact"])
     assert "?? added.txt" in (adir / "status.txt").read_text()
     assert "# dirt" in (adir / "diff.patch").read_text()
@@ -123,36 +130,63 @@ def test_reference_runner_uses_a_disposable_copy_and_records_the_same_shape(tmp_
 
 
 @needs_bwrap
-def test_the_reference_agent_works_in_its_copy_and_cannot_write_anywhere_else(
-    tmp_path: Path,
+def test_the_reference_agent_is_sandboxed_like_a_fixture_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Regression: a stale PWD once sent an agent into the harness repo, where it committed."""
+    """Regression: the reference once ran with the host visible (keys, network, host-side git)."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sekret-value-xyz")
     source = _git_source(tmp_path)
-    outside = tmp_path / "outside"
-    outside.mkdir()
+    marker = tmp_path / "host-marker"
+    script = (
+        "pwd; env; ls /home; ls -d /home/*/.ssh 2>&1; "
+        f"echo x > {tmp_path}/leak.txt 2>/dev/null; echo leak_rc=$?; "
+        # a hostile .git/config: the read-back must not run it on the host
+        f"git -C {sandbox.WORKDIR} config core.fsmonitor 'touch {marker}'; "
+        f"echo x >> {sandbox.WORKDIR}/pkg/m.py"
+    )
+    spec = runner.TrialSpec(agent="a", model="m", prompt="p", label="t1", net="none")
+    rec = _reference(tmp_path, source, script, spec)
+    out = (Path(rec["artifact"]) / "transcript.jsonl").read_text()
+    assert out.split()[0] == sandbox.WORKDIR, "the agent works at the real path, in its copy"
+    assert "sekret-value-xyz" not in out and "OPENROUTER" not in out, "host env leaked"
+    assert "/.ssh" not in out.replace("ls: cannot access '/home/*/.ssh': No such file", ""), (
+        "the host's home directory is visible"
+    )
+    assert "leak_rc=0" not in out and not (tmp_path / "leak.txt").exists()
+    assert not marker.exists(), "a command planted in .git/config ran on the host"
+    assert (source / "pkg" / "m.py").read_text() == "X = 1\n"
+
+
+@needs_bwrap
+def test_a_killed_or_failed_reference_trial_still_leaves_no_copy_behind(tmp_path: Path) -> None:
+    source = _git_source(tmp_path)
+    spec = runner.TrialSpec(agent="a", model="m", prompt="p", net="none")
+
+    def blocked(force: bool = False) -> list[Any]:
+        raise RuntimeError("blocked")
+
     cfg = tmp_path / "real.json"
     cfg.write_text(json.dumps(CONFIG))
-    script = (
-        'echo "$PWD" > seen_pwd.txt; pwd >> seen_pwd.txt; '
-        f"echo x > {outside}/leak.txt 2>/dev/null; echo write_rc=$? >> seen_pwd.txt; "
-        f"echo x > {source}/leak.txt 2>/dev/null; echo source_rc=$? >> seen_pwd.txt; "
-        "cat seen_pwd.txt"
-    )
-    spec = runner.TrialSpec(agent="a", model="m", prompt="p", label="t1")
-    rec = reference.run_reference(
-        spec,
-        source,
-        tmp_path / "artifacts",
-        tmp_path / "trials",
-        tmp_path / "r.jsonl",
-        agent_argv=["sh", "-c", script],
-        config_source=cfg,
-    )
-    out = (Path(rec["artifact"]) / "transcript.jsonl").read_text().split()
-    work = str(tmp_path / "trials" / f"ref-{spec.trial_id}" / "work")
-    assert out[0] == work and out[1] == work, f"agent saw PWD/cwd {out[:2]}, not its copy"
-    assert "write_rc=0" not in out and "source_rc=0" not in out, (
-        "a write outside the copy succeeded"
-    )
-    assert not (outside / "leak.txt").exists() and not (source / "leak.txt").exists()
-    assert (source / "pkg" / "m.py").read_text() == "X = 1\n"
+    with pytest.raises(RuntimeError):
+        reference.run_reference(
+            spec,
+            source,
+            tmp_path / "a",
+            tmp_path / "trials",
+            tmp_path / "r.jsonl",
+            config_source=cfg,
+            check=blocked,
+            venv=None,
+        )
+    assert not (tmp_path / "trials").exists() or not any((tmp_path / "trials").iterdir())
+
+
+def test_discard_removes_a_stale_prepared_copy_including_unreadable_dirs(tmp_path: Path) -> None:
+    stale = tmp_path / "ref-source"
+    locked = stale / "tree" / "locked"
+    locked.mkdir(parents=True)
+    (locked / "f").write_text("x")
+    locked.chmod(0)
+    reference.discard(stale)
+    assert not stale.exists()
+    reference.discard(stale)  # absent is fine

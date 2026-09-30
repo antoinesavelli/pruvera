@@ -15,6 +15,7 @@ class Transcript:
     events: int = 0
     tools: list[dict[str, Any]] = field(default_factory=list)
     text: str = ""
+    final: str = ""  # the last text part: what the agent left as its answer
     steps: int = 0
     tokens_total: int = 0
     tokens_in: int = 0
@@ -53,6 +54,7 @@ class Transcript:
             self.tool_errors += state.get("status") == "error"
         elif kind == "text":
             self.text += part.get("text", "") + "\n"
+            self.final = str(part.get("text", ""))
         elif kind == "step_finish":
             self.steps += 1
             tokens = part.get("tokens", {})
@@ -71,3 +73,15 @@ class Transcript:
     def silent(self) -> bool:
         """No tool call and no text: the agent produced nothing an observer could see."""
         return not self.tools and not self.text.strip()
+
+    @property
+    def answer_kind(self) -> str:
+        """`text`, `empty` (no final text) or `tool_json` (a raw tool call shown as the answer)."""
+        body = self.final.strip()
+        if not body:
+            return "empty"
+        if body.startswith("{") and any(
+            f'"{k}"' in body[:80] for k in ("name", "tool", "arguments")
+        ):
+            return "tool_json"
+        return "text"
