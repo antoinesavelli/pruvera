@@ -248,6 +248,14 @@ def seed(root: Path) -> list[Issue]:
         'description = "Every issue in the catalogue, for coverage of every kind."\n'
         f"issues = {json.dumps(names)}\n"
     )
+    by_kind: dict[str, list[str]] = {}
+    for issue in issues:
+        by_kind.setdefault(issue.kind, []).append(issue.id)
+    for kind, ids in sorted(by_kind.items()):
+        name = "kind-" + kind.replace("_", "-")
+        (prof / f"{name}.toml").write_text(
+            f"description = {json.dumps('Only the issues of kind ' + kind + '.')}\nissues = {json.dumps(ids)}\n"
+        )
     for name, (desc, ids) in PROFILES.items():
         (prof / f"{name}.toml").write_text(
             f"description = {json.dumps(desc)}\nissues = {json.dumps(ids)}\n"
