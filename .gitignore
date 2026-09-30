@@ -20,3 +20,4 @@ fixtures/*/scrub_allow.local.txt
 # Data slice holds licensed market data: local only, never versioned or backed up.
 fixtures/*/data/
 fixtures/*/versions/*/profiles/*/tree/
+issues/_miner_candidates.local.json
