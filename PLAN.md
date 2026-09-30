@@ -265,16 +265,18 @@ end to end; no live reference to the old paths; the real `~/.config/opencode` an
 mtimes are unchanged across a trial.
 
 ### Phase 1 — Sandbox
-**Status 2026-09-30: `bench/sandbox.py` and `tests/test_sandbox.py` done (20 tests, ruff and
-`mypy --strict` clean). Remaining: preflight, the pip-install check (needs the Phase 2 venv), and
-the live-config mtime check across a real trial (Phase 4).**
+**Status 2026-09-30: `bench/sandbox.py` and `bench/preflight.py` done (28 tests, ruff and
+`mypy --strict` clean). Remaining: the pip-install check (needs the Phase 2 venv) and the
+live-config mtime check across a real trial (Phase 4).**
 1. [J] `sandbox.py`: the bwrap wrapper of §4.6 with read-only base plus overlay, masks, XDG dirs,
    preflight, and the base-drift refusal. **Built as an allowlisted root, not a masked host root:**
    only `/usr` (plus the usr-merge symlinks), a short list of `/etc` files, a tmpfs `/home/trial`
    and `/tmp`, the overlay at `/work` and explicit read-only binds exist. `/mnt`, the real home,
    `~/.config/opencode`, `~/.claude` and every credential path are absent, not hidden. The host
    environment is never inherited. `tree_hash`/`verify_base` implement the base-drift refusal.
-   Still to build: `preflight.py` (refuse if another opencode run or a GPU model load is active).
+   `preflight.py` refuses to start while another agent or bench process is running (found by argv in
+   `/proc`, never by substring, ourselves and our parents excluded), the GPU is at or above 30%
+   utilisation, or Ollama is unreachable. `check(force=True)` proceeds and still returns the problems.
 2. [J] Egress: **answered.** A no-network namespace plus a `socat` bridge (a host-side unix socket
    to `127.0.0.1:11434`, mounted in and re-exposed on the sandbox's own loopback) lets a trial reach
    Ollama and nothing else. Tested: `1.1.1.1:443` and the host's LAN address on port 11434 are both
