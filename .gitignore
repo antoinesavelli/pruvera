@@ -13,3 +13,7 @@ __pycache__/
 *.pyc
 dummy.key
 fixtures/paramo/scrub_tokens.local.txt
+# Build reports hold lines of real repo text and names of excluded code identifiers: local only.
+fixtures/*/versions/*/redaction_report.json
+fixtures/*/versions/*/identifier_leaks.json
+fixtures/*/scrub_allow.local.txt

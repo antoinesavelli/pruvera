@@ -1,0 +1,184 @@
+"""Build one version of the paramo fixture from a pinned commit, never from a working tree.
+
+Steps: export, exclude, drop dependent tests, add stubs, redact, verify, base commit, manifest.
+Depends on: bench.fixture.{export,denylist,scrub,verify}, bench.sandbox.tree_hash, git.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from bench import sandbox
+from bench.fixture import denylist, export, scrub, verify
+
+HERE = Path(__file__).resolve().parents[2] / "fixtures" / "paramo"
+BASE_DATE = "2026-01-01T00:00:00+0000"  # fixed so the same inputs give the same base commit
+
+
+class BuildError(RuntimeError):
+    """The build failed an acceptance check; the tree is left in place for inspection."""
+
+
+@dataclass
+class BuildResult:
+    tree: Path
+    manifest: dict[str, object]
+    report: verify.Report
+    leaks: dict[str, int] = field(default_factory=dict)
+
+
+def _remove(tree: Path, rels: set[str]) -> None:
+    for rel in rels:
+        target = tree / rel
+        if target.is_file() or target.is_symlink():
+            target.unlink()
+    for path in sorted((p for p in tree.rglob("*") if p.is_dir()), reverse=True):
+        if not any(path.iterdir()):
+            path.rmdir()
+
+
+def _copy_stubs(stubs: Path, tree: Path) -> set[str]:
+    provided: set[str] = set()
+    for src in sorted(p for p in stubs.rglob("*") if p.is_file()):
+        rel = src.relative_to(stubs).as_posix()
+        dest = tree / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
+        provided.add(rel)
+    return provided
+
+
+def _scrub_tree(tree: Path, rules: list[scrub.Rule]) -> list[dict[str, object]]:
+    changes: list[dict[str, object]] = []
+    for path in sorted(p for p in tree.rglob("*") if p.is_file()):
+        rel = path.relative_to(tree).as_posix()
+        if rel.startswith(".git/"):
+            continue
+        data = path.read_bytes()
+        if not scrub.is_text(data):
+            continue
+        res = scrub.scrub_text(data.decode("utf-8"), rules, is_python=rel.endswith(".py"))
+        if res.changes:
+            path.write_bytes(res.text.encode("utf-8"))
+            changes += [
+                {"file": rel, "line": ln, "before_sha256": before, "after": after}
+                for ln, before, after in res.changes
+            ]
+    return changes
+
+
+def _git_base(tree: Path) -> str:
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": str(tree),
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "fixture",
+        "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+        "GIT_COMMITTER_NAME": "fixture",
+        "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+        "GIT_AUTHOR_DATE": BASE_DATE,
+        "GIT_COMMITTER_DATE": BASE_DATE,
+    }
+    for args in (
+        ["init", "-q", "-b", "main"],
+        ["add", "-A"],
+        ["commit", "-q", "-m", "fixture base"],
+    ):
+        subprocess.run(["git", "-C", str(tree), *args], env=env, check=True, capture_output=True)
+    done = subprocess.run(
+        ["git", "-C", str(tree), "rev-parse", "HEAD"], env=env, check=True, capture_output=True
+    )
+    return done.stdout.decode().strip()
+
+
+def build(
+    repo: Path,
+    rev: str,
+    out: Path,
+    denylist_path: Path = HERE / "denylist.txt",
+    tokens_path: Path = HERE / "scrub_tokens.local.txt",
+    stubs: Path = HERE / "stubs",
+    allow_path: Path = HERE / "scrub_allow.local.txt",
+) -> BuildResult:
+    commit = export.resolve(repo, rev)
+    tree = out / "tree"
+    paths = export.export_commit(repo, commit, tree)
+    deny = denylist.load_rules(denylist_path)
+    gone = denylist.excluded(paths, deny)
+    excluded_sources = {
+        p: (tree / p).read_text(errors="replace")
+        for p in gone
+        if p.endswith(".py") and (tree / p).is_file()
+    }
+    _remove(tree, gone)
+    provided = _copy_stubs(stubs, tree)
+    kept = [p for p in paths if p not in gone]
+    gone_modules = {m for p in gone if (m := denylist.module_name(p))} - {
+        m for p in provided if (m := denylist.module_name(p))
+    }
+    followers = denylist.dependent_tests(tree, kept, gone_modules)
+    _remove(tree, followers)
+    rules = scrub.load_rules(tokens_path)
+    changes = _scrub_tree(tree, rules)
+    allowed = frozenset(allow_path.read_text().split()) if allow_path.exists() else frozenset[str]()
+    report = verify.check_tree(tree, deny, rules, allowed, frozenset(provided))
+    leaks = verify.identifier_leaks(
+        excluded_sources,
+        tree,
+        {n for s in provided for n in verify.defined_names((tree / s).read_text())},
+    )
+    result = BuildResult(tree, {}, report, leaks)
+    if not report.ok:
+        raise BuildError(
+            f"acceptance failed: ciphertext={len(report.ciphertext)} "
+            f"denylisted={len(report.denylisted)} residue={len(report.residue)} "
+            f"stops={len(report.stops)}"
+        )
+    base = _git_base(tree)
+    manifest: dict[str, object] = {
+        "source_commit": commit,
+        "fixture_base_commit": base,
+        "tree_hash": sandbox.tree_hash(tree, (".git",)),  # .git: base commit recorded instead
+        "denylist_sha256": hashlib.sha256(denylist_path.read_bytes()).hexdigest(),
+        "excluded_paths": len(gone),
+        "dependent_tests_dropped": len(followers),
+        "stubs": sorted(provided),
+        "redactions": len(changes),
+        "kept_paths": len(kept) - len(followers) + len(provided),
+        "identifier_leak_names": len(leaks),
+    }
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "MANIFEST.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    (out / "redaction_report.json").write_text(json.dumps(changes, indent=1) + "\n")
+    (out / "identifier_leaks.json").write_text(json.dumps(leaks, indent=1, sort_keys=True) + "\n")
+    result.manifest = manifest
+    return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--repo", type=Path, required=True)
+    ap.add_argument("--rev", required=True)
+    ap.add_argument("--version", required=True)
+    ap.add_argument("--out", type=Path, default=HERE / "versions")
+    args = ap.parse_args(argv)
+    try:
+        result = build(args.repo, args.rev, args.out / args.version)
+    except BuildError as exc:
+        print(f"BUILD FAILED: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result.manifest, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
