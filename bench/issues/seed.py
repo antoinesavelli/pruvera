@@ -52,24 +52,26 @@ def unique_edit(source: str, line_no: int, new_line: str) -> Edit:
     raise ValueError(f"line {line_no} cannot be made unique")
 
 
-def mutant_issue(
-    tree: Path, campaign: list[dict[str, Any]], module: str, line: int, pick: str | None
-) -> Issue:
+def _pick_mutant(campaign: list[dict[str, Any]], module: str, line: int, pick: str | None) -> Any:
+    """The campaign mutant at `module:line`, narrowed by operator or text when `pick` is given."""
     record = next(r for r in campaign if r["module"] == module)
     matches = [m for m in record["mutants"] if m["line"] == line]
     if pick:
-        matches = [
-            m for m in matches if m["operator"] == pick or m["new"] == pick or m["old"] == pick
-        ]
-    m = matches[-1] if pick == "<" else matches[0]
+        matches = [m for m in matches if pick in (m["operator"], m["new"], m["old"])]
+    return matches[-1] if pick == "<" else matches[0]
+
+
+def mutant_issue(
+    tree: Path, campaign: list[dict[str, Any]], module: str, line: int, pick: str | None
+) -> Issue:
+    m = _pick_mutant(campaign, module, line, pick)
     source = (tree / module).read_text()
     old_line = source.split("\n")[line - 1]
     new_line = old_line[: m["col"]] + m["new"] + old_line[m["col"] + len(m["old"]) :]
     edit = unique_edit(source, line, new_line)
-    stem = Path(module).stem
     killed = bool(m["killed"])
     return Issue(
-        id=f"mut-{stem}-{line}",
+        id=f"mut-{Path(module).stem}-{line}",
         kind="logic_bug_caught_by_test" if killed else "logic_bug_no_test_catches",
         source="mutation",
         difficulty="unrated",

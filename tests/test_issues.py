@@ -276,3 +276,18 @@ def test_verify_accepts_a_real_detector_and_rejects_a_fake_one(tmp_path: Path) -
     assert verify.verify_issue(env, lint).ok
     stale = _issue(id="x-5", edits=(Edit("pkg/m.py", "return 99\n", "return 2\n"),))
     assert not verify.verify_issue(env, stale).ok
+
+
+@needs_env
+def test_verify_profile_needs_every_test_issue_caught_together_and_records_the_red_set(
+    tmp_path: Path,
+) -> None:
+    env = _env(tmp_path)
+    (env.tree / "pkg" / "m.py").write_text("def f():\n    return 2\n")  # the planted tree
+    one = _issue(tests=("tests/test_a.py::test_a",))
+    report = verify.verify_profile(env, [one])
+    assert report["ok"] is True and report["red_set"] == ["tests/test_a.py::test_a"]
+    assert report["detector_files"] == ["tests/test_a.py"]
+    undetected = _issue(id="x-2", tests=("tests/test_a.py::test_b",))  # test_b stays green
+    report = verify.verify_profile(env, [one, undetected])
+    assert report["ok"] is False and report["issues_not_detected_together"] == ["x-2"]

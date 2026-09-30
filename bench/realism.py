@@ -123,7 +123,9 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if not args.report:
         run_study(args.n, args.out, force=args.force)
-    print(compare.markdown(compare.compare(compare.load(args.out))))
+    records = compare.load(args.out)
+    print(compare.effects_markdown(compare.effects(records)), "\n")
+    print(compare.markdown(compare.compare(records)))
     return 0
 
 
