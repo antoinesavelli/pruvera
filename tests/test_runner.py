@@ -237,3 +237,20 @@ def test_a_profile_fixture_carries_its_own_manifest(tmp_path: Path) -> None:
     assert planted.tree == version / "profiles" / "p1" / "tree"
     assert (planted.profile, planted.issue_ids) == ("p1", ("a", "b"))
     assert planted.manifest["tree_hash"] == "planted"
+
+
+def test_cli_trial_declares_every_argument_it_reads() -> None:
+    import contextlib
+    import io
+
+    from bench import cli
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.suppress(SystemExit):
+        cli.main(["trial", "--help"])
+    for flag in ("--wait", "--profile", "--keep-overlay", "--force", "--hook", "--hang-seconds"):
+        assert flag in buf.getvalue(), flag
+    # main() reads these off the parsed args: parsing must supply every one of them.
+    ns = cli.build_parser().parse_args(["trial", "--agent", "a", "--model", "m", "--prompt", "p"])
+    for name in ("profile", "wait", "keep_overlay", "force", "hook", "timeout", "hang_seconds"):
+        assert hasattr(ns, name), name
