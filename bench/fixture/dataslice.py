@@ -2,7 +2,8 @@
 
 The slice is real (five symbols, one backtest window); everything the code reads beyond it is absent
 or synthetic. Depends on: bench.sandbox (constants are resolved by importing the fixture's own
-config.paths inside the sandbox), an interpreter with the fixture's dependencies bound at /venv.
+config.paths inside the sandbox), an interpreter with the fixture's dependencies bound at
+the real path's `.venv` (`sandbox.VENV_DIR`).
 """
 
 from __future__ import annotations

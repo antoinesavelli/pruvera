@@ -215,10 +215,8 @@ def check_layout(spec: Spec) -> None:
 
 
 def tree_hash(root: Path, exclude_top: tuple[str, ...] = ()) -> str:
-    """Content hash of a tree (paths, modes, bytes); a base that drifts changes it.
-
-    `exclude_top` skips top-level entries such as `.git`, whose index holds per-machine stat data.
-    """
+    """Content hash of a tree (paths, modes, bytes); a base that drifts changes it."""
+    # `exclude_top` skips top-level entries such as `.git`, whose index holds per-machine stat data.
     digest = hashlib.sha256()
     for path in sorted(root.rglob("*")):
         if path.relative_to(root).parts[0] in exclude_top:

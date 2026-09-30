@@ -2,7 +2,7 @@
 
 `killed` mutants fail at least one test (planted logic bugs a test catches); `survived` mutants pass
 every test (candidate logic bugs no test catches, or equivalent mutants, so they need review).
-Depends on: bench.issues.{check,mutate}; the fixture tree, venv and data slice.
+Depends on: bench.layout, bench.issues.{check,mutate}; the fixture tree, venv and data slice.
 """
 
 from __future__ import annotations

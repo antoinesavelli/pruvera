@@ -13,8 +13,7 @@ compares success per issue (issues are the unit, resampled as clusters) and safe
 
 Scope: the rule files a fixture carries (AGENTS.md, nested AGENTS.md, docs/agents, .opencode*);
 skills and delegate scripts outside the repo are not part of a variant.
-Depends on: bench.{stats,cli}, bench.issues.trials (runs and scores); built baseline/candidate
-profiles.
+Depends on: bench.{stats,cli,layout}, bench.issues.trials; built baseline and candidate profiles.
 """
 
 from __future__ import annotations

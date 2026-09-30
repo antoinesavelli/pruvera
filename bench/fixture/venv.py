@@ -3,7 +3,7 @@
 The venv is bound read-only at <workdir>/.venv in a trial (where the project keeps it): console
 script shebangs are rewritten from the host path to that, and a .pth puts the tree on sys.path,
 the way an editable install would.
-Depends on: uv and network access at build time only; nothing here runs inside a trial.
+Depends on: bench.sandbox (paths); uv and network access at build time only, never in a trial.
 """
 
 from __future__ import annotations
