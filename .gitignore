@@ -17,3 +17,5 @@ fixtures/paramo/scrub_tokens.local.txt
 fixtures/*/versions/*/redaction_report.json
 fixtures/*/versions/*/identifier_leaks.json
 fixtures/*/scrub_allow.local.txt
+# Data slice holds licensed market data: local only, never versioned or backed up.
+fixtures/*/data/
