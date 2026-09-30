@@ -90,21 +90,24 @@ def test_layout_reads_the_source_commit_from_the_manifest_and_builds_paths(
     assert layout.rag_dir("v9") == layout_root / "rag" / "v9"
 
 
-def test_freeze_removes_write_bits_keeps_execute_and_skips_symlinks(tmp_path: Path) -> None:
-    tree = tmp_path / "t"
-    (tree / "d").mkdir(parents=True)
-    (tree / "d" / "f.txt").write_text("x")
-    (tree / "d" / "run.sh").write_text("#!/bin/sh\n")
-    (tree / "d" / "run.sh").chmod(0o755)
-    (tree / "link").symlink_to("d/f.txt")
-    assert sandbox.freeze(tree) == 3
-    try:
-        assert (tree / "d" / "f.txt").stat().st_mode & 0o222 == 0
-        assert (tree / "d" / "run.sh").stat().st_mode & 0o777 == 0o555
-        assert (tree / "d").stat().st_mode & 0o222 == 0
-        with pytest.raises(PermissionError):
-            (tree / "d" / "new.txt").write_text("y")
-        assert sandbox.freeze(tree) == 3, "idempotent"
-    finally:
-        sandbox.remove_trial_dirs(tree)
-    assert not tree.exists()
+def test_a_built_base_stays_writable_because_modes_show_through_the_overlay(
+    tmp_path: Path,
+) -> None:
+    """Regression: freezing bases read-only made every file read-only inside a trial as well,
+    so agents could not edit and the detector's file copies failed."""
+    from bench.issues import plant, schema
+
+    version = tmp_path / "v"
+    tree = version / "tree"
+    (tree / "pkg").mkdir(parents=True)
+    (tree / "pkg" / "m.py").write_text("x = 1\n")
+    commit = build.git_base(tree)
+    manifest = {"tree_hash": sandbox.tree_hash(tree, (".git",)), "fixture_base_commit": commit}
+    (version / "MANIFEST.json").write_text(json.dumps(manifest))
+    edit = schema.Edit("pkg/m.py", "x = 1", "x = 2")
+    issue = schema.Issue(
+        "x-1", "doc_drift", "hand", "easy", (), "s", "review_only", (), "fix", (edit,)
+    )
+    plant.build_profile(version, "p", [issue])
+    built = version / "profiles" / "p" / "tree" / "pkg" / "m.py"
+    assert built.stat().st_mode & 0o200, "the owner must be able to write the file"
