@@ -103,3 +103,26 @@ Built: `bench/rag/` (`server.py` MCP tool `search_docs`, `index.py`, `experiment
   the treatment arm **and** treatment tool errors per trial are not higher than control's. Otherwise do not
   adopt. A candidate still needs a larger run (§5 step 2) before any change to the real setup.
 - **Also reported:** searches per treatment trial (did the agent use the tool), time and tokens per arm.
+
+## 8. A/B results (2026-09-30; `results/rag/ab-1.jsonl`, 72 trials, 12 questions x 3 repeats per arm)
+
+| Arm | Trials | Correct (all) | Clean trials | Correct (clean) | Tool-error events | `search_docs` calls |
+|---|---|---|---|---|---|---|
+| control | 36 | 11 (31%) | 34 | 9 (26%) | 11 | 0 |
+| treatment | 36 | 13 (36%) | 35 | 12 (34%) | 7 | 7 |
+
+**Verdict by the pre-registered rule: DO NOT ADOPT** (clean correctness +0.08, needs +0.10; tool errors not higher).
+
+**Reading it honestly.**
+- The +0.08 is three questions' worth of answers out of about 35 per arm; it is well inside the noise of this design.
+- **The tool was barely used:** 7 searches across 36 treatment trials (in 7 of 12 questions at most, none on the
+  rest). The gain cannot be credited to retrieval when the agent mostly did not retrieve. Per question, the
+  trials with more correct answers in treatment and those with fewer both appear, with no pattern tied to use.
+- **The baseline is low:** the research agent answers only about 3 in 10 of these questions under strict regex
+  grading in either arm. The lever with room is not retrieval; it is how the agent reads the docs it already
+  finds (the realism study's lookups were easy; these questions need several facts from one or two files).
+- Limits: one model, one embedder, 12 questions, n=3; regex grading rejects a correct answer phrased differently.
+
+**Consequence.** No RAG tool for the agents. Nothing in the real setup changes. If it is revisited, the first
+question is why the agent ignores an available search tool (tool description, or model preference for grep),
+not the retrieval quality. Retrieval metrics and the index code stay as a small module (§5 step 3).
