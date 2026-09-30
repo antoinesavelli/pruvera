@@ -1,7 +1,7 @@
 # agent-testing
 
 An environment where a local agent works as close to a real Paramo session as possible, with no way
-to touch anything real. Not built yet: `PLAN.md` is the plan of record and holds the phase status.
+to touch anything real. `PLAN.md` is the plan of record and holds the phase status.
 
 | File | What it is |
 |---|---|
