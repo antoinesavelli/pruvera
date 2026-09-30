@@ -75,7 +75,8 @@ def _scrub_tree(tree: Path, rules: list[scrub.Rule]) -> list[dict[str, object]]:
     return changes
 
 
-def _git_base(tree: Path) -> str:
+def git_base(tree: Path) -> str:
+    """Give `tree` a fresh one-commit repo with a fixed author and date; returns the commit."""
     env = {
         "PATH": os.environ.get("PATH", ""),
         "HOME": str(tree),
@@ -149,7 +150,7 @@ def build(
             f"denylisted={len(report.denylisted)} residue={len(report.residue)} "
             f"stops={len(report.stops)}"
         )
-    base = _git_base(tree)
+    base = git_base(tree)
     manifest: dict[str, object] = {
         "source_commit": commit,
         "fixture_base_commit": base,

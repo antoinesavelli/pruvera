@@ -205,8 +205,9 @@ def test_cli_parse_hook_and_fixture_paths() -> None:
     assert (hook.kind, hook.path, hook.content) == ("peer_staged", "docs/x.md", "peer wip\n")
     default = cli.parse_hook("untracked:notes.txt")
     assert default.content == "# seeded by the trial\n"
-    fx = cli.load("v2")
+    fx = cli.load("v2", "clean")
     assert fx.tree.name == "tree" and fx.venv is not None and fx.venv.parent.name == "venv"
+    assert fx.profile == "clean" and fx.issue_ids == ()
 
 
 def test_a_kept_overlay_reproduces_the_recorded_diff(
@@ -219,3 +220,20 @@ def test_a_kept_overlay_reproduces_the_recorded_diff(
     assert tdir.exists()
     assert runner.reproduce_diff(fx, tdir) == (adir / "diff.patch").read_text()
     assert "+X = 9" in (adir / "diff.patch").read_text()
+
+
+def test_a_profile_fixture_carries_its_own_manifest(tmp_path: Path) -> None:
+    version = tmp_path / "v9"
+    (version / "profiles" / "p1" / "tree").mkdir(parents=True)
+    (version / "MANIFEST.json").write_text(
+        json.dumps({"tree_hash": "clean", "fixture_base_commit": "c"})
+    )
+    (version / "profiles" / "p1" / "MANIFEST.json").write_text(
+        json.dumps({"tree_hash": "planted", "fixture_base_commit": "p", "issue_ids": ["a", "b"]})
+    )
+    plain = runner.load_fixture(version)
+    planted = runner.load_fixture(version, profile="p1")
+    assert (plain.profile, plain.manifest["tree_hash"]) == ("clean", "clean")
+    assert planted.tree == version / "profiles" / "p1" / "tree"
+    assert (planted.profile, planted.issue_ids) == ("p1", ("a", "b"))
+    assert planted.manifest["tree_hash"] == "planted"
