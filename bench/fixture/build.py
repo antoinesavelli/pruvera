@@ -155,6 +155,7 @@ def build(
         "source_commit": commit,
         "fixture_base_commit": base,
         "tree_hash": sandbox.tree_hash(tree, (".git",)),  # .git: base commit recorded instead
+        "git_hash": sandbox.git_state_hash(tree),  # and its config, hooks and objects, pinned here
         "denylist_sha256": hashlib.sha256(denylist_path.read_bytes()).hexdigest(),
         "excluded_paths": len(gone),
         "dependent_files_dropped": len(followers),
