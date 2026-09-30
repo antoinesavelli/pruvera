@@ -78,3 +78,28 @@ answers, and, once built, pass^k over tasks (`PLAN.md` §8). These are reproduci
 Ragas's current feature set (which metrics need a judge model, which do not) is described from general
 knowledge of the library; it was not installed or tested on this machine. The spike used one embedding
 model; a stronger embedder or a reranker might do better, and step 2 is where that would be measured.
+
+
+## 7. The A/B experiment: design, pre-registered before any trial (2026-09-30)
+
+Built: `bench/rag/` (`server.py` MCP tool `search_docs`, `index.py`, `experiment.py`), tests
+`tests/test_rag_server.py` and `tests/test_rag_experiment.py`. Nothing below was run when this was written.
+
+- **Question.** Does giving the research agent a `search_docs` tool raise the correctness of knowledge
+  answers, without more tool errors?
+- **Arms.** `control`: the trial as it is today. `treatment`: the same, plus one local MCP server
+  (`docsearch`), its index and script bound read-only under `/opt/rag`. Same agent (`research`), model
+  (`gpt-oss:20b-64k`), prompt, fixture (clean profile). Arms alternate question by question.
+- **Questions.** The fixture's own `docs/eval/knowledge_questions.yaml`, kept only when every required
+  pattern occurs in the declared source files of the fixture and the question does not already contain
+  them all. Twelve are taken by even sampling in id order: no hand picking. 3 repeats per arm
+  (72 trials). This is below §5's "10 tasks x 4 repeats"; it is a first look and cannot prove a small gain.
+- **Grading.** The eval file's own regexes on the final answer: deterministic, no judge model.
+- **Index.** `nomic-embed-text` chunks of the fixture's md and yaml files, **excluding `docs/eval/`** (the
+  answer key is in the fixture; agents can still grep it in either arm).
+- **Contamination.** A trial whose tool calls mention `knowledge_questions` or `docs/eval` is flagged. The
+  decision uses clean trials only; all-trial numbers are reported next to them.
+- **Decision rule.** Adopt as a candidate only if clean correctness is at least **+0.10 absolute** higher in
+  the treatment arm **and** treatment tool errors per trial are not higher than control's. Otherwise do not
+  adopt. A candidate still needs a larger run (§5 step 2) before any change to the real setup.
+- **Also reported:** searches per treatment trial (did the agent use the tool), time and tokens per arm.
