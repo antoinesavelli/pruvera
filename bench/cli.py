@@ -33,7 +33,7 @@ def parse_hook(text: str) -> runner.Hook:
     return runner.Hook(kind, path, (content + "\n") if content else "# seeded by the trial\n")
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     tr = sub.add_parser("trial", help="run one trial")
@@ -48,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("--timeout", type=float, default=600.0)
     tr.add_argument("--hang-seconds", type=float, default=240.0)
     tr.add_argument("--force", action="store_true", help="run despite preflight problems")
+    tr.add_argument("--wait", type=float, default=0.0, help="seconds to wait for the GPU to idle")
     tr.add_argument(
         "--keep-overlay", action="store_true", help="keep the overlay even if completed"
     )
@@ -56,7 +57,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     chk.add_argument("--version", default="v2")
     chk.add_argument("--profile", default="realistic")
-    args = ap.parse_args(argv)
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     fx = load(args.version, args.profile)
     if args.cmd == "check":
         runner.check_fixture(fx)
