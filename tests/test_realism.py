@@ -8,8 +8,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from bench import compare, reference, runner
 from bench.transcript import Transcript
+from tests.test_sandbox import _bwrap_works
 
 CONFIG = {"model": "ollama/m", "provider": {"ollama": {}}, "agent": {"a": {"model": "ollama/m"}}}
 
@@ -67,7 +70,7 @@ def test_command_head_reduces_bash_and_keeps_other_tools() -> None:
     assert compare.command_head({"tool": "read", "input": {}}) == "read"
 
 
-def test_reference_runner_uses_a_disposable_copy_and_records_the_same_shape(tmp_path: Path) -> None:
+def _git_source(tmp_path: Path) -> Path:
     source = tmp_path / "src"
     (source / "pkg").mkdir(parents=True)
     (source / "pkg" / "m.py").write_text("X = 1\n")
@@ -82,15 +85,19 @@ def test_reference_runner_uses_a_disposable_copy_and_records_the_same_shape(tmp_
     }
     for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-qm", "base"]):
         subprocess.run(["git", "-C", str(source), *args], env=env, check=True, capture_output=True)
+    return source
+
+
+needs_bwrap = pytest.mark.skipif(not _bwrap_works(), reason="unprivileged bwrap unavailable")
+
+
+@needs_bwrap
+def test_reference_runner_uses_a_disposable_copy_and_records_the_same_shape(tmp_path: Path) -> None:
+    source = _git_source(tmp_path)
     cfg = tmp_path / "real.json"
     cfg.write_text(json.dumps(CONFIG))
-    spec = runner.TrialSpec(
-        agent="a",
-        model="m",
-        prompt="p",
-        label="t1",
-        hooks=(runner.Hook("dirty", "pkg/m.py", "# dirt\n"),),
-    )
+    hooks = (runner.Hook("dirty", "pkg/m.py", "# dirt\n"),)
+    spec = runner.TrialSpec(agent="a", model="m", prompt="p", label="t1", hooks=hooks)
     script = 'echo \'{"type":"text","part":{"text":"hi"}}\'; echo new > added.txt'
     rec = reference.run_reference(
         spec,
@@ -101,12 +108,46 @@ def test_reference_runner_uses_a_disposable_copy_and_records_the_same_shape(tmp_
         agent_argv=["sh", "-c", script],
         config_source=cfg,
     )
-    assert (
-        rec["environment"] == "reference" and rec["label"] == "t1" and rec["outcome"] == "completed"
-    )
+    assert rec["environment"] == "reference" and rec["label"] == "t1"
+    assert rec["outcome"] == "completed"
     adir = Path(rec["artifact"])
     assert "?? added.txt" in (adir / "status.txt").read_text()
     assert "# dirt" in (adir / "diff.patch").read_text()
     assert (source / "pkg" / "m.py").read_text() == "X = 1\n", "the source tree must stay untouched"
-    assert not (tmp_path / "trials" / "ref-" / spec.trial_id).exists()
     assert not any((tmp_path / "trials").iterdir()), "the disposable copy must be deleted"
+
+
+@needs_bwrap
+def test_the_reference_agent_works_in_its_copy_and_cannot_write_anywhere_else(
+    tmp_path: Path,
+) -> None:
+    """Regression: a stale PWD once sent an agent into the harness repo, where it committed."""
+    source = _git_source(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    cfg = tmp_path / "real.json"
+    cfg.write_text(json.dumps(CONFIG))
+    script = (
+        'echo "$PWD" > seen_pwd.txt; pwd >> seen_pwd.txt; '
+        f"echo x > {outside}/leak.txt 2>/dev/null; echo write_rc=$? >> seen_pwd.txt; "
+        f"echo x > {source}/leak.txt 2>/dev/null; echo source_rc=$? >> seen_pwd.txt; "
+        "cat seen_pwd.txt"
+    )
+    spec = runner.TrialSpec(agent="a", model="m", prompt="p", label="t1")
+    rec = reference.run_reference(
+        spec,
+        source,
+        tmp_path / "artifacts",
+        tmp_path / "trials",
+        tmp_path / "r.jsonl",
+        agent_argv=["sh", "-c", script],
+        config_source=cfg,
+    )
+    out = (Path(rec["artifact"]) / "transcript.jsonl").read_text().split()
+    work = str(tmp_path / "trials" / f"ref-{spec.trial_id}" / "work")
+    assert out[0] == work and out[1] == work, f"agent saw PWD/cwd {out[:2]}, not its copy"
+    assert "write_rc=0" not in out and "source_rc=0" not in out, (
+        "a write outside the copy succeeded"
+    )
+    assert not (outside / "leak.txt").exists() and not (source / "leak.txt").exists()
+    assert (source / "pkg" / "m.py").read_text() == "X = 1\n"
