@@ -1,0 +1,27 @@
+{
+ "questions": 39,
+ "chunks": 6650,
+ "files": 300,
+ "index_seconds": 27.5,
+ "bm25": {
+  "recall@1": 0.026,
+  "recall@3": 0.231,
+  "recall@5": 0.333,
+  "recall@10": 0.436,
+  "mrr": 0.162
+ },
+ "embed": {
+  "recall@1": 0.128,
+  "recall@3": 0.154,
+  "recall@5": 0.205,
+  "recall@10": 0.385,
+  "mrr": 0.176
+ },
+ "hybrid": {
+  "recall@1": 0.026,
+  "recall@3": 0.205,
+  "recall@5": 0.385,
+  "recall@10": 0.513,
+  "mrr": 0.168
+ }
+}

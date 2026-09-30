@@ -334,7 +334,7 @@ superseded: its manifest and known-red list stay committed, its tree is deleted)
 - **Realism check that passes:** an `insider_cluster` backtest over the slice window
   (2021-12-01 to 2022-11-23) runs inside the sandbox with no path overrides: 248 days processed, 5
   trades (the five slice symbols), ending capital $10,320.36, 8 seconds, identical on two runs.
-- **Still open in Phase 2:** synthetic data for what the slice does not cover (the 7 aggregate
+- **Still open in Phase 2 (planned in `plans/SYNTHETIC_DATA_FILL.md`):** synthetic data for what the slice does not cover (the 7 aggregate
   tests, the security-type lookup); the `identifier_leaks` review by the owner (70 names, local
   file); (the registration check is now `tests/test_fixture_registration.py`).
 
@@ -470,7 +470,7 @@ instead of `/work`. Models mangle long absolute paths and the fixture's 5-charac
 - One real trial on `realistic` (verify agent, `gpt-oss:20b`) ran pytest on a planted module,
   saw 2 failures and reported `VERIFY: FAIL`.
 
-**Not done:** *reverted real fixes* (the most realistic source: invert a real fix commit from
+**Not done (planned in `plans/REVERTED_FIX_MINER.md`):** *reverted real fixes* (the most realistic source: invert a real fix commit from
 history, keep the fix as the answer) need a miner that reads git-crypt history and checks that the
 inverse applies to the kept files and carries no research context; it is the next piece of work here.
 Difficulty ratings are all `unrated`. There is a profile file per issue kind (`issues/profiles/kind-*.toml`, built on demand);

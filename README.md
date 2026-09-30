@@ -14,6 +14,8 @@ to touch anything real. `PLAN.md` is the plan of record and holds the phase stat
 | `legacy_bench/`, `bin/` | The moved 2026-09-23 role benchmark (`legacy_bench/README.md`). |
 | `results/` | Trial records (`trials.jsonl`), the realism study, legacy results and the archive. |
 | `tests/` | The harness's own tests. |
+| `plans/` | Plans and evaluations beyond `PLAN.md`: `REVERTED_FIX_MINER.md`, `SYNTHETIC_DATA_FILL.md`, `RAG_AND_METRICS_EVALUATION.md`. |
+| `spikes/` | One-off measurements behind an evaluation, with their result files. |
 
 ```bash
 python -m bench.cli check                # fixture and preflight
