@@ -1,0 +1,14 @@
+# Fixture trees hold a slice of licensed market data and gitignored strategy code: never versioned.
+fixtures/*/versions/*/tree/
+fixtures/*/build/
+fixtures/legacy/tree/
+venv/
+overlays/
+artifacts/
+xdg/
+runs/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+dummy.key
