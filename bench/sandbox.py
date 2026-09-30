@@ -280,9 +280,28 @@ def overlay_changes(upper: Path) -> dict[str, list[str]]:
     return changes
 
 
+def freeze(tree: Path) -> int:
+    """Make a base tree read-only for everyone (files keep their execute bits); returns entries."""
+    # A stray `ruff` or `pytest` run inside a base once wrote a cache into it; with no write bit
+    # the tool fails instead of silently drifting the base. Symlinks are left alone.
+    count = 0
+    for dirpath, dirnames, filenames in os.walk(tree):
+        for name in (*dirnames, *filenames):
+            path = Path(dirpath) / name
+            if path.is_symlink():
+                continue
+            mode = stat.S_IMODE(path.lstat().st_mode)
+            path.chmod(mode & ~0o222)
+            count += 1
+    tree.chmod(stat.S_IMODE(tree.lstat().st_mode) & ~0o222)
+    return count
+
+
 def remove_trial_dirs(*dirs: Path) -> None:
     """Delete overlay dirs; the kernel leaves an unreadable workdir/work, so reopen it first."""
     for root in dirs:
+        with contextlib.suppress(OSError):
+            root.chmod(0o700)
         for dirpath, dirnames, _ in os.walk(root):
             for name in dirnames:
                 target = Path(dirpath) / name
