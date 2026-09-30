@@ -289,3 +289,36 @@ def test_real_opencode_runs_from_a_read_only_bind(spec: Spec) -> None:
     result = _sh(with_oc, "opencode --version")
     assert re.fullmatch(r"\d+\.\d+\.\d+", result.stdout.strip()), result.stderr
     assert sandbox.overlay_changes(with_oc.upper) == {"written": [], "deleted": []}
+
+
+def test_argv_mounts_data_at_real_path_with_throwaway_writes(spec: Spec, tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    with_data = Spec(**{**spec.__dict__, "data_base": data})
+    argv = sandbox.build_argv(with_data, ["true"])
+    i = argv.index("--tmp-overlay")
+    assert argv[i - 2 : i + 2] == ["--overlay-src", str(data), "--tmp-overlay", with_data.data_dest]
+    assert with_data.data_dest == "/mnt/ParamoStorage/trading"
+
+
+@needs_bwrap
+def test_data_slice_is_visible_at_the_real_path_and_writes_are_discarded(
+    spec: Spec, tmp_path: Path
+) -> None:
+    data = tmp_path / "data"
+    (data / "backtesting data").mkdir(parents=True)
+    (data / "backtesting data" / "f.txt").write_text("slice\n")
+    with_data = Spec(**{**spec.__dict__, "data_base": data})
+    script = (
+        "cat '/mnt/ParamoStorage/trading/backtesting data/f.txt'; "
+        "echo new > /mnt/ParamoStorage/trading/new.txt; "
+        "ls /mnt/ParamoStorage; ls /mnt/ParamoStorage/archive | wc -l"
+    )
+    result = _sh(with_data, script)
+    assert "slice" in result.stdout and "trading" in result.stdout and "archive" in result.stdout
+    assert not (data / "new.txt").exists(), "trial writes must never reach the data base"
+    assert sorted(p.name for p in data.iterdir()) == ["backtesting data"]
+    hidden = _sh(with_data, "test -e /mnt/ParamoStorage/Paramo || echo absent")
+    assert "absent" in hidden.stdout, (
+        "only the data root and archive exist under /mnt/ParamoStorage"
+    )
