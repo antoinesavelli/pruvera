@@ -54,16 +54,26 @@ def evaluate(env: check.Env, module: str, test_file: str, seed: int = 1) -> dict
     return out
 
 
+def sibling_test(module: str) -> str:
+    """The repo's convention: `a/b/c.py` is tested by `tests/a/b/test_c.py`."""
+    path = Path(module)
+    return f"tests/{path.parent}/test_{path.stem}.py"
+
+
 def main(argv: list[str]) -> int:
+    """`campaign.py [--out FILE] module.py ...`: sample mutants of each module and run its tests."""
     env = check.Env(layout.tree(), layout.venv(), layout.data_root())
+    name = "_campaign.json"
+    if argv[:1] == ["--out"]:
+        name, argv = argv[1], argv[2:]
     modules = argv or ["utils/price_ticks.py"]
     results = []
     for module in modules:
-        test_file = f"tests/utils/test_{Path(module).stem}.py"
+        test_file = sibling_test(module)
         results.append(evaluate(env, module, test_file))
         killed = sum(m["killed"] for m in results[-1]["mutants"])
         print(f"{module}: {killed}/{len(results[-1]['mutants'])} killed", flush=True)
-    out = layout.ROOT / "issues" / "_campaign.json"
+    out = layout.ROOT / "issues" / name
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps(results, indent=1))
     return 0
