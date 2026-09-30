@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from bench import sandbox
@@ -21,6 +22,7 @@ from bench.fixture import denylist, droptests, export, scrub, verify
 
 HERE = Path(__file__).resolve().parents[2] / "fixtures" / "paramo"
 BASE_DATE = "2026-01-01T00:00:00+0000"  # fixed so the same inputs give the same base commit
+HISTORY_CHUNK = 150  # files per synthetic history commit
 
 
 class BuildError(RuntimeError):
@@ -75,9 +77,19 @@ def _scrub_tree(tree: Path, rules: list[scrub.Rule]) -> list[dict[str, object]]:
     return changes
 
 
-def git_base(tree: Path) -> str:
-    """Give `tree` a fresh one-commit repo with a fixed author and date; returns the commit."""
-    env = {
+def _git(tree: Path, env: dict[str, str], *args: str, stdin: str = "") -> str:
+    done = subprocess.run(
+        ["git", "-C", str(tree), *args],
+        env=env,
+        input=stdin.encode(),
+        check=True,
+        capture_output=True,
+    )
+    return done.stdout.decode().strip()
+
+
+def _git_env(tree: Path, date: str) -> dict[str, str]:
+    return {
         "PATH": os.environ.get("PATH", ""),
         "HOME": str(tree),
         "GIT_CONFIG_GLOBAL": "/dev/null",
@@ -86,19 +98,52 @@ def git_base(tree: Path) -> str:
         "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
         "GIT_COMMITTER_NAME": "fixture",
         "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
-        "GIT_AUTHOR_DATE": BASE_DATE,
-        "GIT_COMMITTER_DATE": BASE_DATE,
+        "GIT_AUTHOR_DATE": date,
+        "GIT_COMMITTER_DATE": date,
     }
-    for args in (
-        ["init", "-q", "-b", "main"],
-        ["add", "-A"],
-        ["commit", "-q", "-m", "fixture base"],
-    ):
-        subprocess.run(["git", "-C", str(tree), *args], env=env, check=True, capture_output=True)
-    done = subprocess.run(
-        ["git", "-C", str(tree), "rev-parse", "HEAD"], env=env, check=True, capture_output=True
-    )
-    return done.stdout.decode().strip()
+
+
+def history_groups(files: list[str], chunk: int = HISTORY_CHUNK) -> list[tuple[str, list[str]]]:
+    """(commit message, files) steps that add every file once: root files, then each directory."""
+    top: dict[str, list[str]] = {}
+    for rel in sorted(files):
+        top.setdefault(rel.split("/", 1)[0] if "/" in rel else "", []).append(rel)
+    steps = [("chore: initial import", top.pop(""))] if "" in top else []
+    for name, members in sorted(top.items()):
+        parts = [members[i : i + chunk] for i in range(0, len(members), chunk)]
+        for k, part in enumerate(parts, 1):
+            suffix = f" (part {k}/{len(parts)})" if len(parts) > 1 else ""
+            steps.append((f"chore({name}): add {name}{suffix}", part))
+    return steps
+
+
+def git_base(tree: Path, history: bool = False) -> str:
+    """Give `tree` a fresh repo with fixed author and dates; returns HEAD.
+
+    One commit by default. With `history`, the same final tree arrives through one commit per
+    directory (large ones in parts), a day apart, with generic messages: a session then sees a
+    history of realistic depth without any real commit message being copied in.
+    """
+    env = _git_env(tree, BASE_DATE)
+    _git(tree, env, "init", "-q", "-b", "main")
+    if not history:
+        _git(tree, env, "add", "-A")
+        _git(tree, env, "commit", "-q", "-m", "fixture base")
+        return _git(tree, env, "rev-parse", "HEAD")
+    files = _git(tree, env, "ls-files", "--others", "--exclude-standard", "-z").split("\0")
+    base = datetime.fromisoformat(BASE_DATE)
+    for day, (message, members) in enumerate(history_groups([f for f in files if f])):
+        step_env = _git_env(tree, (base + timedelta(days=day)).isoformat())
+        _git(
+            tree,
+            step_env,
+            "add",
+            "--pathspec-from-file=-",
+            "--pathspec-file-nul",
+            stdin="\0".join(members),
+        )
+        _git(tree, step_env, "commit", "-q", "-m", message)
+    return _git(tree, env, "rev-parse", "HEAD")
 
 
 @dataclass

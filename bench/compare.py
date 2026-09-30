@@ -89,8 +89,10 @@ def _verdict(ratio: float, lo: float, hi: float) -> str:
     return "differs" if lo > 1 or hi < 1 else "inconclusive"
 
 
-def effects(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """Fixture-over-reference effects with intervals, resampling tasks (the unit of comparison)."""
+def effects(
+    records: list[dict[str, Any]], left: str = "fixture", right: str = "reference"
+) -> dict[str, Any]:
+    """`left`-over-`right` effects with intervals, resampling tasks (the unit of comparison)."""
     per: dict[str, dict[str, dict[str, list[float]]]] = {"tool_calls": {}, "secs": {}}
     flags: dict[str, dict[str, dict[str, list[bool]]]] = {"completed": {}, "tool_error": {}}
     for r in records:
@@ -105,11 +107,11 @@ def effects(records: list[dict[str, Any]]) -> dict[str, Any]:
         )
     out: dict[str, Any] = {}
     for metric, sides in per.items():
-        ratio, lo, hi = stats.bootstrap_ratio(sides.get("fixture", {}), sides.get("reference", {}))
+        ratio, lo, hi = stats.bootstrap_ratio(sides.get(left, {}), sides.get(right, {}))
         out[metric] = {"ratio": ratio, "ci": [lo, hi], "verdict": _verdict(ratio, lo, hi)}
     for metric, flag_sides in flags.items():
         rates = {}
-        for side in ("fixture", "reference"):
+        for side in (left, right):
             bools = [v for vals in flag_sides.get(side, {}).values() for v in vals]
             rates[side] = {
                 "k": sum(bools),
@@ -171,16 +173,16 @@ def _cell(d: dict[str, Any]) -> str:
     return f"{d['k']}/{d['n']} ({d['ci'][0]:.2f}-{d['ci'][1]:.2f})"
 
 
-def effects_markdown(eff: dict[str, Any]) -> str:
-    """The fixture-over-reference effects as a short table."""
-    head = "| metric | fixture | reference | fixture/reference (95% CI) | verdict |"
+def effects_markdown(eff: dict[str, Any], left: str = "fixture", right: str = "reference") -> str:
+    """The `left`-over-`right` effects as a short table."""
+    head = f"| metric | {left} | {right} | {left}/{right} (95% CI) | verdict |"
     rows = [head, "|---|---|---|---|---|"]
     for metric in ("tool_calls", "secs"):
         e = eff[metric]
         lo, hi = e["ci"]
         rows.append(f"| {metric} | | | {e['ratio']:.2f} ({lo:.2f}-{hi:.2f}) | {e['verdict']} |")
     for metric in ("completed", "tool_error"):
-        f, r = eff[metric]["fixture"], eff[metric]["reference"]
+        f, r = eff[metric][left], eff[metric][right]
         overlap = f["ci"][0] <= r["ci"][1] and r["ci"][0] <= f["ci"][1]
         verdict = "intervals overlap" if overlap else "differs"
         rows.append(f"| {metric} rate | {_cell(f)} | {_cell(r)} | | {verdict} |")

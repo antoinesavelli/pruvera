@@ -190,6 +190,21 @@ def model_digest(model: str, port: int = 11434) -> str:
     return ""
 
 
+def model_parameters(model: str, port: int = 11434) -> str:
+    """Ollama's default sampling and context parameters for `model` (`/api/show`), or ''."""
+    # Trials are unseeded: the model's own defaults (temperature, top_p, num_ctx) are the only
+    # sampling settings there are, so they are part of what a record says about the run.
+    body = json.dumps({"model": model}).encode()
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/show", body, {"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return " ".join(str(json.load(resp).get("parameters", "")).split())
+    except (OSError, ValueError):
+        return ""
+
+
 def gpu_residency() -> str:
     """The PROCESSOR column of `ollama ps` (for example '100% GPU'), or ''."""
     try:
@@ -386,6 +401,8 @@ def _record(
         "agent": spec.agent,
         "model": spec.model,
         "model_digest": model_digest(spec.model),
+        "model_parameters": model_parameters(spec.model),
+        "seeded": False,
         "prompt": spec.prompt,
         "hooks": [h.__dict__ for h in spec.hooks],
         "deviations": [d.__dict__ for d in asm.deviations],
