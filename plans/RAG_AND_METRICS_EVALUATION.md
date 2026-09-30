@@ -10,7 +10,7 @@ Evidence: one measured spike (§3) plus what the environment and the vault alrea
 |---|---|---|
 | Memory-vault semantic search | `nomic-embed-text` on the local Ollama, embeddings stored in a JSON file, brute-force cosine in plain Python, exposed to agents as the `paramo-memory` MCP tool (`search_memory`) | **Stale:** 56 of the vault's 200 memory files are newer than the index, built 2026-09-05 |
 | Knowledge eval | `Paramo/scripts/dev/knowledge_eval.py`: 39 questions, each with required and forbidden regexes and declared source files; deterministic grading, no LLM judge | In use |
-| Agent-testing scoring | Ground truth by construction: planted issues with detectors and reference fixes, outcomes read from git state, test results and tool events, never from the model's own narrative | Built (`PLAN.md`) |
+| Agent-testing scoring | Ground truth by construction: planted issues with detectors and reference fixes, outcomes read from git state, test results and tool events, never from the model's own narrative | Built 2026-09-30: `bench/issues/score.py` (detectors, diff, final text), `bench/stats.py`, `bench/gate.py` |
 | RAG/eval libraries | FAISS, Chroma, Ragas, sacrebleu | **Not installed** in any venv here |
 | In trials | MCP servers are stripped from the trial config (a documented deviation: they reach real data) | So agents under test have no retrieval tool today; nor do real delegated runs |
 
@@ -118,9 +118,20 @@ Built: `bench/rag/` (`server.py` MCP tool `search_docs`, `index.py`, `experiment
 - **The tool was barely used:** 7 searches across 36 treatment trials (on 6 of the 12 questions, none on the
   other 6). The gain cannot be credited to retrieval when the agent mostly did not retrieve. Per-question
   counts are 3 trials each and too small to read.
-- **The baseline is low:** the research agent answers only about 3 in 10 of these questions under strict regex
-  grading in either arm. The lever with room is not retrieval; it is how the agent reads the docs it already
-  finds (the realism study's lookups were easy; these questions need several facts from one or two files).
+- **The baseline is low, and part of the failure is not wrong answers.** The research agent gets about 3 in
+  10 of these questions right in either arm. Re-graded from the artifacts with the corrected analysis
+  (`results/rag/ab-1.graded.jsonl`): 13 of 71 clean trials gave no answer at all (an empty final text, or a
+  raw tool call printed as the answer; control 6, treatment 7), and some others show leaked reasoning that
+  the harness cannot yet detect. Among trials that did answer, control is 9/28 and treatment 12/28. So
+  "how the agent reads the docs" is not established as the lever; output failure is a large part of it.
+- **A repeat effect.** Control scored 0/12 on the first repeat and 6/12, 5/12 on the next two (treatment 3, 6,
+  4). The first repeat ran with cold model and caches; leaving it out reverses the sign of the difference.
+  Arms alternate, but with only three repeats one odd repeat dominates. This is the strongest reason the
+  +0.08 means nothing.
+- **The decision rule cannot decide at this size.** The question-clustered 95% interval for the difference is
+  -0.18 to +0.33, about three times the +0.10 margin. The pre-registered rule is kept as written, and the
+  verdict now says "too little data" when the interval is wider than the margin. A gate that can clear or
+  reject a +0.10 effect needs roughly 35 issues (or questions) x 6 repeats per arm (`bench/gate.py`).
 - Limits: one model, one embedder, 12 questions, n=3; regex grading rejects a correct answer phrased differently.
 
 **Consequence.** No RAG tool for the agents. Nothing in the real setup changes. If it is revisited, the first
