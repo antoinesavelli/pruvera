@@ -18,11 +18,10 @@ from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 
-from bench import cli, preflight, runner, sandbox
+from bench import cli, layout, preflight, runner, sandbox
 
 ROOT = Path(__file__).resolve().parents[2]
 SERVER = Path(__file__).resolve().parent / "server.py"
-INDEX_VERSION = "v2"
 MODEL = "gpt-oss:20b-64k"
 AGENT = "research"
 QUESTION_FILE = "docs/eval/knowledge_questions.yaml"
@@ -123,8 +122,8 @@ def arm_spec(arm: str, question: Question, index_dir: Path) -> runner.TrialSpec:
 
 def run(n: int, out: Path, limit: int, wait: float = 120.0, force: bool = False) -> Path:
     """Run every selected question `n` times per arm, alternating arms; returns the results file."""
-    fx = cli.load("v2", "clean")
-    index_dir = ROOT / "fixtures" / "paramo" / "rag" / INDEX_VERSION
+    fx = cli.load(layout.VERSION, "clean")
+    index_dir = layout.rag_dir()
     questions = select_questions(fx.tree, limit)
     out.parent.mkdir(parents=True, exist_ok=True)
     for rep in range(n):
@@ -199,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "run":
         run(args.n, args.out, args.limit, args.wait)
         return 0
-    fx = cli.load("v2", "clean")
+    fx = cli.load(layout.VERSION, "clean")
     print(json.dumps(analyse(args.results, select_questions(fx.tree, args.limit)), indent=2))
     return 0
 

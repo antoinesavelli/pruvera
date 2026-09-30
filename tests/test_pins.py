@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from bench import cli, sandbox
+from bench import layout, sandbox
 from bench.fixture import build, pins
 
 
 @pytest.fixture
-def layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def layout_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "paramo"
     version = root / "versions" / "v9"
     tree = version / "tree"
@@ -23,20 +23,24 @@ def layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (version / "MANIFEST.json").write_text(json.dumps({"tree_hash": "x"}))
     (root / "venv" / "v9" / "bin").mkdir(parents=True)
     (root / "venv" / "v9" / "bin" / "python").write_text("#!/bin/sh\n")
-    (root / "data" / cli.DATA_VERSION / "root").mkdir(parents=True)
-    (root / "data" / cli.DATA_VERSION / "root" / "f.parquet").write_bytes(b"123")
-    monkeypatch.setattr(cli, "FIXTURES", root)
+    (root / "data" / layout.DATA_VERSION / "root").mkdir(parents=True)
+    (root / "data" / layout.DATA_VERSION / "root" / "f.parquet").write_bytes(b"123")
+    monkeypatch.setattr(layout, "FIXTURES", root)
     return root
 
 
-def test_pin_writes_git_hash_and_fingerprints_and_detects_a_later_change(layout: Path) -> None:
+def test_pin_writes_git_hash_and_fingerprints_and_detects_a_later_change(
+    layout_root: Path,
+) -> None:
     result = pins.pin("v9")
-    version = layout / "versions" / "v9"
+    version = layout_root / "versions" / "v9"
     manifest = json.loads((version / "MANIFEST.json").read_text())
     assert manifest["git_hash"] == sandbox.git_state_hash(version / "tree")
     assert json.loads((version / "PINS.json").read_text()) == result
-    (layout / "data" / cli.DATA_VERSION / "root" / "f.parquet").write_bytes(b"1234")
-    assert sandbox.fingerprint(layout / "data" / cli.DATA_VERSION / "root") != result["data"]
+    (layout_root / "data" / layout.DATA_VERSION / "root" / "f.parquet").write_bytes(b"1234")
+    assert (
+        sandbox.fingerprint(layout_root / "data" / layout.DATA_VERSION / "root") != result["data"]
+    )
 
 
 def test_git_state_hash_ignores_the_index_but_sees_config_hooks_and_refs(tmp_path: Path) -> None:
@@ -71,3 +75,16 @@ def test_fingerprint_changes_with_a_size_a_name_or_a_mode_but_not_with_time(
     (d / "f").chmod(0o644)
     (d / "f").rename(d / "g")
     assert sandbox.fingerprint(d) != base
+
+
+def test_layout_reads_the_source_commit_from_the_manifest_and_builds_paths(
+    layout_root: Path,
+) -> None:
+    (layout_root / "versions" / "v9" / "MANIFEST.json").write_text(
+        json.dumps({"source_commit": "abc123"})
+    )
+    assert layout.source_commit("v9") == "abc123"
+    assert layout.tree("v9") == layout_root / "versions" / "v9" / "tree"
+    assert layout.venv("v9") == layout_root / "venv" / "v9"
+    assert layout.data_root() == layout_root / "data" / layout.DATA_VERSION / "root"
+    assert layout.rag_dir("v9") == layout_root / "rag" / "v9"

@@ -15,6 +15,8 @@ from pathlib import Path
 
 import numpy as np
 
+from bench import layout
+
 CHUNK = 1500
 OLLAMA = "http://127.0.0.1:11434/api/embed"
 SKIP = ("tests/golden/", ".git/", ".venv/", "docs/eval/")  # docs/eval holds the eval answer key
@@ -65,6 +67,5 @@ def build(tree: Path, out: Path) -> dict[str, int]:
 
 
 if __name__ == "__main__":
-    root = Path(__file__).resolve().parents[2] / "fixtures" / "paramo"
-    print(json.dumps(build(root / "versions" / "v2" / "tree", root / "rag" / "v2")))
+    print(json.dumps(build(layout.tree(), layout.rag_dir())))
     sys.exit(0)
