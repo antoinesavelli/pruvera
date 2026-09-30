@@ -90,6 +90,7 @@ def trial_env(spec: Spec) -> dict[str, str]:
         "XDG_CONFIG_HOME": f"{HOME}/.config",
         "XDG_DATA_HOME": f"{HOME}/.local/share",
         "XDG_STATE_HOME": f"{HOME}/.local/state",
+        "XDG_CACHE_HOME": f"{HOME}/.cache",
         "TMPDIR": "/tmp",
         "LANG": "C.UTF-8",
         "TERM": "dumb",
@@ -181,6 +182,31 @@ def run(
             env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
             check=False,
         )
+
+
+@contextlib.contextmanager
+def popen(spec: Spec, cmd: Sequence[str]) -> Iterator[subprocess.Popen[str]]:
+    """Start one command inside the sandbox and stream it; the sandbox dies with the process."""
+    if shutil.which("bwrap") is None:
+        raise SandboxError("bwrap not found")
+    check_layout(spec)
+    with contextlib.ExitStack() as stack:
+        sock = stack.enter_context(ollama_proxy(spec.ollama_port)) if spec.net == "ollama" else None
+        proc = subprocess.Popen(
+            build_argv(spec, cmd, sock),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            errors="replace",
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+        )
+        try:
+            yield proc
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=10)
 
 
 def check_layout(spec: Spec) -> None:
