@@ -13,11 +13,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from bench import cli, compare, preflight, reference, runner
+from bench import cli, compare, layout, preflight, reference, runner
 
 ROOT = Path(__file__).resolve().parents[1]
-REAL_REPO = Path("/mnt/ParamoStorage/Paramo")
-SOURCE_COMMIT = "c65a28899774110e5cf19d66e5eddb6c674a826b"
 VERIFY_TAIL = "Final line exactly `VERIFY: PASS` or `VERIFY: FAIL`."
 
 
@@ -80,9 +78,11 @@ TASKS = (
 
 def run_study(n: int, out: Path, wait: float = 120.0, force: bool = False) -> Path:
     """Run every task `n` times on each side, alternating; returns the results file."""
-    fx = cli.load("v2", "clean")
+    fx = cli.load(layout.VERSION, "clean")
     reference.discard(ROOT / "overlays" / "ref-source")  # a killed earlier run may have left it
-    source = reference.prepare(REAL_REPO, SOURCE_COMMIT, ROOT / "overlays" / "ref-source")
+    source = reference.prepare(
+        layout.REAL_REPO, layout.source_commit(), ROOT / "overlays" / "ref-source"
+    )
     artifacts, trials = ROOT / "artifacts", ROOT / "overlays"
     out.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -106,7 +106,13 @@ def run_study(n: int, out: Path, wait: float = 120.0, force: bool = False) -> Pa
                         runner.run_trial(fx, spec, artifacts, trials, out, force=force)
                     else:
                         reference.run_reference(
-                            spec, source, artifacts, trials, out, force=force, rev=SOURCE_COMMIT
+                            spec,
+                            source,
+                            artifacts,
+                            trials,
+                            out,
+                            force=force,
+                            rev=layout.source_commit(),
                         )
                     print(f"{task.label:22s} {side:9s} rep {rep + 1}/{n}", flush=True)
     finally:

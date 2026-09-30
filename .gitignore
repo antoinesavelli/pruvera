@@ -23,3 +23,4 @@ fixtures/*/rag/
 fixtures/*/versions/*/profiles/*/tree/
 fixtures/*/versions/*/profiles.old-*/
 issues/_miner_candidates.local.json
+.coverage

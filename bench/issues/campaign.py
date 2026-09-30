@@ -15,6 +15,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from bench import layout
 from bench.issues import check, mutate
 
 MAX_WORKERS = 4  # repo rule: never more than 5 concurrent jobs
@@ -54,11 +55,7 @@ def evaluate(env: check.Env, module: str, test_file: str, seed: int = 1) -> dict
 
 
 def main(argv: list[str]) -> int:
-    root = Path(__file__).resolve().parents[2]
-    fx = root / "fixtures" / "paramo"
-    env = check.Env(
-        fx / "versions" / "v2" / "tree", fx / "venv" / "v2", fx / "data" / "v3" / "root"
-    )
+    env = check.Env(layout.tree(), layout.venv(), layout.data_root())
     modules = argv or ["utils/price_ticks.py"]
     results = []
     for module in modules:
@@ -66,7 +63,7 @@ def main(argv: list[str]) -> int:
         results.append(evaluate(env, module, test_file))
         killed = sum(m["killed"] for m in results[-1]["mutants"])
         print(f"{module}: {killed}/{len(results[-1]['mutants'])} killed", flush=True)
-    out = root / "issues" / "_campaign.json"
+    out = layout.ROOT / "issues" / "_campaign.json"
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps(results, indent=1))
     return 0

@@ -16,7 +16,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from bench import cli
+from bench import cli, layout
 from bench.issues import check, plant, schema
 
 
@@ -156,12 +156,12 @@ def main(argv: list[str] | None = None) -> int:
     """Verify every catalogue issue (and optionally a built profile); `--write` stamps proofs."""
     root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument("--version", default="v2")
+    parser.add_argument("--version", default=layout.VERSION)
     parser.add_argument("--profile", default="")
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args(argv)
     fx = cli.load(args.version, "clean")
-    env = check.Env(fx.tree, fx.venv or cli.FIXTURES / "venv" / args.version, fx.data)
+    env = check.Env(fx.tree, fx.venv or layout.venv(args.version), fx.data)
     issues = schema.load_all(root / "issues")
     failures = _verify_all(env, issues, root, args.version if args.write else "")
     if args.profile:
