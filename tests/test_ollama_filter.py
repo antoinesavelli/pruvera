@@ -123,3 +123,24 @@ def test_a_refused_call_with_a_large_body_gets_a_clean_403_not_a_reset(
         for _ in range(20):
             assert call(sock, "POST", "/api/pull", b"x" * 300_000)[0] == 403
         assert call(sock, "POST", "/api/chat", b"x" * 10)[0] == 200
+
+
+def test_model_allowlist_refuses_other_models_but_not_requests_without_one() -> None:
+    models = frozenset({"gpt-oss:20b"})
+    assert ollama_filter.model_allowed(b'{"model": "gpt-oss:20b"}', models)
+    assert not ollama_filter.model_allowed(b'{"model": "llama3:70b"}', models)
+    assert not ollama_filter.model_allowed(b"{not json", models)
+    assert not ollama_filter.model_allowed(b'{"model": ["gpt-oss:20b"]}', models)
+    assert ollama_filter.model_allowed(b'{"messages": []}', models)
+    assert ollama_filter.model_allowed(None, models)
+    assert ollama_filter.model_allowed(b'{"model": "anything"}', frozenset()), "no list: allow all"
+
+
+def test_served_with_an_allowlist_blocks_a_model_that_is_not_listed(
+    tmp_path: Path, upstream: int
+) -> None:
+    sock = tmp_path / "f.sock"
+    with ollama_filter.serve(sock, upstream, frozenset({"ok:1b"})):
+        assert call(sock, "POST", "/v1/chat/completions", b'{"model": "ok:1b"}')[0] == 200
+        assert call(sock, "POST", "/v1/chat/completions", b'{"model": "huge:405b"}')[0] == 403
+    assert all("huge" not in path for _, path in _Fake.seen)
