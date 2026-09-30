@@ -362,6 +362,7 @@ def _record(
     asm: agentconfig.Assembly,
     run: _Run,
     problems: list[preflight.Problem],
+    after: list[preflight.Problem],
     adir: Path,
 ) -> dict[str, Any]:
     tr = run.tr
@@ -408,6 +409,7 @@ def _record(
         "written_files": len(run.changes["written"]),
         "gpu": gpu_residency(),
         "preflight_forced": [p.code for p in problems],
+        "preflight_after": [p.code for p in after],
         "detail": run.detail,
         "artifact": str(adir),
     }
@@ -447,7 +449,8 @@ def run_trial(
     (adir / "status.txt").write_text(run.status)
     (adir / "diff.patch").write_text(run.diff)
     (adir / "changes.json").write_text(json.dumps(run.changes, indent=1))
-    record = _record(fx, spec, asm, run, problems, adir)
+    after = check(True)  # contention that began mid-trial; a forced check returns, never raises
+    record = _record(fx, spec, asm, run, problems, after, adir)
     (adir / "trial.json").write_text(json.dumps(record, indent=1, sort_keys=True))
     with results_file.open("a") as fh:
         fh.write(json.dumps(record, sort_keys=True) + "\n")
