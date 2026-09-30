@@ -116,6 +116,7 @@ def hand_issues() -> list[Issue]:
             detector="none",
             tests=(),
             expected_action="ignore",
+            protected=("tests/utils/test_helpers.py",),
             edits=(
                 Edit(
                     "utils/helpers.py",

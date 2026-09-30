@@ -1,6 +1,6 @@
 """Command line for the trial runner: run one trial or check a fixture version.
 
-Depends on: bench.runner, bench.preflight; the layout under fixtures/paramo/ (versions, venv, data).
+Depends on: bench.{runner,preflight,layout}; the layout under fixtures/paramo/.
 """
 
 from __future__ import annotations
@@ -8,21 +8,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 
-from bench import preflight, runner
-
-ROOT = Path(__file__).resolve().parents[1]
-FIXTURES = ROOT / "fixtures" / "paramo"
-DATA_VERSION = "v3"  # v2 data plus synthetic aggregates and the public Nasdaq directory
+from bench import layout, preflight, runner
+from bench.layout import ROOT
 
 
 def load(version: str, profile: str = "realistic2") -> runner.Fixture:
     """Fixture version with a planted-issue profile ("clean" for the control)."""
     return runner.load_fixture(
-        FIXTURES / "versions" / version,
-        venv=FIXTURES / "venv" / version,
-        data=FIXTURES / "data" / DATA_VERSION / "root",
+        layout.version_dir(version),
+        venv=layout.venv(version),
+        data=layout.data_root(),
         profile=profile,
     )
 
@@ -38,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     tr = sub.add_parser("trial", help="run one trial")
-    tr.add_argument("--version", default="v2")
+    tr.add_argument("--version", default=layout.VERSION)
     tr.add_argument(
         "--profile", default="realistic2", help="planted-issue profile; 'clean' is the control"
     )
@@ -56,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     chk = sub.add_parser(
         "check", help="verify a fixture version against its manifest and preflight"
     )
-    chk.add_argument("--version", default="v2")
+    chk.add_argument("--version", default=layout.VERSION)
     chk.add_argument("--profile", default="realistic2")
     return ap
 
