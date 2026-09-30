@@ -191,10 +191,15 @@ def check_layout(spec: Spec) -> None:
         raise SandboxError("base, upper, work and xdg must be four distinct directories")
 
 
-def tree_hash(root: Path) -> str:
-    """Content hash of a tree (paths, modes, bytes); a base that drifts changes it."""
+def tree_hash(root: Path, exclude_top: tuple[str, ...] = ()) -> str:
+    """Content hash of a tree (paths, modes, bytes); a base that drifts changes it.
+
+    `exclude_top` skips top-level entries such as `.git`, whose index holds per-machine stat data.
+    """
     digest = hashlib.sha256()
     for path in sorted(root.rglob("*")):
+        if path.relative_to(root).parts[0] in exclude_top:
+            continue
         rel = path.relative_to(root).as_posix().encode()
         info = path.lstat()
         if stat.S_ISLNK(info.st_mode):
@@ -206,9 +211,9 @@ def tree_hash(root: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_base(base: Path, expected: str) -> None:
+def verify_base(base: Path, expected: str, exclude_top: tuple[str, ...] = ()) -> None:
     """Refuse to run on a base whose tree hash differs from its manifest."""
-    actual = tree_hash(base)
+    actual = tree_hash(base, exclude_top)
     if actual != expected:
         raise SandboxError(f"base drifted: expected {expected[:12]}, got {actual[:12]}")
 
