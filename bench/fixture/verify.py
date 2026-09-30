@@ -52,7 +52,7 @@ def check_tree(
             continue
         text = data.decode("utf-8")
         if rel.endswith(".py"):
-            res = scrub.scrub_text(text, token_rules, is_python=True)
+            res = scrub.scrub_text(text, token_rules, True, rel)
             code_hits = res.stops
             prose_hits = [ln for ln, _, _ in res.changes]  # prose still matching means unredacted
             if code_hits and rel not in allowed_code_matches:
@@ -106,10 +106,8 @@ def identifier_leaks(
     for source in excluded_sources.values():
         only_excluded |= defined_names(source)
     only_excluded -= kept_defined | provided
-    hits: dict[str, int] = {}
-    for name in sorted(only_excluded):
-        pattern = re.compile(rf"\b{re.escape(name)}\b")
-        count = sum(1 for text in kept_text.values() if pattern.search(text))
-        if count:
-            hits[name] = count
-    return hits
+    seen: dict[str, int] = {}
+    for text in kept_text.values():
+        for name in set(_IDENT.findall(text)):
+            seen[name] = seen.get(name, 0) + 1
+    return {name: seen[name] for name in sorted(only_excluded) if name in seen}

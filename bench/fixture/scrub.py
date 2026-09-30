@@ -23,10 +23,11 @@ SECRET_CONTEXT = re.compile(
 
 @dataclass(frozen=True)
 class Rule:
-    kind: str  # "G" global, "C" contextual
+    kind: str  # "G" global, "C" contextual, "P" one-file code patch (owner-approved)
     context: re.Pattern[str] | None
     pattern: re.Pattern[str]
     placeholder: str
+    path: str | None = None
 
 
 @dataclass
@@ -51,6 +52,8 @@ def load_rules(path: Path) -> list[Rule]:
             rules.append(
                 Rule("C", re.compile(parts[1], re.I), re.compile(parts[2], re.I), parts[3])
             )
+        elif parts[0] == "P" and len(parts) == 4:
+            rules.append(Rule("P", None, re.compile(parts[2], re.I), parts[3], path=parts[1]))
         else:
             raise ValueError(f"unparseable token rule: {raw[:60]!r}")
     return rules
@@ -67,6 +70,8 @@ def is_text(data: bytes) -> bool:
 
 
 def _applies(rule: Rule, lines: list[str], i: int) -> bool:
+    if rule.kind == "P":
+        return False  # patches run only through _apply_patches, on their own file
     if rule.context is None:
         return True
     if not rule.context.search(lines[i]):
@@ -114,6 +119,55 @@ def _prose_lines(source: str) -> set[int] | None:
     return prose
 
 
+def _string_spans(source: str, lines: list[str]) -> dict[int, list[tuple[int, int]]]:
+    """Per 1-based line: character spans inside a string literal (any kind, f-string text too)."""
+    spans: dict[int, list[tuple[int, int]]] = {}
+    kinds = {tokenize.STRING, getattr(tokenize, "FSTRING_MIDDLE", tokenize.STRING)}
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            if tok.type not in kinds:
+                continue
+            (r1, c1), (r2, c2) = tok.start, tok.end
+            for row in range(r1, r2 + 1):
+                start = c1 if row == r1 else 0
+                end = c2 if row == r2 else len(lines[row - 1])
+                spans.setdefault(row, []).append((start, end))
+    except (tokenize.TokenError, IndentationError):
+        return {}
+    return spans
+
+
+def _redact_code(
+    rules: list[Rule], lines: list[str], i: int, code: str, spans: list[tuple[int, int]]
+) -> tuple[str, bool]:
+    """Redact matches that lie inside string literals; report True if any match is in real code."""
+    found: list[tuple[int, int, str]] = []
+    stop = False
+    for rule in rules:
+        if not _applies(rule, lines, i):
+            continue
+        for m in rule.pattern.finditer(code):
+            if any(a <= m.start() and m.end() <= b for a, b in spans):
+                found.append((m.start(), m.end(), m.expand(rule.placeholder)))
+            else:
+                stop = True
+    for start, end, text in sorted(found, reverse=True):
+        code = code[:start] + text + code[end:]
+    return code, stop
+
+
+def _apply_patches(rules: list[Rule], path: str, lines: list[str], result: Result) -> None:
+    """Owner-approved one-file code edits (P rules): applied first, recorded like any change."""
+    for rule in rules:
+        if rule.kind != "P" or rule.path != path:
+            continue
+        for i, line in enumerate(lines):
+            new = rule.pattern.sub(rule.placeholder, line)
+            if new != line:
+                result.changes.append((i + 1, hashlib.sha256(line.encode()).hexdigest(), new))
+                lines[i] = new
+
+
 def _code_comment_split(line: str) -> tuple[str, str]:
     """Split a code line at a trailing `#` comment (naive but quote-aware)."""
     quote = ""
@@ -128,19 +182,23 @@ def _code_comment_split(line: str) -> tuple[str, str]:
     return line, ""
 
 
-def scrub_text(text: str, rules: list[Rule], is_python: bool) -> Result:
-    """Redact `text`; Python files are redacted in prose only, code matches become stops."""
+def scrub_text(text: str, rules: list[Rule], is_python: bool, path: str = "") -> Result:
+    """Redact `text`; in Python only prose and string literals change, code matches become stops."""
     lines = text.split("\n")
-    prose = _prose_lines(text) if is_python else None
     result = Result(text)
+    _apply_patches(rules, path, lines, result)
+    text = "\n".join(lines)
+    prose = _prose_lines(text) if is_python else None
+    spans = _string_spans(text, lines) if is_python else {}
     for i, line in enumerate(lines):
         if is_python and prose is not None and (i + 1) not in prose:
             code, comment = _code_comment_split(line)
-            if _matches(rules, lines, i, code):
+            new_code, stopped = _redact_code(rules, lines, i, code, spans.get(i + 1, []))
+            if stopped:
                 result.stops.append(i + 1)
-            new = code + _redact_line(rules, lines, i, comment) if comment else line
+            new = new_code + (_redact_line(rules, lines, i, comment) if comment else "")
         elif is_python and prose is None:
-            new = line  # unparseable Python: leave alone, verification will flag any residue
+            new = line  # unparseable Python: leave alone, verification flags any residue
         else:
             new = _redact_line(rules, lines, i, line)
         if new != line:

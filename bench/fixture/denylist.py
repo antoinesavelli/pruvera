@@ -83,13 +83,37 @@ def imports_excluded(source: str, gone: set[str]) -> bool:
     )
 
 
+def dependent_files(tree: Path, paths: Iterable[str], gone: set[str], prefix: str = "") -> set[str]:
+    """Python files under `prefix` that import a removed module, iterated to a fixpoint.
+
+    A file that imports something removed would crash on import, so it follows the module out; its
+    own dependents then follow it. `gone` is not modified.
+    """
+    gone = set(gone)
+    remaining = {p for p in paths if p.startswith(prefix) and p.endswith(".py")}
+    dropped: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for rel in sorted(remaining - dropped):
+            path = tree / rel
+            if path.is_file() and imports_excluded(path.read_text(errors="replace"), gone):
+                dropped.add(rel)
+                if mod := module_name(rel):
+                    gone.add(mod)
+                changed = True
+    return dropped
+
+
 def dependent_tests(
     tree: Path, paths: Iterable[str], gone: set[str], prefix: str = "tests/"
 ) -> set[str]:
-    """Test files under `prefix` that import a removed module; they follow it out."""
-    dropped: set[str] = set()
-    for rel in paths:
-        if rel.startswith(prefix) and rel.endswith(".py") and (tree / rel).is_file():
-            if imports_excluded((tree / rel).read_text(errors="replace"), gone):
-                dropped.add(rel)
-    return dropped
+    """Test files under `prefix` that import a removed module (one pass, no cascade)."""
+    return {
+        rel
+        for rel in paths
+        if rel.startswith(prefix)
+        and rel.endswith(".py")
+        and (tree / rel).is_file()
+        and imports_excluded((tree / rel).read_text(errors="replace"), gone)
+    }
