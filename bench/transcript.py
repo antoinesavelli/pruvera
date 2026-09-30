@@ -77,11 +77,14 @@ class Transcript:
     @property
     def answer_kind(self) -> str:
         """`text`, `empty` (no final text) or `tool_json` (a raw tool call shown as the answer)."""
-        body = self.final.strip()
-        if not body:
-            return "empty"
-        if body.startswith("{") and any(
-            f'"{k}"' in body[:80] for k in ("name", "tool", "arguments")
-        ):
-            return "tool_json"
-        return "text"
+        return answer_kind(self.final)
+
+
+def answer_kind(text: str) -> str:
+    """Classify a final answer: `text`, `empty`, or `tool_json` (a tool call printed as text)."""
+    body = text.strip()
+    if not body:
+        return "empty"
+    if body.startswith("{") and any(f'"{k}"' in body[:80] for k in ("name", "tool", "arguments")):
+        return "tool_json"
+    return "text"

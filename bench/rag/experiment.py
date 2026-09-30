@@ -3,7 +3,8 @@
 Questions come from the fixture's own knowledge-eval file (regex-graded, no judge model), kept only
 when every required pattern occurs in the declared source files of the fixture. Arms alternate
 question by question. Grading reads the final answer from each trial's transcript artifact.
-Depends on: bench.{runner,cli,layout,preflight,sandbox}; a built index (`bench.rag.index`); PyYAML.
+Depends on: bench.{runner,cli,layout,preflight,sandbox,stats,transcript}; a built index
+(`bench.rag.index`); PyYAML.
 """
 
 from __future__ import annotations
@@ -12,13 +13,15 @@ import argparse
 import json
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 
-from bench import cli, layout, preflight, runner, sandbox
+from bench import cli, layout, preflight, runner, sandbox, stats
+from bench.transcript import answer_kind
 
 ROOT = Path(__file__).resolve().parents[2]
 SERVER = Path(__file__).resolve().parent / "server.py"
@@ -136,50 +139,90 @@ def run(n: int, out: Path, limit: int, wait: float = 120.0, force: bool = False)
     return out
 
 
-def analyse(results: Path, questions: list[Question]) -> dict[str, Any]:
-    """Per-arm correctness, tool errors and search use, with and without answer-key contact."""
+def grade_rows(results: Path, questions: list[Question]) -> list[dict[str, Any]]:
+    """One graded row per trial; `rep` counts a question's trials within its arm."""
     by_id = {q.id: q for q in questions}
-    arms: dict[str, dict[str, Any]] = {}
+    seen: Counter[tuple[str, str]] = Counter()
+    rows = []
     for line in results.read_text().splitlines():
         rec = json.loads(line)
         q = by_id.get(rec.get("label"))
         if q is None or not rec.get("arm"):
             continue
         answer, tools = read_transcript(Path(rec["artifact"]))
-        stats = arms.setdefault(
-            rec["arm"],
+        seen[(q.id, rec["arm"])] += 1
+        rows.append(
             {
-                "n": 0,
-                "correct": 0,
-                "clean_n": 0,
-                "clean_correct": 0,
-                "tool_errors": 0,
-                "searches": 0,
-            },
+                "trial_id": rec["trial_id"],
+                "question": q.id,
+                "arm": rec["arm"],
+                "rep": seen[(q.id, rec["arm"])],
+                "correct": grade(answer, q),
+                "answer_kind": answer_kind(answer),
+                "contaminated": touched_answer_key(tools),
+                "tool_errors": int(rec.get("tool_errors", 0)),
+                "searches": sum(1 for t in tools if "search_docs" in str(t.get("tool", ""))),
+            }
         )
-        ok, contaminated = grade(answer, q), touched_answer_key(tools)
-        stats["n"] += 1
-        stats["correct"] += ok
-        stats["tool_errors"] += int(rec.get("tool_errors", 0))
-        stats["searches"] += sum(1 for t in tools if "search_docs" in str(t.get("tool", "")))
-        if not contaminated:
-            stats["clean_n"] += 1
-            stats["clean_correct"] += ok
-    return {"arms": arms, "verdict": verdict(arms)}
+    return rows
 
 
-def verdict(arms: dict[str, dict[str, Any]]) -> str:
+def _arm_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    clean = [r for r in rows if not r["contaminated"]]
+    answered = [r for r in clean if r["answer_kind"] == "text"]
+    by_rep: dict[int, list[bool]] = {}
+    for r in rows:
+        by_rep.setdefault(r["rep"], []).append(r["correct"])
+    return {
+        "n": len(rows),
+        "correct": sum(r["correct"] for r in rows),
+        "clean_n": len(clean),
+        "clean_correct": sum(r["correct"] for r in clean),
+        "clean_ci": list(stats.wilson(sum(r["correct"] for r in clean), len(clean))),
+        "answered_n": len(answered),
+        "answered_correct": sum(r["correct"] for r in answered),
+        "non_answers": len(clean) - len(answered),
+        "tool_errors": sum(r["tool_errors"] for r in rows),
+        "searches": sum(r["searches"] for r in rows),
+        "by_rep": {k: [sum(v), len(v)] for k, v in sorted(by_rep.items())},
+    }
+
+
+def analyse(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Per-arm counts with intervals, a clustered difference and the pre-registered verdict."""
+    arms = {
+        a: _arm_stats([r for r in rows if r["arm"] == a]) for a in sorted({r["arm"] for r in rows})
+    }
+    clusters: dict[str, dict[str, list[bool]]] = {}
+    for r in rows:
+        if not r["contaminated"]:
+            clusters.setdefault(r["arm"], {}).setdefault(r["question"], []).append(r["correct"])
+    diff = stats.bootstrap_diff(clusters.get("control", {}), clusters.get("treatment", {}))
+    return {
+        "arms": arms,
+        "clustered_diff": {"diff": diff[0], "ci": [diff[1], diff[2]]},
+        "verdict": verdict(arms, diff),
+    }
+
+
+def verdict(arms: dict[str, dict[str, Any]], diff: tuple[float, float, float]) -> str:
     """Pre-registered rule: adopt only if clean correctness gains the margin, errors no higher."""
     c, t = arms.get("control"), arms.get("treatment")
     if not c or not t or not c["clean_n"] or not t["clean_n"]:
         return "not evaluable: an arm has no clean trials"
     gain = t["clean_correct"] / t["clean_n"] - c["clean_correct"] / c["clean_n"]
     errors_ok = t["tool_errors"] / t["n"] <= c["tool_errors"] / c["n"]
+    low_power = not (diff[2] - diff[1]) / 2 < ADOPT_MARGIN  # also true when the interval is NaN
+    note = (
+        " (interval wider than the margin: too little data to trust either way)"
+        if low_power
+        else ""
+    )
     if gain >= ADOPT_MARGIN and errors_ok:
-        return f"ADOPT-CANDIDATE: clean correctness +{gain:.2f}, tool errors not higher"
+        return f"ADOPT-CANDIDATE: clean correctness +{gain:.2f}, tool errors not higher{note}"
     return (
         f"DO NOT ADOPT: clean correctness {gain:+.2f} (needs +{ADOPT_MARGIN:.2f}), "
-        f"errors_ok={errors_ok}"
+        f"errors_ok={errors_ok}{note}"
     )
 
 
@@ -194,12 +237,16 @@ def main(argv: list[str] | None = None) -> int:
     rep = sub.add_parser("analyse")
     rep.add_argument("results", type=Path)
     rep.add_argument("--limit", type=int, default=12)
+    rep.add_argument("--write", type=Path, help="store the per-trial grades here")
     args = parser.parse_args(argv)
     if args.cmd == "run":
         run(args.n, args.out, args.limit, args.wait)
         return 0
     fx = cli.load(layout.VERSION, "clean")
-    print(json.dumps(analyse(args.results, select_questions(fx.tree, args.limit)), indent=2))
+    rows = grade_rows(args.results, select_questions(fx.tree, args.limit))
+    if args.write:
+        args.write.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
+    print(json.dumps(analyse(rows), indent=2))
     return 0
 
 

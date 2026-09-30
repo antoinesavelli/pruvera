@@ -9,6 +9,7 @@ import pytest
 
 pytest.importorskip("yaml")
 
+from bench import cli
 from bench.rag import experiment as ex  # noqa: E402
 
 
@@ -102,7 +103,7 @@ def test_treatment_adds_the_search_server_and_control_does_not(tmp_path: Path) -
     assert control.prompt == treatment.prompt and control.model == treatment.model
 
 
-def stats(n: int, correct: int, errors: int) -> dict[str, int]:
+def arm(n: int, correct: int, errors: int) -> dict[str, int]:
     return {
         "n": n,
         "correct": correct,
@@ -113,27 +114,109 @@ def stats(n: int, correct: int, errors: int) -> dict[str, int]:
     }
 
 
-def test_verdict_follows_the_pre_registered_rule() -> None:
-    assert ex.verdict({"control": stats(36, 20, 2), "treatment": stats(36, 27, 2)}).startswith(
-        "ADOPT"
-    )
-    assert ex.verdict({"control": stats(36, 20, 2), "treatment": stats(36, 22, 2)}).startswith(
-        "DO NOT"
-    )
-    assert ex.verdict({"control": stats(36, 20, 2), "treatment": stats(36, 30, 9)}).startswith(
-        "DO NOT"
-    )
-    assert "not evaluable" in ex.verdict({"control": stats(36, 20, 2)})
+WIDE = (0.0, -0.3, 0.3)  # a clustered interval far wider than the margin
+TIGHT = (0.2, 0.1, 0.3)
 
 
-def test_analyse_grades_trials_from_their_artifacts(tmp_path: Path) -> None:
-    q = ex.Question("ok", "?", ("insider_cluster",), ())
+def test_verdict_follows_the_pre_registered_rule_and_says_when_the_data_are_too_thin() -> None:
+    adopt = ex.verdict({"control": arm(36, 20, 2), "treatment": arm(36, 27, 2)}, TIGHT)
+    assert adopt.startswith("ADOPT") and "too little data" not in adopt
+    thin = ex.verdict({"control": arm(36, 20, 2), "treatment": arm(36, 27, 2)}, WIDE)
+    assert thin.startswith("ADOPT") and "too little data" in thin
+    assert ex.verdict({"control": arm(36, 20, 2), "treatment": arm(36, 22, 2)}, TIGHT).startswith(
+        "DO NOT"
+    )
+    assert ex.verdict({"control": arm(36, 20, 2), "treatment": arm(36, 30, 9)}, TIGHT).startswith(
+        "DO NOT"
+    )
+    nan = float("nan")
+    assert "too little data" in ex.verdict(
+        {"control": arm(3, 1, 0), "treatment": arm(3, 3, 0)}, (nan, nan, nan)
+    )
+    assert "not evaluable" in ex.verdict({"control": arm(36, 20, 2)}, TIGHT)
+
+
+def graded(tmp_path: Path, trials: list[tuple[str, str, list[dict[str, str]]]]) -> Path:
+    """A results file from (arm, final answer, tool inputs) triples, all for question `ok`."""
     rows = []
-    for arm, answer in (("control", "no idea"), ("treatment", "insider_cluster")):
-        art = make_artifact(tmp_path, arm, answer, [{"pattern": "x"}])
-        rows.append({"label": "ok", "arm": arm, "artifact": str(art), "tool_errors": 0})
+    for i, (arm_name, answer, tools) in enumerate(trials):
+        art = make_artifact(tmp_path, f"t{i}", answer, tools)
+        rows.append(
+            {
+                "trial_id": f"t{i}",
+                "label": "ok",
+                "arm": arm_name,
+                "artifact": str(art),
+                "tool_errors": 0,
+            }
+        )
     results = tmp_path / "r.jsonl"
     results.write_text("\n".join(json.dumps(r) for r in rows))
-    out = ex.analyse(results, [q])
-    assert out["arms"]["control"]["correct"] == 0 and out["arms"]["treatment"]["correct"] == 1
-    assert out["verdict"].startswith("ADOPT")
+    return results
+
+
+Q = ex.Question("ok", "?", ("insider_cluster",), ())
+NOTHING = [{"pattern": "x"}]
+
+
+def test_grade_rows_store_each_trials_grade_answer_kind_and_repeat_number(tmp_path: Path) -> None:
+    results = graded(
+        tmp_path,
+        [
+            ("control", "no idea", NOTHING),
+            ("control", "", NOTHING),
+            ("control", '{"name": "read", "arguments": {}}', NOTHING),
+            ("treatment", "insider_cluster", NOTHING),
+        ],
+    )
+    rows = ex.grade_rows(results, [Q])
+    assert [r["rep"] for r in rows] == [1, 2, 3, 1]
+    assert [r["answer_kind"] for r in rows] == ["text", "empty", "tool_json", "text"]
+    assert [r["correct"] for r in rows] == [False, False, False, True]
+
+
+def test_non_answers_are_counted_apart_from_wrong_answers(tmp_path: Path) -> None:
+    """Regression: empty answers and raw tool JSON were silently counted as completed trials."""
+    trials = [("control", "", NOTHING)] * 4 + [("control", "wrong", NOTHING)] * 2
+    trials += [("treatment", "insider_cluster", NOTHING)] * 6
+    out = ex.analyse(ex.grade_rows(graded(tmp_path, trials), [Q]))
+    control = out["arms"]["control"]
+    assert (
+        control["non_answers"] == 4
+        and control["answered_n"] == 2
+        and control["answered_correct"] == 0
+    )
+    assert out["arms"]["treatment"]["non_answers"] == 0
+    assert out["clustered_diff"]["diff"] == 1.0
+
+
+def test_the_repeat_breakdown_exposes_a_first_repeat_effect(tmp_path: Path) -> None:
+    """Regression: control scored 0/12 on rep 1, about half after; the sign flipped without it."""
+    trials = [("control", "wrong", NOTHING), ("control", "insider_cluster", NOTHING)]
+    by_rep = ex.analyse(ex.grade_rows(graded(tmp_path, trials), [Q]))["arms"]["control"]["by_rep"]
+    assert by_rep == {1: [0, 1], 2: [1, 1]}
+
+
+def test_answer_key_contact_removes_a_trial_from_the_clean_counts(tmp_path: Path) -> None:
+    key = [{"pattern": "x", "path": "docs/eval/knowledge_questions.yaml"}]
+    results = graded(tmp_path, [("control", "insider_cluster", key), ("control", "no", NOTHING)])
+    arms = ex.analyse(ex.grade_rows(results, [Q]))["arms"]["control"]
+    assert (
+        arms["n"] == 2
+        and arms["clean_n"] == 1
+        and arms["correct"] == 1
+        and arms["clean_correct"] == 0
+    )
+
+
+def test_the_analyse_command_can_store_the_grades(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    results = graded(
+        tmp_path, [("control", "no", NOTHING), ("treatment", "insider_cluster", NOTHING)]
+    )
+    monkeypatch.setattr(cli, "load", lambda *_a: type("F", (), {"tree": tmp_path})())
+    monkeypatch.setattr(ex, "select_questions", lambda *_a: [Q])
+    out = tmp_path / "graded.jsonl"
+    assert ex.main(["analyse", str(results), "--write", str(out)]) == 0
+    assert len(out.read_text().splitlines()) == 2 and "verdict" in capsys.readouterr().out
