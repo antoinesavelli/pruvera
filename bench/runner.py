@@ -78,6 +78,7 @@ class TrialSpec:
     hang_seconds: float = 240.0
     net: sandbox.Net = "ollama"
     keep_overlay: bool = False
+    label: str = ""  # a task name, so a study can group trials
     trial_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 
 
@@ -301,6 +302,8 @@ def run_trial(
     record: dict[str, Any] = {
         "schema": 1,
         "trial_id": spec.trial_id,
+        "label": spec.label,
+        "environment": "fixture",
         "fixture_version": fx.version,
         "fixture_profile": fx.profile,
         "issue_ids": list(fx.issue_ids),
