@@ -51,6 +51,11 @@ class Spec:
     work: Path  # overlay workdir: empty, same filesystem as upper
     xdg: Path  # trial-private config/data/state root (writable)
     ro_binds: tuple[tuple[Path, str], ...] = ()  # (host path, path inside): venv, opencode, data
+    rw_binds: tuple[tuple[Path, str], ...] = ()  # writable binds, for builders only (never a trial)
+    data_base: Path | None = (
+        None  # read-only data slice, mounted at data_dest with throwaway writes
+    )
+    data_dest: str = "/mnt/ParamoStorage/trading"  # the real default data root, so no overrides
     env: Mapping[str, str] = field(default_factory=dict)
     net: Net = "ollama"
     ollama_port: int = OLLAMA_PORT
@@ -112,6 +117,11 @@ def build_argv(spec: Spec, cmd: Sequence[str], proxy_sock: Path | None = None) -
         argv += ["--bind", str(spec.xdg / sub), f"{HOME}/{dest}"]
     for host, inside in spec.ro_binds:
         argv += ["--ro-bind", str(host), inside]
+    for host, inside in spec.rw_binds:
+        argv += ["--bind", str(host), inside]
+    if spec.data_base is not None:
+        argv += ["--overlay-src", str(spec.data_base), "--tmp-overlay", spec.data_dest]
+        argv += ["--tmpfs", "/mnt/ParamoStorage/archive"]
     if proxy_sock is not None:
         argv += ["--ro-bind", str(proxy_sock), "/run/ollama.sock"]
     argv += ["--chdir", WORKDIR, "--clearenv"]
@@ -175,7 +185,10 @@ def run(
 
 def check_layout(spec: Spec) -> None:
     """Refuse to start on a layout that would let a write escape the overlay or share state."""
-    for label, path in (("base", spec.base), ("upper", spec.upper), ("work", spec.work)):
+    dirs = [("base", spec.base), ("upper", spec.upper), ("work", spec.work)]
+    if spec.data_base is not None:
+        dirs.append(("data_base", spec.data_base))
+    for label, path in dirs:
         if not path.is_dir():
             raise SandboxError(f"{label} is not a directory: {path}")
     if {p.name for p in spec.work.iterdir()} - {"work"}:
