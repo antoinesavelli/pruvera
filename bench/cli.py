@@ -14,6 +14,7 @@ from bench import preflight, runner
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "fixtures" / "paramo"
+DATA_VERSION = "v3"  # v2 data plus synthetic aggregates and the public Nasdaq directory
 
 
 def load(version: str, profile: str = "realistic") -> runner.Fixture:
@@ -21,7 +22,7 @@ def load(version: str, profile: str = "realistic") -> runner.Fixture:
     return runner.load_fixture(
         FIXTURES / "versions" / version,
         venv=FIXTURES / "venv" / version,
-        data=FIXTURES / "data" / version / "root",
+        data=FIXTURES / "data" / DATA_VERSION / "root",
         profile=profile,
     )
 

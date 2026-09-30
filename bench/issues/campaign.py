@@ -57,7 +57,7 @@ def main(argv: list[str]) -> int:
     root = Path(__file__).resolve().parents[2]
     fx = root / "fixtures" / "paramo"
     env = check.Env(
-        fx / "versions" / "v2" / "tree", fx / "venv" / "v2", fx / "data" / "v2" / "root"
+        fx / "versions" / "v2" / "tree", fx / "venv" / "v2", fx / "data" / "v3" / "root"
     )
     modules = argv or ["utils/price_ticks.py"]
     results = []

@@ -334,7 +334,8 @@ superseded: its manifest and known-red list stay committed, its tree is deleted)
 - **Realism check that passes:** an `insider_cluster` backtest over the slice window
   (2021-12-01 to 2022-11-23) runs inside the sandbox with no path overrides: 248 days processed, 5
   trades (the five slice symbols), ending capital $10,320.36, 8 seconds, identical on two runs.
-- **Still open in Phase 2 (planned in `plans/SYNTHETIC_DATA_FILL.md`):** synthetic data for what the slice does not cover (the 7 aggregate
+- **Data root v3 (2026-09-30, built per `plans/SYNTHETIC_DATA_FILL.md`):** the slice plus seeded synthetic daily aggregates for six reserved-prefix symbols (`ZQ..`) from 2022-12 to 2024-03-06 (1,890 rows, all invariants checked: OHLC consistency, marketcap = shares x close, rolling ADV, no collision with a real symbol) and the public Nasdaq symbol directory. It is the default data root. The 10 data-caused red tests turned green, nothing turned red, and the slice backtest is unchanged. `bench/fixture/synthdata.py`; inventory hook `bench/fixture/audit_reads.py`.
+- **Still open in Phase 2 (planned in `plans/SYNTHETIC_DATA_FILL.md`):** anything else the slice does not cover (none measured as needed) (the 7 aggregate
   tests, the security-type lookup); the `identifier_leaks` review by the owner (70 names, local
   file); (the registration check is now `tests/test_fixture_registration.py`).
 

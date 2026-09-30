@@ -11,7 +11,7 @@ from tests.test_sandbox import _bwrap_works
 
 ROOT = Path(__file__).resolve().parents[1]
 FX = ROOT / "fixtures" / "paramo"
-ENV = check.Env(FX / "versions/v2/tree", FX / "venv/v2", FX / "data/v2/root")
+ENV = check.Env(FX / "versions/v2/tree", FX / "venv/v2", FX / "data/v3/root")
 
 SCRIPT = """python - <<'PY'
 import logging
