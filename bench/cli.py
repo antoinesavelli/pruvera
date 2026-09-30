@@ -66,6 +66,8 @@ def main(argv: list[str] | None = None) -> int:
         hang_seconds=args.hang_seconds,
         keep_overlay=args.keep_overlay,
     )
+    if args.wait:
+        preflight.wait_clear(args.wait)
     record = runner.run_trial(
         fx,
         spec,
