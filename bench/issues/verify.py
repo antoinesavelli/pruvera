@@ -157,11 +157,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", default=layout.VERSION)
     parser.add_argument("--profile", default="")
     parser.add_argument("--write", action="store_true")
+    parser.add_argument("--profile-only", action="store_true", help="skip the per-issue proofs")
     args = parser.parse_args(argv)
     fx = cli.load(args.version, "clean")
     env = check.Env(fx.tree, fx.venv or layout.venv(args.version), fx.data)
     issues = schema.load_all(root / "issues")
-    failures = _verify_all(env, issues, root, args.version if args.write else "")
+    failures = (
+        []
+        if args.profile_only
+        else _verify_all(env, issues, root, args.version if args.write else "")
+    )
     if args.profile:
         pfx = cli.load(args.version, args.profile)
         report = verify_profile(
