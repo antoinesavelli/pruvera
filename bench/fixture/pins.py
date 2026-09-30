@@ -15,12 +15,13 @@ from bench import layout, sandbox
 
 
 def pin(version: str) -> dict[str, str]:
-    """Write `git_hash` into the clean and profile manifests and PINS.json; returns the pins."""
+    """Freeze each tree, write `git_hash` into the manifests and PINS.json; returns the pins."""
     vdir = layout.version_dir(version)
     manifests = [vdir / "MANIFEST.json", *sorted((vdir / "profiles").glob("*/MANIFEST.json"))]
     for path in manifests:
         tree = path.parent / "tree"
         manifest = json.loads(path.read_text())
+        sandbox.freeze(tree)
         manifest["git_hash"] = sandbox.git_state_hash(tree)
         path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     pins = {

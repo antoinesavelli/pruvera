@@ -88,3 +88,23 @@ def test_layout_reads_the_source_commit_from_the_manifest_and_builds_paths(
     assert layout.venv("v9") == layout_root / "venv" / "v9"
     assert layout.data_root() == layout_root / "data" / layout.DATA_VERSION / "root"
     assert layout.rag_dir("v9") == layout_root / "rag" / "v9"
+
+
+def test_freeze_removes_write_bits_keeps_execute_and_skips_symlinks(tmp_path: Path) -> None:
+    tree = tmp_path / "t"
+    (tree / "d").mkdir(parents=True)
+    (tree / "d" / "f.txt").write_text("x")
+    (tree / "d" / "run.sh").write_text("#!/bin/sh\n")
+    (tree / "d" / "run.sh").chmod(0o755)
+    (tree / "link").symlink_to("d/f.txt")
+    assert sandbox.freeze(tree) == 3
+    try:
+        assert (tree / "d" / "f.txt").stat().st_mode & 0o222 == 0
+        assert (tree / "d" / "run.sh").stat().st_mode & 0o777 == 0o555
+        assert (tree / "d").stat().st_mode & 0o222 == 0
+        with pytest.raises(PermissionError):
+            (tree / "d" / "new.txt").write_text("y")
+        assert sandbox.freeze(tree) == 3, "idempotent"
+    finally:
+        sandbox.remove_trial_dirs(tree)
+    assert not tree.exists()

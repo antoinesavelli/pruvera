@@ -181,6 +181,7 @@ def build_profile(
         "history": history,
     }
     (out / "MANIFEST.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    sandbox.freeze(tree)  # a built base is read-only: nothing on the host may drift it by accident
     return manifest
 
 
