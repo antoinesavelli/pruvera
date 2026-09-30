@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from bench import sandbox
 from bench.fixture import build, denylist, export, scrub, verify
 from tests.test_sandbox import _bwrap_works as sandbox_ok
 
@@ -351,7 +352,7 @@ def test_rewrite_shebangs_and_tree_pth(tmp_path: Path) -> None:
     (root / "bin" / "data.bin").write_bytes(b"\x00\x01")
     (root / "bin" / "python").symlink_to("/usr/bin/python3")
     assert venv.rewrite_shebangs(root) == ["pytest"]
-    assert (root / "bin" / "pytest").read_text() == "#!/work/.venv/bin/python\nimport sys\n"
+    assert (root / "bin" / "pytest").read_text() == f"#!{sandbox.VENV_DIR}/bin/python\nimport sys\n"
     assert (root / "bin" / "other").read_text() == "#!/usr/bin/env python3\nx = 1\n"
     pth = venv.add_tree_pth(root)
-    assert pth.read_text() == "/work\n" and pth.parent.name == "site-packages"
+    assert pth.read_text() == f"{sandbox.WORKDIR}\n" and pth.parent.name == "site-packages"
