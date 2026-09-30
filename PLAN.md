@@ -267,12 +267,18 @@ directory wait until that session is finished and the owner confirms.
 3. **Done:** paths derive from the repo root; the legacy fixture was rebuilt from the pinned commit
    `c0dc449` (`fixtures/legacy/`, with `MANIFEST.toml` and `fetch.sh`; zero dirty or ignored files),
    replacing the copy that had gained 24 `__pycache__` directories.
-4. **Open:** repoint the ~9 live references to the old paths (`opencode-bench.md`, `opencode/README.md`,
-   `OPENCODE_AGENT_WORKFLOW.md`, `AGENTS_MD_MIGRATION.md`, the old tools' own scripts and README) and turn
-   `system-library`'s tools directory into a pointer. Dated findings stay unedited.
-5. **Done:** `AIModels/README.md`.
-6. **Open, owner decision:** delete the old harness copy, `opencode-bench/` and its 5.3 GB of `runs/`
-   (keep `outside-canary.md`).
+4. **Done for the live docs (system-library `d8bf17f`):** `opencode-bench.md` is a pointer to this repo,
+   `opencode/README.md` and `opencode-bench-tools/README.md` say so. **Left as they are:** the tools'
+   own scripts (record of the imported commit), the dated findings, and the planning docs in Paramo
+   (`OPENCODE_AGENT_WORKFLOW.md`, `AGENTS_MD_MIGRATION.md`: history, in a tree with peer edits).
+5. **Done:** `AIModels/README.md`. The migration session's scripts were copied verbatim to
+   `legacy_bench/migration/` (`886d865`), not repointed.
+6. **Open: deleting the old directory.** The owner said go (2026-09-30), but the permission layer blocked the
+   `rm` (irreversible deletion), so nothing was deleted. The old `opencode-bench/` is 6.0 GB: `runs/` 5.6 GB,
+   `xdg/` 358 MB, `drafts/` 62 MB, the rest small. Safe to delete (superseded here): `runs/`, `xdg/`,
+   `paramo-legacy.pristine/`, `tracked/`, `bin/`, `.ruff_cache/`, the four symlinks, `dummy.key`. **Not safe
+   without a decision:** `drafts/`, `results/` and `fixtures/nav/` are the AGENTS.md migration session's own
+   working material (drafts edited 2026-09-30 15:56) and exist nowhere else.
 
 **Acceptance so far:** `selftest` passes from the new location (also as a test); one pass of every
 legacy role ran end to end from here (research 10/10, verify 3/3, git 5/5 on `gpt-oss:20b`; coder
