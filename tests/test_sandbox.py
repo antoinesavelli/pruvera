@@ -83,7 +83,8 @@ def test_argv_clears_env_and_allowlists_root(spec: Spec) -> None:
     assert "--clearenv" in argv
     binds = [argv[i + 1] for i, a in enumerate(argv) if a == "--ro-bind"]
     assert "/" not in binds, "the host root must never be bound wholesale"
-    assert "/mnt" not in " ".join(argv)
+    host_paths = {a for a in argv if a.startswith("/mnt")}
+    assert host_paths == {sandbox.WORKDIR}, "the fixture mount is the only /mnt path"
 
 
 def test_argv_overlay_over_base(spec: Spec) -> None:
@@ -145,8 +146,8 @@ def test_writes_land_in_overlay_and_base_is_untouched(spec: Spec) -> None:
     before = sandbox.tree_hash(spec.base)
     result = _sh(
         spec,
-        "echo new > /work/new.txt; echo changed > /work/existing.txt; rm /work/gone.txt; "
-        "echo 'X = 2' > /work/pkg/mod.py; cat /work/existing.txt",
+        f"cd {sandbox.WORKDIR}; echo new > new.txt; echo changed > existing.txt; rm gone.txt; "
+        "echo 'X = 2' > pkg/mod.py; cat existing.txt",
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "changed"
@@ -159,7 +160,9 @@ def test_writes_land_in_overlay_and_base_is_untouched(spec: Spec) -> None:
 @needs_bwrap
 def test_host_filesystem_is_absent(spec: Spec) -> None:
     home = str(Path.home())
-    probes = ["/mnt", "/mnt/ParamoStorage", "/root", "/media", home, f"{home}/.config/opencode"]
+    real = ["AIModels", "system-library", "harness", "trading", "archive", "ParamoLLC"]
+    probes = [f"/mnt/ParamoStorage/{d}" for d in real]
+    probes += ["/mnt/Media", "/root", "/media", home, f"{home}/.config/opencode"]
     probes += [f"{home}/.claude", "/etc/shadow", "/var/lib", "/home/antoine"]
     script = "for p in " + " ".join(f"'{p}'" for p in probes)
     script += '; do test -e "$p" && echo "VISIBLE:$p"; done; true'
@@ -218,7 +221,7 @@ def test_environment_and_processes_are_isolated(
 @needs_bwrap
 def test_python_bytecode_never_reaches_the_base(spec: Spec) -> None:
     before = sandbox.tree_hash(spec.base)
-    result = _sh(spec, "cd /work && python3 -c 'import pkg.mod' && ls -A pkg")
+    result = _sh(spec, f"cd {sandbox.WORKDIR} && python3 -c 'import pkg.mod' && ls -A pkg")
     assert result.returncode == 0, result.stderr
     assert "__pycache__" not in result.stdout
     sandbox.verify_base(spec.base, before)
@@ -266,7 +269,7 @@ def test_net_ollama_reaches_only_ollama(spec: Spec) -> None:
 
 @needs_bwrap
 def test_remove_trial_dirs_handles_unreadable_workdir(spec: Spec) -> None:
-    assert _sh(spec, "echo a > /work/a.txt").returncode == 0
+    assert _sh(spec, f"echo a > {sandbox.WORKDIR}/a.txt").returncode == 0
     assert any(spec.work.iterdir()), "the kernel should have left its workdir behind"
     sandbox.remove_trial_dirs(spec.upper, spec.work)
     assert not spec.upper.exists() and not spec.work.exists()
@@ -315,12 +318,13 @@ def test_data_slice_is_visible_at_the_real_path_and_writes_are_discarded(
         "ls /mnt/ParamoStorage; ls /mnt/ParamoStorage/archive | wc -l"
     )
     result = _sh(with_data, script)
-    assert "slice" in result.stdout and "trading" in result.stdout and "archive" in result.stdout
+    listing = result.stdout.split()
+    assert "slice" in listing and {"trading", "archive", "Paramo"} <= set(listing)
     assert not (data / "new.txt").exists(), "trial writes must never reach the data base"
     assert sorted(p.name for p in data.iterdir()) == ["backtesting data"]
-    hidden = _sh(with_data, "test -e /mnt/ParamoStorage/Paramo || echo absent")
-    assert "absent" in hidden.stdout, (
-        "only the data root and archive exist under /mnt/ParamoStorage"
+    hidden = _sh(with_data, "ls /mnt/ParamoStorage")
+    assert sorted(hidden.stdout.split()) == ["Paramo", "archive", "trading"], (
+        "only the fixture, the data root and the archive exist under /mnt/ParamoStorage"
     )
 
 

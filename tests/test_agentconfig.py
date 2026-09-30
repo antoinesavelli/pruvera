@@ -119,7 +119,8 @@ def test_opencode_resolves_the_trial_config_as_designed(tmp_path: Path) -> None:
     )
     try:
         # Written to a file first: opencode truncates large output when stdout is a pipe.
-        script = "cd /work && opencode debug config >/tmp/r.json 2>/dev/null; cat /tmp/r.json"
+        cmd = "opencode debug config >/tmp/r.json 2>/dev/null; cat /tmp/r.json"
+        script = f"cd {sandbox.WORKDIR} && {cmd}"
         out = _sh(spec, script, timeout=120).stdout
         resolved = json.loads(out)
     finally:

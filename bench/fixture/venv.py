@@ -1,7 +1,7 @@
 """Build the fixture's Python environment from its pinned requirements, for use in the sandbox.
 
-The venv is bound read-only at /work/.venv in a trial (where the project keeps it): console-script
-shebangs are rewritten from the host path to that, and a .pth puts the tree (/work) on sys.path,
+The venv is bound read-only at <workdir>/.venv in a trial (where the project keeps it): console
+script shebangs are rewritten from the host path to that, and a .pth puts the tree on sys.path,
 the way an editable install would.
 Depends on: uv and network access at build time only; nothing here runs inside a trial.
 """
@@ -12,9 +12,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
-INSIDE = "/work/.venv"
-TREE_INSIDE = "/work"
-OLD_INSIDE = ("/venv",)  # earlier builds used this; rewritten on request
+from bench import sandbox
+
+INSIDE = sandbox.VENV_DIR
+TREE_INSIDE = sandbox.WORKDIR
+OLD_INSIDE = ("/venv", "/work/.venv")  # earlier builds used this; rewritten on request
 
 
 class VenvError(RuntimeError):
@@ -44,7 +46,7 @@ def rewrite_shebangs(venv: Path, inside: str = INSIDE) -> list[str]:
 
 
 def add_tree_pth(venv: Path, tree_inside: str = TREE_INSIDE) -> Path:
-    """Write a .pth so `import config`, `import scripts` resolve to the tree mounted at /work."""
+    """Write a .pth so `import config`, `import scripts` resolve to the mounted tree."""
     site = next((venv / "lib").glob("python*/site-packages"))
     pth = site / "fixture_tree.pth"
     pth.write_text(tree_inside + "\n")

@@ -23,7 +23,7 @@ SLICE_MAP = {  # golden smoke slice directory -> config/paths.py constant it sta
 }
 _RESOLVE = """
 import json, sqlite3, sys, pathlib
-sys.path.insert(0, "/work")
+sys.path.insert(0, "{workdir}")
 from config import paths
 names = {names}
 out = {{n: getattr(paths, n) for n in names + ["DATA_ROOT", "SYSTEM_DB_PATH"]}}
@@ -65,7 +65,7 @@ def build(
         rw_binds=((out_root, "/dataroot"),),
         env={"PARAMO_DATA_ROOT": "/dataroot", "PATH": f"{sandbox.VENV_DIR}/bin:/usr/bin:/bin"},
     )
-    code = _RESOLVE.format(names=list(SLICE_MAP.values()), init_db=init_db)
+    code = _RESOLVE.format(names=list(SLICE_MAP.values()), init_db=init_db, workdir=sandbox.WORKDIR)
     done = sandbox.run(spec, [f"{sandbox.VENV_DIR}/bin/python", "-c", code], timeout=300)
     if done.returncode != 0:
         raise DataSliceError(f"resolving paths failed: {done.stderr[-400:]}")
