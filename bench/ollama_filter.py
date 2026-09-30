@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import http.client
 import http.server
+import json
 import socket
 import socketserver
 import threading
@@ -46,7 +47,21 @@ def allowed(method: str, target: str) -> bool:
     return (method.upper(), path) in ALLOWED
 
 
-def make_handler(upstream_port: int) -> type[http.server.BaseHTTPRequestHandler]:
+def model_allowed(body: bytes | None, models: frozenset[str]) -> bool:
+    """True when no allowlist is set, or the request names no model, or names an allowed one."""
+    if not models or not body:
+        return True
+    try:
+        doc = json.loads(body)
+    except ValueError:
+        return False  # an unparseable body could still name any model upstream
+    name = doc.get("model") if isinstance(doc, dict) else None
+    return name is None or (isinstance(name, str) and name in models)
+
+
+def make_handler(
+    upstream_port: int, models: frozenset[str] = frozenset()
+) -> type[http.server.BaseHTTPRequestHandler]:
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.0"  # one request per connection; bodies end at close
 
@@ -74,6 +89,9 @@ def make_handler(upstream_port: int) -> type[http.server.BaseHTTPRequestHandler]
             body = self.rfile.read(length) if length else None
             if not allowed(self.command, self.path):
                 self._refuse(403, "blocked by the trial sandbox: inference calls only")
+                return
+            if not model_allowed(body, models):
+                self._refuse(403, "blocked by the trial sandbox: this model is not allowed")
                 return
             headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_BY_HOP}
             headers.pop("Host", None)
@@ -109,9 +127,9 @@ class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 
 
 @contextlib.contextmanager
-def serve(sock: Path, upstream_port: int) -> Iterator[Path]:
+def serve(sock: Path, upstream_port: int, models: frozenset[str] = frozenset()) -> Iterator[Path]:
     """Serve the filter on the unix socket `sock` until the block exits."""
-    server = _UnixServer(str(sock), make_handler(upstream_port))
+    server = _UnixServer(str(sock), make_handler(upstream_port, models))
     sock.chmod(0o600)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
