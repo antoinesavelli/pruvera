@@ -46,6 +46,8 @@ class Transcript:
                     "tool": part.get("tool"),
                     "input": state.get("input", {}),
                     "status": state.get("status"),
+                    "output": str(state.get("output", ""))[:400],
+                    "error": str(state.get("error", ""))[:300],
                 }
             )
             self.tool_errors += state.get("status") == "error"
