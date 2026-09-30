@@ -1,6 +1,6 @@
 # Agent testing environment — plan
 
-**Status: DRAFT, rescoped 2026-09-29.** Owner decisions come from a grilling session on 2026-09-29.
+**Status: DRAFT, rescoped 2026-09-29. Phase 0 steps 1 and 5 done 2026-09-29 (repo, AGENTS.md, README); the rest waits on a live run.** Owner decisions come from a grilling session on 2026-09-29.
 This file is the plan of record for everything under `AIModels/agent-testing/`. Edit it in place as
 phases land, and record the evidence that each phase is done.
 
