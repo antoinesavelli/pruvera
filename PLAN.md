@@ -299,36 +299,50 @@ fixture venv), and a dirtied base making the *runner* refuse (the runner is Phas
 check exists and is tested).
 
 ### Phase 2 — Fixture build
-**Status 2026-09-30: fixture v1 BUILT** (`fixtures/paramo/versions/v1/`, source commit `c65a2889`,
-base commit `fc92b8f2`, 2,151 kept paths, 108 MB tree; builder in `bench/fixture/`, 45 tests). Build
-acceptance passed: no ciphertext, no excluded path, no token residue (re-checked with plain `grep`,
-not the builder's own code), no unresolved code-region match. 441 paths excluded by rule, **64 more
-dropped because they import a removed module** (a fixpoint: `probe/run.py`, `scripts/campaign/
-walk_forward.py`, 21 research scripts and about 40 tests), 52 lines redacted, 2 stubs. Suite run
-twice in the sandbox: 11,570 passed, 29-30 red; the red list is `KNOWN_RED.md` (37 tests in 5
-categories; 4 not yet diagnosed). **Not done:** the fixture venv (an editable install of the tree),
-the data slice mounted at the real default paths, and the D9 decision below.
-**D9 open:** tests that survive but encode the recipe (real default caps as bare integers; the
-synthetic bars in the `private_strategy` source tests) cannot be redacted by number tokens.
+**Status 2026-09-30: Phase 2 substantially done. Fixture v2 is the current version** (v1 is
+superseded: its manifest and known-red list stay committed, its tree is deleted).
+- **Fixture v2** (`fixtures/paramo/versions/v2/`): source commit `c65a2889`, base `97effc1c`, 2,151
+  kept paths, 108 MB tree. 441 paths excluded by rule, 64 dropped as importers of removed modules
+  (a fixpoint: `probe/run.py`, `scripts/campaign/walk_forward.py`, 21 research scripts, about 40
+  tests), 9 test entries dropped by the owner-approved list (D9 = A, `drop_tests.txt`), 52 lines
+  redacted, 2 stubs. Build acceptance passed and was re-checked with plain `grep` and a byte scan,
+  not the builder's own code.
+- **Data slice** (`fixtures/paramo/data/v2/root`, 11 MB, gitignored and excluded from the
+  cloud-mirrored backup): the golden smoke slice placed at the paths it stands in for, plus a system
+  DB initialised by the fixture's own migrations. Mounted read-only at `/mnt/ParamoStorage/trading`
+  in a trial, with throwaway writes, so the code runs with no overrides.
+- **Fixture venv** (`fixtures/paramo/venv/v2`, 1.4 GB, same exclusions): built with `uv` from the
+  tree's own pinned requirements, pip seeded, console scripts pointing at `/venv`, a `.pth` putting
+  `/work` on the path. A test proves `pip install` into it fails and leaves it unchanged.
+- **Suite in the sandbox** (fixture venv + data slice, no network): 11,568 passed, 22 known red,
+  76 skipped, about 5.5 minutes (`versions/v2/KNOWN_RED.md`). Categories: 7 need aggregates for a
+  date range the slice does not cover, 1 is written against real machine state, 11 cite files the
+  exclusions removed, 3 need a security-type lookup the slice does not carry. **The failing sets of
+  two full runs are identical.**
+- **Realism check that passes:** an `insider_cluster` backtest over the slice window
+  (2021-12-01 to 2022-11-23) runs inside the sandbox with no path overrides: 248 days processed, 5
+  trades (the five slice symbols), ending capital $10,320.36, 8 seconds, identical on two runs.
+- **Still open in Phase 2:** synthetic data for what the slice does not cover (the 7 aggregate
+  tests, the security-type lookup); the `identifier_leaks` review by the owner (70 names, local
+  file); an explicit check that the three kept strategies register.
 
-1. [O] ~~Owner reviews `denylist.txt` and the stub design **before the first build**.~~ **Done
-   2026-09-29** (`fixtures/paramo/DENYLIST_REVIEW.md`, D1-D5 accepted as recommended). Remaining
-   owner step: approve the D3/D5 scrub hunks before the first build.
-2. [J] `build.py` per §4.1, the stubs, and the fixture venv from the pinned requirements.
-3. [J] The data slice (§4.4): the golden smoke slice plus `synthetic_data.py` for
-   the rest, including a DB from the real `schema.sql`. Acceptance adds: an `insider_cluster`
-   backtest over the slice window runs inside the sandbox and produces trades.
-4. [J] `deviations.toml` and the manifest writer.
-5. Run the fixture's own checks twice (test suite, ruff, `test_domain_invariants`,
-   `test_doc_audit`, `test_config_flags`, `test_architecture_layers`,
-   `test_no_hardcoded_data_paths`). **Record the green set and every failure; do not patch any guard
-   to pass.** Exclusions will break some checks (dead doc links, for example), and those are recorded
-   as fixture facts.
+1. [O] Owner review of the exclusion list and stub design. **Done 2026-09-29** (D1-D5); scrub
+   approach and token list approved 2026-09-30 (D6-D8); D9 = A (`drop_tests.txt`).
+2. [J] `build.py` per §4.1, the stubs, and the fixture venv. **Done** (`bench/fixture/`).
+3. [J] The data slice (§4.4): the golden smoke slice at the real paths, with a DB from the fixture's
+   own migrations. **Done for the slice; synthetic fill for the rest is open.** Acceptance: an `insider_cluster` backtest over the slice window runs inside the sandbox and produces
+   trades (**met**).
+4. [J] `deviations.toml` and the manifest writer. **Manifest done** (`MANIFEST.json`);
+   `deviations.toml` belongs to Phase 3.
+5. Run the fixture's own checks (test suite; the invariant, doc-audit, config-flag, layering and
+   hardcoded-path guards are part of it). **Done twice** (see the status above). Every failure is
+   recorded in `KNOWN_RED.md`, and no guard was patched to pass.
 
-**Acceptance:** no file with a git-crypt header; no denylisted path present; a search of the build for
-identifiers taken from the excluded strategy and probe code finds nothing (owner picks the identifier
-list); the green set is identical across two runs; size, suite runtime and manifest recorded; the
-three kept strategies import and register; the stub strategy registers and its tests run.
+**Acceptance:** no file with a git-crypt header (met); no denylisted path present (met); the
+identifier scan is reviewed by the owner (70 names, local file, **open**); the green set is
+identical across two runs (met); size, suite runtime and manifest recorded (met); the three kept
+strategies import and register and the stub strategy registers (**not yet checked explicitly**;
+the suite's registry tests pass); the `insider_cluster` backtest above (met).
 
 ### Phase 3 — Real agent config
 1. [J] Assemble the real opencode config into the trial XDG dir from pinned sources; write the
