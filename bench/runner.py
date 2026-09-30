@@ -224,7 +224,8 @@ def _classify(rc: int | None, killed: str | None, tr: Transcript) -> str:
 def _read_back(sb: sandbox.Spec) -> tuple[str, str]:
     """git status and the diff against the base commit, read from the overlay after the run."""
     script = (
-        "cd /work && git status --porcelain=v1 -uall; echo '---DIFF---'; git diff HEAD --binary"
+        f"cd {sandbox.WORKDIR} && git status --porcelain=v1 -uall; "
+        "echo '---DIFF---'; git diff HEAD --binary"
     )
     done = sandbox.run(sb, ["sh", "-c", script], timeout=120)
     status, _, diff = done.stdout.partition("---DIFF---\n")
@@ -267,7 +268,9 @@ def run_trial(
         data_base=fx.data,
     )
     for hook in spec.hooks:
-        seeded = sandbox.run(sb, ["sh", "-c", f"cd /work && {_hook_script(hook)}"], timeout=60)
+        seeded = sandbox.run(
+            sb, ["sh", "-c", f"cd {sandbox.WORKDIR} && {_hook_script(hook)}"], timeout=60
+        )
         if seeded.returncode != 0:
             raise RuntimeError(f"hook {hook.kind} {hook.path} failed: {seeded.stderr[-200:]}")
     argv = list(

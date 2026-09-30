@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from bench import compare, reference, runner
+from bench import compare, reference, runner, sandbox
 from bench.transcript import Transcript
 from tests.test_sandbox import _bwrap_works
 
@@ -44,8 +44,10 @@ def _record(tmp_path: Path, env: str, i: int, events: str) -> dict[str, Any]:
 
 
 def test_compare_finds_a_one_sided_error_and_normalises_paths(tmp_path: Path) -> None:
-    good = _events([("glob", {}, "completed", "")], "/work/utils/x.py:3")
-    broken = _events([("glob", {}, "error", "ripgrep execution failed")], "/work/utils/x.py:3")
+    good = _events([("glob", {}, "completed", "")], f"{sandbox.WORKDIR}/utils/x.py:3")
+    broken = _events(
+        [("glob", {}, "error", "ripgrep execution failed")], f"{sandbox.WORKDIR}/utils/x.py:3"
+    )
     records = [
         _record(tmp_path, "fixture", 1, broken),
         _record(tmp_path, "fixture", 2, broken),
@@ -65,8 +67,11 @@ def test_compare_finds_a_one_sided_error_and_normalises_paths(tmp_path: Path) ->
 
 
 def test_command_head_reduces_bash_and_keeps_other_tools() -> None:
-    bash = {"tool": "bash", "input": {"command": 'bash -lc "cd /work && git status --porcelain"'}}
-    assert compare.command_head(bash) == "bash: cd /work"
+    bash = {
+        "tool": "bash",
+        "input": {"command": f'bash -lc "cd {sandbox.WORKDIR} && git status --porcelain"'},
+    }
+    assert compare.command_head(bash) == f"bash: cd {sandbox.WORKDIR}"
     assert compare.command_head({"tool": "read", "input": {}}) == "read"
 
 

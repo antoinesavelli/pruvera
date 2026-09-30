@@ -19,7 +19,7 @@ from typing import Any
 from bench.transcript import Transcript
 
 _PATHS = re.compile(
-    r"/work/|/srv/pruvera/Paramo/|/srv/pruvera/AIModels/agent-testing/overlays/ref-[0-9a-f]+/work/"
+    r"/srv/pruvera/Paramo/|/srv/pruvera/AIModels/agent-testing/overlays/ref-[0-9a-f]+/work/"
 )
 
 

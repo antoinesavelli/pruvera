@@ -89,7 +89,8 @@ def _run(
 def test_completed_trial_records_facts_and_captures_the_diff(
     fx: runner.Fixture, tmp_path: Path, cfg: Path
 ) -> None:
-    script = f"echo '{EVENT}'; echo 'X = 2' > /work/pkg/mod.py; echo new > /work/new.txt"
+    w = sandbox.WORKDIR
+    script = f"echo '{EVENT}'; echo 'X = 2' > {w}/pkg/mod.py; echo new > {w}/new.txt"
     rec, adir = _run(fx, tmp_path, cfg, script)
     assert rec["outcome"] == "completed" and rec["rc"] == 0 and rec["events"] == 1
     assert rec["fixture_tree_hash"] == fx.manifest["tree_hash"] and rec["agent"] == "a"
@@ -214,7 +215,11 @@ def test_a_kept_overlay_reproduces_the_recorded_diff(
     fx: runner.Fixture, tmp_path: Path, cfg: Path
 ) -> None:
     rec, adir = _run(
-        fx, tmp_path, cfg, f"echo '{EVENT}'; echo 'X = 9' > /work/pkg/mod.py", keep_overlay=True
+        fx,
+        tmp_path,
+        cfg,
+        f"echo '{EVENT}'; echo 'X = 9' > {sandbox.WORKDIR}/pkg/mod.py",
+        keep_overlay=True,
     )
     tdir = tmp_path / "trials" / rec["trial_id"]
     assert tdir.exists()
