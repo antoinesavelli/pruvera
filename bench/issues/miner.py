@@ -11,6 +11,7 @@ bench.fixture.{denylist,scrub,verify}.
 from __future__ import annotations
 
 import ast
+import difflib
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -280,19 +281,20 @@ def evaluate(env: check.Env, cand: Candidate) -> Verdict:
 
 def summary(cand: Candidate) -> str:
     """A mechanical description from the diff (never from the commit message): the first changed
-    line that is code, not a comment."""
+    line that is code, found by diffing the fixed block against the buggy one."""
     for edit in cand.edits:
-        pairs = zip(edit.old.split("\n"), edit.new.split("\n"), strict=False)
-        for fixed, buggy in pairs:
-            if (
-                fixed != buggy
-                and not fixed.strip().startswith("#")
-                and not buggy.strip().startswith("#")
-            ):
-                return (
-                    f"A real fix in {edit.file} was reverted ({cand.lines} changed lines): "
-                    f"`{fixed.strip()[:70]}` became `{buggy.strip()[:70]}`."
-                )
+        old, new = edit.old.splitlines(), edit.new.splitlines()
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new).get_opcodes():
+            fixed = " ".join(x.strip() for x in old[i1:i2])[:80]
+            buggy = " ".join(x.strip() for x in new[j1:j2])[:80]
+            if tag == "equal" or fixed.startswith("#") or buggy.startswith("#"):
+                continue
+            where = f"A real fix in {edit.file} was reverted ({cand.lines} changed lines): "
+            if tag == "delete":
+                return f"{where}the line `{fixed}` was removed."
+            if tag == "insert":
+                return f"{where}the line `{buggy}` was added."
+            return f"{where}`{fixed}` became `{buggy}`."
     return f"A real fix in {cand.edits[0].file} was reverted ({cand.lines} changed lines)."
 
 

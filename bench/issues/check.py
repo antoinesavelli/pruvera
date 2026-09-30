@@ -17,7 +17,7 @@ from bench import sandbox
 # `--tb=line` prints one "/work/path.py:123: ExceptionType: message" line per failure; the short
 # summary drops its message when the test id is long, so the exception type is read from here.
 _TB_LINE = re.compile(r"^/work/\S+:\d+: (\w+)", re.M)
-# Scratch overlays live in the gitignored, backup-excluded `overlays/`, never beside a fixture version.
+# Scratch overlays live in the gitignored, backup-excluded `overlays/`, not beside a fixture.
 SCRATCH = Path(__file__).resolve().parents[2] / "overlays"
 _FAILED = re.compile(r"^(?:FAILED|ERROR) (\S+)(?: - (.*))?$", re.M)
 
