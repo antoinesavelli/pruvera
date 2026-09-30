@@ -218,7 +218,7 @@ AIModels/
   README.md                  NEW: what each top-level directory is (blobs/ + manifests/ are Ollama's)
   blobs/  manifests/         untouched
   findings/                  unchanged: dated trial write-ups
-  agent-testing/             local git repo, no remote
+  agent-testing/             local git repo, no remote; backed up (repo only) via the nightly Borg run
     AGENTS.md  CLAUDE.md     rules for working ON this repo; CLAUDE.md is only `@AGENTS.md`
     README.md  PLAN.md
     pyproject.toml
@@ -385,7 +385,7 @@ The environment records what these need. None of it is built or scheduled.
 | Harness growth | Package split, modules under 500 LOC, self-tests. |
 | A planted issue gives itself away (marker, diff, catalogue reachable) and agents "find" it for the wrong reason | Phase 6 acceptance: marker and catalogue search of the built tree and mounts; issues baked into the base commit. |
 | A reverted fix brings research context into the fixture through its code | Miner restricted to kept files; owner skims the shortlist. |
-| The golden slice leaves the machine | The fixture tree is gitignored and the repo has no remote (Q2); nothing is exported. |
+| The golden slice leaves the machine | The fixture tree is gitignored, the repo has no remote (Q2), and `~/.paramo_backup.sh` excludes fixture trees, `venv/`, `overlays/`, `artifacts/`, `xdg/` and `runs/` from the cloud-mirrored backup (changed 2026-09-29). A new directory of that kind must be added to those excludes in the same change. |
 
 ---
 
@@ -393,7 +393,7 @@ The environment records what these need. None of it is built or scheduled.
 
 - **Q1** Should `AIModels/findings/` move into this repo? Recommended: not now; skills and doctrine
   reference it by path.
-- **Q2** Should the repo ever get a remote? Assumed no.
+- **Q2** Should the repo ever get a git remote? Assumed no. **Backup (decided 2026-09-29):** the repo is included in the encrypted nightly Borg backup (mirrored to B2); fixtures, venv, overlays, artifacts, xdg and runs are excluded.
 - **Q3 — decided default (owner unsure, 2026-09-29):** the build derives the identifier list itself.
   It collects every identifier defined only in the excluded files (config keys such as
   `PRIVATE_STRATEGY_*`, class and function names, distinctive constants) that appears in no kept
@@ -403,7 +403,7 @@ The environment records what these need. None of it is built or scheduled.
   concern is redistribution to a second party. A copy on the same machine, for the same user,
   gitignored in a repo with no remote, is not that. Including it keeps the real golden tests and
   gives the sandbox real prices (§4.4). Condition: the fixture tree is never committed, pushed or
-  backed up off-machine. If Q2 ever changes, the golden slice is the first thing to exclude.
+  included in the cloud-mirrored backup (enforced by the `pbackup` excludes). If Q2 ever changes, the golden slice is the first thing to exclude.
 
 ---
 
