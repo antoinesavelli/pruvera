@@ -58,6 +58,21 @@ def _ancestors(proc_root: Path, pid: int) -> set[int]:
     return chain
 
 
+def _classify(pid: str, argv: list[str]) -> Problem | None:
+    """The problem a process with this argv represents, if it is another agent or bench run."""
+    exe = Path(argv[0]).name
+    if exe in AGENT_BINARIES:
+        return Problem("agent_running", f"pid {pid}: {exe} is running")
+    if exe not in INTERPRETERS:
+        return None
+    if argv[1:2] == ["-m"] and argv[2:3] and argv[2] in BENCH_MODULES:
+        return Problem("bench_running", f"pid {pid}: {argv[2]} is running")
+    script = Path(argv[1]).name if len(argv) > 1 else ""
+    if script in BENCH_SCRIPTS:
+        return Problem("bench_running", f"pid {pid}: {script} is running")
+    return None
+
+
 def running_agents(proc_root: Path = Path("/proc"), me: int | None = None) -> list[Problem]:
     """Other agent or bench processes on this host, found by argv, not counting ourselves."""
     skip = _ancestors(proc_root, me if me is not None else os.getpid())
@@ -66,17 +81,9 @@ def running_agents(proc_root: Path = Path("/proc"), me: int | None = None) -> li
         if not pid_dir.name.isdigit() or int(pid_dir.name) in skip:
             continue
         argv = _cmdline(pid_dir)
-        if not argv:
-            continue
-        exe = Path(argv[0]).name
-        script = Path(argv[1]).name if len(argv) > 1 else ""
-        if exe in INTERPRETERS and argv[1:2] == ["-m"] and argv[2:3] and argv[2] in BENCH_MODULES:
-            found.append(Problem("bench_running", f"pid {pid_dir.name}: {argv[2]} is running"))
-            continue
-        if exe in AGENT_BINARIES:
-            found.append(Problem("agent_running", f"pid {pid_dir.name}: {exe} is running"))
-        elif exe in INTERPRETERS and script in BENCH_SCRIPTS:
-            found.append(Problem("bench_running", f"pid {pid_dir.name}: {script} is running"))
+        problem = _classify(pid_dir.name, argv) if argv else None
+        if problem is not None:
+            found.append(problem)
     return found
 
 

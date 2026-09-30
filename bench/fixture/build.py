@@ -1,7 +1,7 @@
 """Build one version of the paramo fixture from a pinned commit, never from a working tree.
 
 Steps: export, exclude, drop dependent tests, add stubs, redact, verify, base commit, manifest.
-Depends on: bench.fixture.{export,denylist,scrub,verify}, bench.sandbox.tree_hash, git.
+Depends on: bench.fixture.{export,denylist,droptests,scrub,verify}, bench.sandbox (hashes), git.
 """
 
 from __future__ import annotations
@@ -101,6 +101,37 @@ def git_base(tree: Path) -> str:
     return done.stdout.decode().strip()
 
 
+@dataclass
+class _Stripped:
+    gone: set[str]  # denylisted paths
+    excluded_sources: dict[str, str]  # their Python text, kept only to measure identifier leaks
+    provided: set[str]  # stub files copied in
+    kept: list[str]
+    followers: set[str]  # files dropped because they import a removed module
+
+
+def _strip(tree: Path, paths: list[str], deny: list[str], stubs: Path) -> _Stripped:
+    """Remove denylisted paths and their dependents, copy the stubs in."""
+    gone = denylist.excluded(paths, deny)
+    excluded_sources = {
+        p: (tree / p).read_text(errors="replace")
+        for p in gone
+        if p.endswith(".py") and (tree / p).is_file()
+    }
+    _remove(tree, gone)
+    provided = _copy_stubs(stubs, tree)
+    kept = [p for p in paths if p not in gone]
+    stub_modules = {m for p in provided if (m := denylist.module_name(p))}
+    gone_modules = {m for p in gone if (m := denylist.module_name(p))} - stub_modules
+    followers = denylist.dependent_files(tree, kept, gone_modules)
+    _remove(tree, followers)
+    return _Stripped(gone, excluded_sources, provided, kept, followers)
+
+
+def _sha(path: Path | None) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path and path.exists() else ""
+
+
 def build(
     repo: Path,
     rev: str,
@@ -115,20 +146,7 @@ def build(
     tree = out / "tree"
     paths = export.export_commit(repo, commit, tree)
     deny = denylist.load_rules(denylist_path)
-    gone = denylist.excluded(paths, deny)
-    excluded_sources = {
-        p: (tree / p).read_text(errors="replace")
-        for p in gone
-        if p.endswith(".py") and (tree / p).is_file()
-    }
-    _remove(tree, gone)
-    provided = _copy_stubs(stubs, tree)
-    kept = [p for p in paths if p not in gone]
-    gone_modules = {m for p in gone if (m := denylist.module_name(p))} - {
-        m for p in provided if (m := denylist.module_name(p))
-    }
-    followers = denylist.dependent_files(tree, kept, gone_modules)
-    _remove(tree, followers)
+    stripped = _strip(tree, paths, deny, stubs)
     dropped_tests = (
         droptests.drop(tree, droptests.load_ids(drop_path))
         if drop_path is not None and drop_path.exists()
@@ -137,12 +155,10 @@ def build(
     rules = scrub.load_rules(tokens_path)
     changes = _scrub_tree(tree, rules)
     allowed = frozenset(allow_path.read_text().split()) if allow_path.exists() else frozenset[str]()
-    report = verify.check_tree(tree, deny, rules, allowed, frozenset(provided))
-    leaks = verify.identifier_leaks(
-        excluded_sources,
-        tree,
-        {n for s in provided for n in verify.defined_names((tree / s).read_text())},
-    )
+    provided = frozenset(stripped.provided)
+    report = verify.check_tree(tree, deny, rules, allowed, provided)
+    stub_names = {n for s in provided for n in verify.defined_names((tree / s).read_text())}
+    leaks = verify.identifier_leaks(stripped.excluded_sources, tree, stub_names)
     result = BuildResult(tree, {}, report, leaks)
     if not report.ok:
         raise BuildError(
@@ -150,24 +166,19 @@ def build(
             f"denylisted={len(report.denylisted)} residue={len(report.residue)} "
             f"stops={len(report.stops)}"
         )
-    base = git_base(tree)
     manifest: dict[str, object] = {
         "source_commit": commit,
-        "fixture_base_commit": base,
+        "fixture_base_commit": git_base(tree),
         "tree_hash": sandbox.tree_hash(tree, (".git",)),  # .git: base commit recorded instead
         "git_hash": sandbox.git_state_hash(tree),  # and its config, hooks and objects, pinned here
-        "denylist_sha256": hashlib.sha256(denylist_path.read_bytes()).hexdigest(),
-        "excluded_paths": len(gone),
-        "dependent_files_dropped": len(followers),
+        "denylist_sha256": _sha(denylist_path),
+        "excluded_paths": len(stripped.gone),
+        "dependent_files_dropped": len(stripped.followers),
         "tests_dropped_by_list": len(dropped_tests),
-        "drop_list_sha256": (
-            hashlib.sha256(drop_path.read_bytes()).hexdigest()
-            if drop_path is not None and drop_path.exists()
-            else ""
-        ),
-        "stubs": sorted(provided),
+        "drop_list_sha256": _sha(drop_path),
+        "stubs": sorted(stripped.provided),
         "redactions": len(changes),
-        "kept_paths": len(kept) - len(followers) + len(provided),
+        "kept_paths": len(stripped.kept) - len(stripped.followers) + len(stripped.provided),
         "identifier_leak_names": len(leaks),
     }
     out.mkdir(parents=True, exist_ok=True)

@@ -190,3 +190,35 @@ def test_discard_removes_a_stale_prepared_copy_including_unreadable_dirs(tmp_pat
     reference.discard(stale)
     assert not stale.exists()
     reference.discard(stale)  # absent is fine
+
+
+def _rec(
+    side: str, label: str, calls: int, secs: float, ok: bool = True, err: int = 0
+) -> dict[str, Any]:
+    return {
+        "environment": side,
+        "label": label,
+        "tool_calls": calls,
+        "secs": secs,
+        "outcome": "completed" if ok else "timeout",
+        "tool_errors": err,
+    }
+
+
+def test_effects_call_equal_sides_equivalent_and_a_2x_gap_different() -> None:
+    same = [
+        _rec(s, f"t{i}", 4 + (i % 2), 10.0) for i in range(8) for s in ("fixture", "reference")
+    ] * 2
+    eff = compare.effects(same)
+    assert eff["tool_calls"]["verdict"] == "equivalent" and eff["secs"]["verdict"] == "equivalent"
+    assert eff["completed"]["fixture"]["k"] == eff["completed"]["fixture"]["n"] == 16
+    gap = [_rec("fixture", f"t{i}", 4, 10.0) for i in range(8) for _ in range(3)]
+    gap += [_rec("reference", f"t{i}", 8 + i % 2, 10.0) for i in range(8) for _ in range(3)]
+    worse = compare.effects(gap)
+    assert worse["tool_calls"]["verdict"] == "differs" and worse["tool_calls"]["ratio"] < 0.6
+    assert "differs" in compare.effects_markdown(worse)
+
+
+def test_effects_with_no_shared_tasks_say_no_data() -> None:
+    eff = compare.effects([_rec("fixture", "a", 3, 1.0), _rec("reference", "b", 3, 1.0)])
+    assert eff["tool_calls"]["verdict"] == "no data"

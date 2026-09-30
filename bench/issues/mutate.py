@@ -34,26 +34,31 @@ class Mutant:
     operator: str  # flip | bool | offbyone
 
 
+OFFBYONE_AFTER = frozenset({"[", ":", "(", ",", ">", "<", ">=", "<=", "==", "+", "-"})
+
+
+def _mutant_for(toks: list[tokenize.TokenInfo], i: int) -> Mutant | None:
+    """The mutant for token `i`, if it is a mutable one."""
+    tok = toks[i]
+    text, (line, col) = tok.string, tok.start
+    if text in FLIPS and tok.type in (tokenize.OP, tokenize.NAME):
+        return Mutant(line, col, text, FLIPS[text], "flip")
+    if tok.type == tokenize.NAME and text in WORDS:
+        return Mutant(line, col, text, WORDS[text], "bool")
+    small_number = tok.type == tokenize.NUMBER and text.isdigit() and 1 <= int(text) <= 20
+    if small_number and i and toks[i - 1].string in OFFBYONE_AFTER:
+        return Mutant(line, col, text, str(int(text) + 1), "offbyone")
+    return None
+
+
 def candidates(source: str) -> list[Mutant]:
     """Every mutable token in `source`, in file order; strings and comments are never touched."""
-    out: list[Mutant] = []
     try:
         toks = list(tokenize.generate_tokens(io.StringIO(source).readline))
     except (tokenize.TokenError, IndentationError):
-        return out
-    for i, tok in enumerate(toks):
-        text, (line, col) = tok.string, tok.start
-        if tok.type == tokenize.OP and text in FLIPS:
-            out.append(Mutant(line, col, text, FLIPS[text], "flip"))
-        elif tok.type == tokenize.NAME and text in FLIPS:
-            out.append(Mutant(line, col, text, FLIPS[text], "flip"))
-        elif tok.type == tokenize.NAME and text in WORDS:
-            out.append(Mutant(line, col, text, WORDS[text], "bool"))
-        elif tok.type == tokenize.NUMBER and text.isdigit() and 1 <= int(text) <= 20:
-            prev = toks[i - 1].string if i else ""
-            if prev in {"[", ":", "(", ",", ">", "<", ">=", "<=", "==", "+", "-"}:
-                out.append(Mutant(line, col, text, str(int(text) + 1), "offbyone"))
-    return out
+        return []
+    found = (_mutant_for(toks, i) for i in range(len(toks)))
+    return [m for m in found if m is not None]
 
 
 def apply(source: str, m: Mutant) -> str:

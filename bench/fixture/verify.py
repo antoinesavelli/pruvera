@@ -69,19 +69,24 @@ def check_tree(
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]{9,}")
 
 
+def _node_names(node: ast.AST) -> set[str]:
+    """Names a single AST node defines that matter for leak detection."""
+    if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+        return {node.name}
+    if isinstance(node, ast.Assign):
+        return {t.id for t in node.targets if isinstance(t, ast.Name) and t.id.isupper()}
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return {node.target.id}
+    return set()
+
+
 def defined_names(source: str) -> set[str]:
+    """Long, distinctive names a Python file defines (classes, functions, constants)."""
     try:
         tree = ast.parse(source)
     except SyntaxError:
         return set()
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
-            names.add(node.name)
-        elif isinstance(node, ast.Assign):
-            names.update(t.id for t in node.targets if isinstance(t, ast.Name) and t.id.isupper())
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            names.add(node.target.id)
+    names = set().union(*(_node_names(n) for n in ast.walk(tree)))
     return {n for n in names if len(n) >= 10 and ("_" in n or n != n.lower())}
 
 
