@@ -54,8 +54,16 @@ def test_busy_gpu_and_missing_ollama(proc: Path) -> None:
     assert {p.code for p in found} == {"gpu_busy", "ollama_down"}
 
 
-def test_unreadable_gpu_is_not_a_problem(proc: Path) -> None:
-    assert preflight.problems(proc, gpu=lambda: None, ollama=lambda: True, me=999) == []
+def test_an_unreadable_gpu_blocks_because_contention_is_then_unknown(proc: Path) -> None:
+    found = preflight.problems(proc, gpu=lambda: None, ollama=lambda: True, me=999)
+    assert [p.code for p in found] == ["gpu_unreadable"]
+
+
+def test_a_python_dash_m_harness_entry_point_counts_as_a_running_bench(proc: Path) -> None:
+    _proc(proc, 20, ["python3", "-m", "bench.realism", "--n", "3"])
+    _proc(proc, 21, ["python3", "-m", "pytest", "tests"])
+    found = preflight.running_agents(proc, me=999)
+    assert [(p.code, "bench.realism" in p.message) for p in found] == [("bench_running", True)]
 
 
 def test_check_raises_unless_forced(proc: Path) -> None:
