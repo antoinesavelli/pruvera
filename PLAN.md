@@ -374,15 +374,34 @@ first), and opencode writes `.git/opencode` and `.opencode/.gitignore` into the 
 harmlessly in the overlay.
 
 ### Phase 4 — Trial runner and capture
-1. [J] `runner.py`, `capture.py`, `manifest.py`, `scenario.py`: run one trial end to end and write the
-   §4.7 record, including scenario hooks.
-2. [M] Port the existing role fixtures to run on the new fixture as smoke trials.
-3. [J] A self-test with a scripted fake agent that produces each outcome class on demand.
+**Status 2026-09-30: done** (`bench/runner.py`, `bench/transcript.py`, `bench/cli.py`; harness suite
+70 tests, `ruff` and `mypy --strict` clean).
+1. **Runner.** `python -m bench.cli trial --agent A --model M --prompt P [--hook kind:path[:text]]
+   [--wait S] [--force] [--keep-overlay]`: preflight, a base-drift check against the manifest (tree
+   hash and base commit), fresh overlay dirs, the assembled config, scenario hooks (`peer_staged`,
+   `dirty`, `untracked`), the agent streamed under a wall-clock timeout and a no-event watchdog, then
+   the diff and `git status` read back from the overlay. `python -m bench.cli check` verifies the
+   fixture and preflight without running anything.
+2. **Record** (one JSON row per trial in `results/trials.jsonl`, artifacts under `artifacts/<id>/`):
+   fixture version, tree hash and base commit, source commit, rules hash, opencode version, model and
+   its Ollama digest, agent, prompt, hooks, deviations, config hash, outcome class, exit code,
+   seconds, event/tool/step counts, tool errors, tokens, files written, GPU residency, whether
+   preflight was forced and why. Outcome classes: `completed`, `agent_error` (non-zero exit),
+   `timeout`, `hang` (no event for the watchdog interval), `silent_stall` (clean exit, no tool call
+   and no text), `harness_error` (never counted as a model result). No scoring.
+3. **Retention.** A completed trial keeps its transcript, diff, status and record and deletes its
+   overlay; any other outcome keeps the overlay; `--keep-overlay` keeps it regardless.
+4. **Fixed on the way:** opencode's `glob`/`grep` need ripgrep at `$XDG_CACHE_HOME/opencode/bin/rg`; a
+   sandbox without it fails those tools silently (now bound read-only). The overlay changes are
+   captured before the read-back, so the runner's own `git status` never appears as agent activity.
 
-**Acceptance:** one real trial of each role runs inside the sandbox on the paramo fixture; its
-record can be replayed and its diff reproduced from the overlay; each outcome class is produced by
-the fake agent; the real repo and the live config are unchanged afterwards, verified by tree hash and
-mtimes, not by the runner's own summary.
+**Acceptance, all met:** every outcome class is produced on demand by a scripted fake agent
+(`tests/test_runner.py`); one real trial per role (research, verify, git, full) ran in the sandbox on
+fixture v2 and completed; each kept overlay reproduced its recorded diff exactly; a dirtied base
+refuses to run; the live `~/.config/opencode` and `opencode.db` timestamps predate the batch. The
+first real observations are in `AIModels/findings/2026-09-30-agent-testing-environment-first-real-trials.md`.
+**Known limits:** preflight treats any agent process as a rival (a peer's cloud-model bench
+forced it); the four real trials were run with `--force` for that reason.
 
 ### Phase 5 — Realism check
 Judge how close the environment actually is, which nothing earlier proves. Run the same small set of

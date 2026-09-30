@@ -70,3 +70,30 @@ def test_real_host_scan_runs_without_error() -> None:
     assert isinstance(preflight.running_agents(), list)
     util = preflight.gpu_utilization()
     assert util is None or 0 <= util <= 100
+
+
+def test_wait_clear_polls_until_clear_or_timeout(proc: Path) -> None:
+    readings = iter([90, 60, 5])
+    now = [0.0]
+
+    def clock() -> float:
+        return now[0]
+
+    def sleep(seconds: float) -> None:
+        now[0] += seconds
+
+    found = preflight.wait_clear(
+        30,
+        2,
+        sleep=sleep,
+        clock=clock,
+        proc_root=proc,
+        gpu=lambda: next(readings),
+        ollama=lambda: True,
+        me=999,
+    )
+    assert found == [] and now[0] == 4.0
+    stuck = preflight.wait_clear(
+        10, 2, sleep=sleep, clock=clock, proc_root=proc, gpu=lambda: 99, ollama=lambda: True, me=999
+    )
+    assert [p.code for p in stuck] == ["gpu_busy"]
