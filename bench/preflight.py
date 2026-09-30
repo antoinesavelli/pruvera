@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -123,3 +124,23 @@ def check(
     if found and not force:
         raise PreflightError("; ".join(f"{p.code}: {p.message}" for p in found))
     return found
+
+
+def wait_clear(
+    timeout: float = 180.0,
+    interval: float = 2.0,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+    **kwargs: object,
+) -> list[Problem]:
+    """Poll until nothing blocks a trial or `timeout` passes; return what still blocks.
+
+    For back-to-back trials, where the previous trial's model is still finishing on the GPU.
+    """
+    deadline = clock() + timeout
+    while True:
+        found = problems(**kwargs)  # type: ignore[arg-type]
+        if not found or clock() >= deadline:
+            return found
+        sleep(interval)
