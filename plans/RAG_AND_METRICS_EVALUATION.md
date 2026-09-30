@@ -115,9 +115,9 @@ Built: `bench/rag/` (`server.py` MCP tool `search_docs`, `index.py`, `experiment
 
 **Reading it honestly.**
 - The +0.08 is three questions' worth of answers out of about 35 per arm; it is well inside the noise of this design.
-- **The tool was barely used:** 7 searches across 36 treatment trials (in 7 of 12 questions at most, none on the
-  rest). The gain cannot be credited to retrieval when the agent mostly did not retrieve. Per question, the
-  trials with more correct answers in treatment and those with fewer both appear, with no pattern tied to use.
+- **The tool was barely used:** 7 searches across 36 treatment trials (on 6 of the 12 questions, none on the
+  other 6). The gain cannot be credited to retrieval when the agent mostly did not retrieve. Per-question
+  counts are 3 trials each and too small to read.
 - **The baseline is low:** the research agent answers only about 3 in 10 of these questions under strict regex
   grading in either arm. The lever with room is not retrieval; it is how the agent reads the docs it already
   finds (the realism study's lookups were easy; these questions need several facts from one or two files).
