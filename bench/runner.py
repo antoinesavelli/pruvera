@@ -319,6 +319,15 @@ class _Run:
     secs: float = 0.0
 
 
+EMBED_MODEL = "nomic-embed-text"  # the retrieval experiment's query embedder
+
+
+def _allowed_models(asm: agentconfig.Assembly, spec: TrialSpec) -> frozenset[str]:
+    """The models a trial may reach: those the real config lists, the one tested, the embedder."""
+    listed = asm.config.get("provider", {}).get("ollama", {}).get("models", {})
+    return frozenset({*listed, spec.model, EMBED_MODEL, f"{EMBED_MODEL}:latest"})
+
+
 def _sandbox_spec(
     fx: Fixture, spec: TrialSpec, tdir: Path, asm: agentconfig.Assembly
 ) -> sandbox.Spec:
@@ -335,6 +344,7 @@ def _sandbox_spec(
         env={"PATH": path, **GIT_IDENTITY, **_config_env(asm, spec)},
         net=spec.net,
         data_base=fx.data,
+        ollama_models=_allowed_models(asm, spec),
     )
 
 
