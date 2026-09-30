@@ -93,11 +93,9 @@ def defined_names(source: str) -> set[str]:
 def identifier_leaks(
     excluded_sources: dict[str, str], tree: Path, provided: set[str]
 ) -> dict[str, int]:
-    """Names defined only in excluded Python files that still appear in kept text (files per name).
-
-    Expected: names the stubs provide, and prose mentions. Anything else is a dangling reference
-    or a leaked concept and is reviewed by the owner, not auto-failed.
-    """
+    """Names defined only in excluded files that still appear in kept text (files per name)."""
+    # Expected: names the stubs provide, and prose mentions. Anything else is a dangling reference
+    # or a leaked concept and is reviewed by the owner, not auto-failed.
     kept_text: dict[str, str] = {}
     for rel in _tree_paths(tree):
         data = (tree / rel).read_bytes()

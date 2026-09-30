@@ -369,6 +369,9 @@ def test_cli_check_reports_the_fixture_and_the_preflight_and_trial_runs_one(
     )
     assert code == 0 and seen["force"] is True and seen["spec"].hooks[0].path == "a.py"
     assert cli.parse_hook("untracked:b.txt").content == "# seeded by the trial\n"
+    monkeypatch.setattr(runner, "reproduce_diff", lambda _fx, d: f"diff of {d.name}\n")
+    assert cli.main(["replay", "/x/overlays/abc"]) == 0
+    assert capsys.readouterr().out.endswith("diff of abc\n")
 
 
 # ------------------------------------------------------------------ verify main

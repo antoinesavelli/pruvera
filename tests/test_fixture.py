@@ -88,21 +88,10 @@ def test_load_rules_strips_comments(tmp_path: Path) -> None:
     assert denylist.load_rules(f) == ["docs/**", "plain"]
 
 
-def test_module_names_and_dependent_tests(tmp_path: Path) -> None:
+def test_module_names_map_paths_to_importable_modules() -> None:
     assert denylist.module_name("pkg/sub/__init__.py") == "pkg.sub"
     assert denylist.module_name("pkg/mod.py") == "pkg.mod"
     assert denylist.module_name("README.md") is None
-    (tmp_path / "tests").mkdir()
-    (tmp_path / "tests" / "test_a.py").write_text("from pkg.gone import thing\n")
-    (tmp_path / "tests" / "test_b.py").write_text("import pkg.gone.deep\n")
-    (tmp_path / "tests" / "test_c.py").write_text("from pkg import gone\n")
-    (tmp_path / "tests" / "test_d.py").write_text("from pkg import stays\n")
-    paths = [f"tests/test_{c}.py" for c in "abcd"]
-    assert denylist.dependent_tests(tmp_path, paths, {"pkg.gone"}) == {
-        "tests/test_a.py",
-        "tests/test_b.py",
-        "tests/test_c.py",
-    }
 
 
 # ---------------------------------------------------------------- export

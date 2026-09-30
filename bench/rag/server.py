@@ -4,6 +4,7 @@ Standard library plus numpy only, so it runs under the fixture venv. The index i
 (`[{"file": ..., "text": ...}]`) and `vectors.npy` (unit-norm float32), built by `bench.rag.index`.
 The query embedding comes from the local Ollama (`nomic-embed-text`); `RAG_EMBED=stub` swaps in a
 deterministic hash embedder so tests need no model. Reads only its index directory.
+Depends on: numpy; a local Ollama for query embeddings (not needed with the stub).
 """
 
 from __future__ import annotations

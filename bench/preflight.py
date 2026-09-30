@@ -150,10 +150,8 @@ def wait_clear(
     clock: Callable[[], float] = time.monotonic,
     **kwargs: object,
 ) -> list[Problem]:
-    """Poll until nothing blocks a trial or `timeout` passes; return what still blocks.
-
-    For back-to-back trials, where the previous trial's model is still finishing on the GPU.
-    """
+    """Poll until nothing blocks a trial or `timeout` passes; return what still blocks."""
+    # For back-to-back trials, where the previous trial's model is still finishing on the GPU.
     deadline = clock() + timeout
     while True:
         found = problems(**kwargs)  # type: ignore[arg-type]
