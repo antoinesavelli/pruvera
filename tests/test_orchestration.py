@@ -200,7 +200,9 @@ def test_run_study_alternates_sides_and_always_discards_the_real_code_copy(
     realism.run_study(2, tmp_path / "s.jsonl")
     fixture_labels = [c[1] for c in fake.calls]
     ref_labels = [e[4:] for e in events if e.startswith("ref:")]
-    assert len(fixture_labels) == len(ref_labels) == 2 * len(realism.TASKS)
+    assert len(ref_labels) == 2 * len(realism.TASKS)
+    assert len(fixture_labels) == 2 * len(ref_labels), "the clean and the default fixture both run"
+    assert {c[0] for c in fake.calls} == {"fixture"}
     assert events[0] == "discard" and events[-1] == "discard"
 
     def boom(*_a: Any, **_k: Any) -> dict[str, Any]:
@@ -213,13 +215,28 @@ def test_run_study_alternates_sides_and_always_discards_the_real_code_copy(
     assert events[-1] == "discard", "the copy of real code is removed even when a trial fails"
 
 
-def test_realism_main_reports_a_results_file(
+def test_realism_main_reports_each_pair_of_sides_that_has_data(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    rows = [
+        {
+            "environment": side,
+            "label": "t",
+            "tool_calls": 3,
+            "secs": 5.0,
+            "outcome": "completed",
+            "tool_errors": 0,
+            "artifact": str(tmp_path),
+        }
+        for side in ("fixture", "default", "reference")
+        for _ in range(2)
+    ]
     results = tmp_path / "r.jsonl"
-    results.write_text("")
+    results.write_text("\n".join(json.dumps(r) for r in rows))
+    (tmp_path / "transcript.jsonl").write_text("")
     assert realism.main(["--report", "--out", str(results)]) == 0
-    assert "metric" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "fixture/reference" in out and "default/reference" in out and "default/fixture" in out
 
 
 def test_rag_experiment_runs_each_question_in_both_arms_and_flips_order(
