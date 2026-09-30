@@ -253,8 +253,8 @@ def run_trial(
     agentconfig.write(asm, tdir / "xdg" / "config")
     binds: list[tuple[Path, str]] = list(_tool_binds(()))
     if fx.venv is not None:
-        binds.append((fx.venv, "/venv"))
-    path = "/opt/bin:/venv/bin:/usr/bin:/bin" if fx.venv is not None else "/opt/bin:/usr/bin:/bin"
+        binds.append((fx.venv, sandbox.VENV_DIR))
+    path = f"/opt/bin:{sandbox.VENV_DIR}/bin:/usr/bin:/bin" if fx.venv else "/opt/bin:/usr/bin:/bin"
     sb = sandbox.Spec(
         base=fx.tree,
         upper=tdir / "upper",
