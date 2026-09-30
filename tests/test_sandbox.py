@@ -172,6 +172,20 @@ def test_host_filesystem_is_absent(spec: Spec) -> None:
 
 
 @needs_bwrap
+def test_the_real_repo_path_inside_the_sandbox_is_the_base_not_the_host_repo(spec: Spec) -> None:
+    """The fixture is mounted where the real repo lives on the host: a mistake would expose it."""
+    result = _sh(spec, f"ls -A {sandbox.WORKDIR} | sort | tr '\\n' ' '")
+    assert result.stdout.strip() == "existing.txt gone.txt pkg", result.stdout
+    host_only = [
+        p.name for p in Path(sandbox.WORKDIR).iterdir() if p.name not in ("pkg", "existing.txt")
+    ]
+    if host_only:  # on this machine the host repo exists; none of its entries may show through
+        names = " ".join(f"'{sandbox.WORKDIR}/{n}'" for n in host_only)
+        seen = _sh(spec, f'for p in {names}; do test -e "$p" && echo VISIBLE:$p; done; true')
+        assert seen.stdout.strip() == "", seen.stdout
+
+
+@needs_bwrap
 def test_host_canary_cannot_be_written_or_read(spec: Spec, tmp_path: Path) -> None:
     canary = tmp_path / "host_only_canary.txt"
     canary.write_text("untouched\n")
