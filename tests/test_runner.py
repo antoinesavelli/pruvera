@@ -259,3 +259,12 @@ def test_cli_trial_declares_every_argument_it_reads() -> None:
     ns = cli.build_parser().parse_args(["trial", "--agent", "a", "--model", "m", "--prompt", "p"])
     for name in ("profile", "wait", "keep_overlay", "force", "hook", "timeout", "hang_seconds"):
         assert hasattr(ns, name), name
+
+
+def test_merge_lays_extra_config_over_base_and_recurses_into_dicts() -> None:
+    base = {"agent": {"research": {"model": "a"}}, "keep": 1}
+    extra = {"agent": {"research": {"tools": {"x": True}}}, "mcp": {"s": {"type": "local"}}}
+    merged = runner.merge(base, extra)
+    assert merged["agent"]["research"] == {"model": "a", "tools": {"x": True}}
+    assert merged["mcp"] == {"s": {"type": "local"}} and merged["keep"] == 1
+    assert base == {"agent": {"research": {"model": "a"}}, "keep": 1}, "base is not mutated"

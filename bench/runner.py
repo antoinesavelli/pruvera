@@ -79,6 +79,9 @@ class TrialSpec:
     net: sandbox.Net = "ollama"
     keep_overlay: bool = False
     label: str = ""  # a task name, so a study can group trials
+    arm: str = ""  # an experiment arm, for example "control" or "treatment"
+    extra_binds: tuple[tuple[Path, str], ...] = ()  # read-only binds an experiment adds
+    inline: dict[str, Any] = field(default_factory=dict)  # merged into the inline config
     trial_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 
 
@@ -164,6 +167,23 @@ def gpu_residency() -> str:
         return ""
     parts = rows[1].split(None, 3)
     return parts[3][:24] if len(parts) > 3 else ""
+
+
+def merge(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
+    """`extra` laid over `base`, recursing into dicts."""
+    out = dict(base)
+    for key, value in extra.items():
+        out[key] = (
+            merge(out[key], value)
+            if isinstance(out.get(key), dict) and isinstance(value, dict)
+            else value
+        )
+    return out
+
+
+def _config_env(asm: agentconfig.Assembly, spec: TrialSpec) -> dict[str, str]:
+    """OPENCODE_CONFIG_CONTENT: the model under test plus any experiment's inline config."""
+    return {"OPENCODE_CONFIG_CONTENT": json.dumps(merge(asm.inline, spec.inline), sort_keys=True)}
 
 
 def _tool_binds(extra: Sequence[tuple[Path, str]]) -> tuple[tuple[Path, str], ...]:
@@ -253,7 +273,7 @@ def run_trial(
     asm = agentconfig.assemble(spec.agent, spec.model, config_source)
     agentconfig.check_parity(json.loads(config_source.read_text()), asm.config, asm.deviations)
     agentconfig.write(asm, tdir / "xdg" / "config")
-    binds: list[tuple[Path, str]] = list(_tool_binds(()))
+    binds: list[tuple[Path, str]] = list(_tool_binds(spec.extra_binds))
     if fx.venv is not None:
         binds.append((fx.venv, sandbox.VENV_DIR))
     path = f"/opt/bin:{sandbox.VENV_DIR}/bin:/usr/bin:/bin" if fx.venv else "/opt/bin:/usr/bin:/bin"
@@ -263,7 +283,7 @@ def run_trial(
         work=tdir / "work",
         xdg=tdir / "xdg",
         ro_binds=tuple(binds),
-        env={"PATH": path, **GIT_IDENTITY, **asm.env()},
+        env={"PATH": path, **GIT_IDENTITY, **_config_env(asm, spec)},
         net=spec.net,
         data_base=fx.data,
     )
@@ -306,6 +326,7 @@ def run_trial(
         "schema": 1,
         "trial_id": spec.trial_id,
         "label": spec.label,
+        "arm": spec.arm,
         "environment": "fixture",
         "fixture_version": fx.version,
         "fixture_profile": fx.profile,
