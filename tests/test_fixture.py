@@ -337,3 +337,21 @@ def test_dataslice_places_slice_dirs_at_the_constants_they_stand_in_for(tmp_path
     assert not (out / "halts_dir").exists(), "absent slice directories are simply skipped"
     with pytest.raises(dataslice.DataSliceError, match="already exists"):
         dataslice.build(tree, out, tmp_path / "work2", venv, init_db=False)
+
+
+def test_rewrite_shebangs_and_tree_pth(tmp_path: Path) -> None:
+    from bench.fixture import venv
+
+    root = tmp_path / "venv"
+    (root / "bin").mkdir(parents=True)
+    (root / "lib" / "python3.12" / "site-packages").mkdir(parents=True)
+    host = str(root.resolve())
+    (root / "bin" / "pytest").write_text(f"#!{host}/bin/python\nimport sys\n")
+    (root / "bin" / "other").write_text("#!/usr/bin/env python3\nx = 1\n")
+    (root / "bin" / "data.bin").write_bytes(b"\x00\x01")
+    (root / "bin" / "python").symlink_to("/usr/bin/python3")
+    assert venv.rewrite_shebangs(root) == ["pytest"]
+    assert (root / "bin" / "pytest").read_text() == "#!/venv/bin/python\nimport sys\n"
+    assert (root / "bin" / "other").read_text() == "#!/usr/bin/env python3\nx = 1\n"
+    pth = venv.add_tree_pth(root)
+    assert pth.read_text() == "/work\n" and pth.parent.name == "site-packages"
