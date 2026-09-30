@@ -1,7 +1,8 @@
 """Build the fixture's Python environment from its pinned requirements, for use in the sandbox.
 
-The venv is bound read-only at /venv in a trial: console-script shebangs are rewritten from the host
-path to /venv, and a .pth puts the tree (/work) on sys.path the way an editable install would.
+The venv is bound read-only at /work/.venv in a trial (where the project keeps it): console-script
+shebangs are rewritten from the host path to that, and a .pth puts the tree (/work) on sys.path,
+the way an editable install would.
 Depends on: uv and network access at build time only; nothing here runs inside a trial.
 """
 
@@ -11,8 +12,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
-INSIDE = "/venv"
+INSIDE = "/work/.venv"
 TREE_INSIDE = "/work"
+OLD_INSIDE = ("/venv",)  # earlier builds used this; rewritten on request
 
 
 class VenvError(RuntimeError):
@@ -22,7 +24,7 @@ class VenvError(RuntimeError):
 def rewrite_shebangs(venv: Path, inside: str = INSIDE) -> list[str]:
     """Point every bin/ script that names this venv's python at `inside`; return files changed."""
     changed: list[str] = []
-    host = str(venv.resolve())
+    prefixes = [str(venv.resolve()), *OLD_INSIDE]
     for script in sorted((venv / "bin").iterdir()):
         if script.is_symlink() or not script.is_file():
             continue
@@ -31,9 +33,13 @@ def rewrite_shebangs(venv: Path, inside: str = INSIDE) -> list[str]:
             continue
         text = script.read_text(errors="surrogateescape")
         first, _, rest = text.partition("\n")
-        if host in first:
-            script.write_text(first.replace(host, inside) + "\n" + rest, errors="surrogateescape")
-            changed.append(script.name)
+        for prefix in prefixes:
+            if prefix in first and inside not in first:
+                script.write_text(
+                    first.replace(prefix, inside) + "\n" + rest, errors="surrogateescape"
+                )
+                changed.append(script.name)
+                break
     return changed
 
 

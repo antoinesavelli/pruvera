@@ -61,12 +61,12 @@ def build(
         work=workdir / "work",
         xdg=workdir / "xdg",
         net="none",
-        ro_binds=((venv, "/venv"),),
+        ro_binds=((venv, sandbox.VENV_DIR),),
         rw_binds=((out_root, "/dataroot"),),
-        env={"PARAMO_DATA_ROOT": "/dataroot", "PATH": "/venv/bin:/usr/bin:/bin"},
+        env={"PARAMO_DATA_ROOT": "/dataroot", "PATH": f"{sandbox.VENV_DIR}/bin:/usr/bin:/bin"},
     )
     code = _RESOLVE.format(names=list(SLICE_MAP.values()), init_db=init_db)
-    done = sandbox.run(spec, ["/venv/bin/python", "-c", code], timeout=300)
+    done = sandbox.run(spec, [f"{sandbox.VENV_DIR}/bin/python", "-c", code], timeout=300)
     if done.returncode != 0:
         raise DataSliceError(f"resolving paths failed: {done.stderr[-400:]}")
     resolved: dict[str, str] = json.loads(done.stdout.strip().splitlines()[-1])
