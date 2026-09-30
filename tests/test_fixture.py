@@ -191,7 +191,7 @@ def test_build_end_to_end(repo: Path, tmp_path: Path) -> None:
     allow = p["allow"]
     allow.write_text("config/keep.py\n")  # the one deliberate code value (Y = 0.XXX)
     out = tmp_path / "v1"
-    result = build.build(repo, "HEAD", out, p["deny"], p["tok"], p["stubs"], allow)
+    result = build.build(repo, "HEAD", out, p["deny"], p["tok"], p["stubs"], allow, None)
     tree = out / "tree"
     assert not (tree / "docs" / "research").exists() and not (tree / "data").exists()
     assert not (tree / "engine" / "source_secret.py").exists()
@@ -212,14 +212,16 @@ def test_build_end_to_end(repo: Path, tmp_path: Path) -> None:
 def test_build_fails_on_unapproved_code_value(repo: Path, tmp_path: Path) -> None:
     p = _write_inputs(tmp_path)
     with pytest.raises(build.BuildError, match="stops=1"):
-        build.build(repo, "HEAD", tmp_path / "v1", p["deny"], p["tok"], p["stubs"], p["allow"])
+        build.build(
+            repo, "HEAD", tmp_path / "v1", p["deny"], p["tok"], p["stubs"], p["allow"], None
+        )
 
 
 def test_build_is_deterministic(repo: Path, tmp_path: Path) -> None:
     p = _write_inputs(tmp_path)
     p["allow"].write_text("config/keep.py\n")
-    a = build.build(repo, "HEAD", tmp_path / "a", p["deny"], p["tok"], p["stubs"], p["allow"])
-    b = build.build(repo, "HEAD", tmp_path / "b", p["deny"], p["tok"], p["stubs"], p["allow"])
+    a = build.build(repo, "HEAD", tmp_path / "a", p["deny"], p["tok"], p["stubs"], p["allow"], None)
+    b = build.build(repo, "HEAD", tmp_path / "b", p["deny"], p["tok"], p["stubs"], p["allow"], None)
     assert a.manifest["tree_hash"] == b.manifest["tree_hash"]
     assert a.manifest["fixture_base_commit"] == b.manifest["fixture_base_commit"]
 
@@ -263,3 +265,30 @@ def test_dependent_files_cascade_to_a_fixpoint(tmp_path: Path) -> None:
         (tmp_path / rel).write_text(text)
     dropped = denylist.dependent_files(tmp_path, list(files), {"gone.thing"})
     assert dropped == {"pkg/b.py", "pkg/a.py", "tests/test_a.py"}
+
+
+def test_droptests_removes_named_tests_and_classes_and_stays_valid(tmp_path: Path) -> None:
+    from bench.fixture import droptests
+
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x.py").write_text(
+        "import pytest\n\n\n"
+        "class TestKeep:\n    def test_a(self):\n        assert 1\n\n"
+        "    @pytest.mark.parametrize('n', [1, 2])\n"
+        "    def test_b(self, n):\n        assert n\n\n\n"
+        "class TestGone:\n    def test_c(self):\n        assert 1\n\n\n"
+        "def test_top():\n    assert 1\n"
+    )
+    ids = [
+        "tests/test_x.py::TestKeep::test_b",
+        "tests/test_x.py::TestGone",
+        "tests/test_x.py::test_top",
+    ]
+    assert droptests.drop(tmp_path, ids) == ids
+    text = (tmp_path / "tests" / "test_x.py").read_text()
+    assert "test_a" in text and "test_b" not in text and "TestGone" not in text
+    assert "test_top" not in text and "parametrize" not in text
+    with pytest.raises(droptests.DropError, match="not found"):
+        droptests.drop(tmp_path, ["tests/test_x.py::TestKeep::test_missing"])
+    with pytest.raises(droptests.DropError, match="file missing"):
+        droptests.drop(tmp_path, ["tests/nope.py::x"])
