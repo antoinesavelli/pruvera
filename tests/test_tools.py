@@ -450,3 +450,14 @@ def test_the_index_chunks_docs_embeds_them_and_writes_the_arrays(
     assert index.build(tree, out) == {"chunks": 3, "files": 1}
     assert json.loads((out / "chunks.json").read_text())[0]["file"] == "docs/a.md"
     assert np.load(out / "vectors.npy").shape == (3, 2)
+
+
+def test_reseeding_keeps_a_measured_difficulty_and_proof(tmp_path: Path) -> None:
+    catalogue = tmp_path / "issues"
+    hand = seed.hand_issues()[0]
+    schema.write(catalogue, dataclasses.replace(hand, difficulty="hard", proven_on="v2"))
+    written = seed.write_preserving(catalogue, [hand])
+    assert written[0].difficulty == "hard" and written[0].proven_on == "v2"
+    assert schema.load(catalogue / hand.id / "issue.toml").difficulty == "hard"
+    fresh = seed.write_preserving(tmp_path / "other", [hand])
+    assert fresh[0].difficulty == hand.difficulty and fresh[0].proven_on == ""

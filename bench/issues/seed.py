@@ -6,6 +6,7 @@ their own edits. The catalogue and profiles land under issues/. Depends on: benc
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sys
 from pathlib import Path
@@ -311,13 +312,25 @@ PROFILES = {
 }
 
 
+def write_preserving(catalogue: Path, issues: list[Issue]) -> list[Issue]:
+    """Write issues; a measured difficulty or proof already on disk survives a re-seed."""
+    out = []
+    for issue in issues:
+        stored = catalogue / issue.id / "issue.toml"
+        if stored.exists():
+            old = schema.load(stored)
+            issue = dataclasses.replace(issue, difficulty=old.difficulty, proven_on=old.proven_on)
+        schema.write(catalogue, issue)
+        out.append(issue)
+    return out
+
+
 def seed(root: Path) -> list[Issue]:
     tree = root / "fixtures/paramo/versions/v2/tree"
     campaign = json.loads((root / "issues/_campaign.json").read_text())
     issues = [mutant_issue(tree, campaign, m, ln, pick) for m, ln, pick in CAUGHT + SURVIVING]
     issues += hand_issues()
-    for issue in issues:
-        schema.write(root / "issues", issue)
+    issues = write_preserving(root / "issues", issues)
     prof = root / "issues" / "profiles"
     prof.mkdir(parents=True, exist_ok=True)
     # Every catalogue issue, mined ones included, not only the seeded ones.
