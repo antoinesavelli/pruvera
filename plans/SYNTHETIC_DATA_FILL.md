@@ -1,6 +1,7 @@
 # Synthetic data fill — plan
 
-**Status: PLAN ONLY, 2026-09-30. Nothing built.** Extends `PLAN.md` §4.4 (data and services) and the
+**Status 2026-09-30: D1-D5 done for the two measured gaps.** Decisions A and B were taken at their
+recommended values (real public Nasdaq directory; measured gaps first). Extends `PLAN.md` §4.4 (data and services) and the
 open Phase 2 item. Owner decisions are marked **[O]**.
 
 ## 1. Goal
@@ -67,3 +68,24 @@ known yet: step D1 measures it.
 - **A.** Use the real public Nasdaq symbol directory, or a synthetic one? Recommended: the real one; it is
   public, and the three tests check real ETF classification.
 - **B.** Fill only the measured gaps first, or a broader fill? Recommended: measured gaps first.
+
+
+## 7. Results (2026-09-30)
+
+- **D1 inventory** (`bench/fixture/audit_reads.py`, an audit hook loaded only for the run): the whole suite in
+  the sandbox produced 74 missing-path events across 12 test files and 8 distinct paths, mostly runtime state
+  files the tests create themselves (`runtime/*`, a lock, a temp parquet) plus `sharadar/sf1` and `actions`.
+  **Limit:** the hook sees Python-level opens and directory listings, not pyarrow's C++ reads or stat checks, so
+  it missed both known gaps; treat it as a floor. The two gaps came from the failing tests' own errors.
+- **D3/D4** (`bench/fixture/synthdata.py`; data root `fixtures/paramo/data/v3/root`): six symbols
+  `ZQAA`..`ZQAF` (prefix checked against the real directory's 13,136 symbols, no collision), seeded random-walk
+  daily rows from 2022-12-01 to 2024-03-06 (1,890 rows, 16 monthly files), dtypes taken from a real slice file
+  (schema only), every invariant checked at build (OHLC, positive volume, marketcap = shares x close, rolling
+  ADV, unique keys), plus the real public Nasdaq symbol directory. Seed and counts in
+  `versions/v2/DATA_V3_MANIFEST.json`.
+- **Acceptance met:** the suite's failing set dropped from 22 to 12; the 10 data-caused tests are green
+  (7 integration, 3 security-type) and none turned red; the `insider_cluster` backtest over the slice window is
+  unchanged (5 trades, $10,320.36); the real slice files are byte-identical in v3; the build is deterministic
+  (same seed, same data; a test asserts it).
+- **Not done (none measured as needed):** further fill. The remaining 12 red tests are the 11 doc/index checks
+  that cite removed files and one test written against real machine state.
