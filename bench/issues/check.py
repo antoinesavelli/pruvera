@@ -54,8 +54,8 @@ def _run(
             upper=work / "upper",
             work=work / "work",
             xdg=work / "xdg",
-            ro_binds=((env.venv, "/venv"), (work / "ov", "/ov")),
-            env={"PATH": "/venv/bin:/usr/bin:/bin"},
+            ro_binds=((env.venv, sandbox.VENV_DIR), (work / "ov", "/ov")),
+            env={"PATH": f"{sandbox.VENV_DIR}/bin:/usr/bin:/bin"},
             net="none",
             data_base=env.data,
         )

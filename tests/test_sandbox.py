@@ -350,13 +350,12 @@ def test_pip_install_into_the_read_only_venv_fails_and_changes_nothing(
     spec: Spec, tmp_path: Path
 ) -> None:
     wheel = _tiny_wheel(tmp_path)
-    binds = ((_FIXTURE_VENV, "/venv"), (wheel, "/opt/zzprobe-1-py3-none-any.whl"))
+    binds = ((_FIXTURE_VENV, sandbox.VENV_DIR), (wheel, "/opt/zzprobe-1-py3-none-any.whl"))
     with_venv = Spec(**{**spec.__dict__, "ro_binds": binds})
     site = next((_FIXTURE_VENV / "lib").glob("python*/site-packages"))
     before = sorted(p.name for p in site.iterdir())
-    script = (
-        "/venv/bin/pip install --no-index /opt/zzprobe-1-py3-none-any.whl 2>&1 | tail -4; echo end"
-    )
+    wheel_path = "/opt/zzprobe-1-py3-none-any.whl"
+    script = f"{sandbox.VENV_DIR}/bin/pip install --no-index {wheel_path} 2>&1 | tail -4; echo end"
     result = _sh(with_venv, script, timeout=120)
     assert re.search(r"Read-only file system|Errno 30|Permission denied", result.stdout), (
         result.stdout
