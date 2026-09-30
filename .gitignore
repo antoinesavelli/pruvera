@@ -12,3 +12,4 @@ __pycache__/
 .ruff_cache/
 *.pyc
 dummy.key
+fixtures/paramo/scrub_tokens.local.txt
