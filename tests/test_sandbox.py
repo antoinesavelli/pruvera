@@ -322,3 +322,43 @@ def test_data_slice_is_visible_at_the_real_path_and_writes_are_discarded(
     assert "absent" in hidden.stdout, (
         "only the data root and archive exist under /mnt/ParamoStorage"
     )
+
+
+_FIXTURE_VENV = Path(__file__).resolve().parents[1] / "fixtures/paramo/venv/v2"
+
+
+def _tiny_wheel(dest: Path) -> Path:
+    """A minimal valid wheel, so the install attempt reaches the write step, not a build step."""
+    import zipfile
+
+    wheel = dest / "zzprobe-1-py3-none-any.whl"
+    info = "zzprobe-1.dist-info"
+    with zipfile.ZipFile(wheel, "w") as z:
+        z.writestr("zzprobe/__init__.py", "X = 1\n")
+        z.writestr(f"{info}/METADATA", "Metadata-Version: 2.1\nName: zzprobe\nVersion: 1\n")
+        z.writestr(
+            f"{info}/WHEEL",
+            "Wheel-Version: 1.0\nGenerator: t\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        )
+        z.writestr(f"{info}/RECORD", "")
+    return wheel
+
+
+@needs_bwrap
+@pytest.mark.skipif(not _FIXTURE_VENV.exists(), reason="fixture venv not built")
+def test_pip_install_into_the_read_only_venv_fails_and_changes_nothing(
+    spec: Spec, tmp_path: Path
+) -> None:
+    wheel = _tiny_wheel(tmp_path)
+    binds = ((_FIXTURE_VENV, "/venv"), (wheel, "/opt/zzprobe-1-py3-none-any.whl"))
+    with_venv = Spec(**{**spec.__dict__, "ro_binds": binds})
+    site = next((_FIXTURE_VENV / "lib").glob("python*/site-packages"))
+    before = sorted(p.name for p in site.iterdir())
+    script = (
+        "/venv/bin/pip install --no-index /opt/zzprobe-1-py3-none-any.whl 2>&1 | tail -4; echo end"
+    )
+    result = _sh(with_venv, script, timeout=120)
+    assert re.search(r"Read-only file system|Errno 30|Permission denied", result.stdout), (
+        result.stdout
+    )
+    assert sorted(p.name for p in site.iterdir()) == before, "the venv must be unchanged"
