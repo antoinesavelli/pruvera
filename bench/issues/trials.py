@@ -50,6 +50,15 @@ def run_arms(
         return _run_arms_locked(arms, n, out, ids, issues, models, wait, force)
 
 
+def _arm_task(issue: schema.Issue, fx: runner.Fixture, models: dict[str, str] | None) -> tasks.Task:
+    """The task for `issue` as one arm runs it (its variant may wrap the prompt, swap a model)."""
+    config = fx.manifest.get("variant_config") or {}
+    task = tasks.task_for(issue, {**(models or {}), **config.get("models", {})})
+    wrap = config.get("prompt", {})
+    prompt = f"{wrap.get('prefix', '')}{task.prompt}{wrap.get('suffix', '')}"
+    return dataclasses.replace(task, prompt=prompt)
+
+
 def _run_arms_locked(
     arms: dict[str, runner.Fixture],
     n: int,
@@ -63,9 +72,9 @@ def _run_arms_locked(
     for rep in range(n):
         flip = rep % 2 == 1
         for issue_id in reversed(ids) if flip else ids:
-            task = tasks.task_for(issues[issue_id], models)
             for arm in reversed(list(arms)) if flip else list(arms):
                 _blocked(wait, force)
+                task = _arm_task(issues[issue_id], arms[arm], models)
                 spec = runner.TrialSpec(
                     agent=task.agent,
                     model=task.model,

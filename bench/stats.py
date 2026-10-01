@@ -50,8 +50,9 @@ def bootstrap_diff(
     *,
     draws: int = 4000,
     seed: int = 1,
+    alpha: float = 0.05,
 ) -> tuple[float, float, float]:
-    """(difference b - a in cluster rate, lower, upper 95%) resampling the shared tasks."""
+    """(difference b - a in cluster rate, lower, upper (1 - alpha)) resampling the shared tasks."""
     # Trials within a task are resampled too, so both sources of noise are in the interval.
     tasks = sorted(set(a) & set(b))
     if not tasks:
@@ -71,7 +72,7 @@ def bootstrap_diff(
         )
     diffs.sort()
     point = cluster_rate({t: b[t] for t in tasks}) - cluster_rate({t: a[t] for t in tasks})
-    return point, diffs[int(0.025 * draws)], diffs[int(0.975 * draws) - 1]
+    return point, diffs[int(alpha / 2 * draws)], diffs[int((1 - alpha / 2) * draws) - 1]
 
 
 def bootstrap_ratio(
