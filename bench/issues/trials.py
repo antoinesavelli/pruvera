@@ -25,6 +25,12 @@ RESULTS = ROOT / "results" / "issues"
 SOLVED, HARD = 0.7, 0.3  # difficulty bands on the observed success rate
 
 
+def _blocked(wait: float, force: bool) -> None:
+    """Wait for the host to clear; raise if it does not and the run is not forced."""
+    if (blocked := preflight.wait_clear(wait)) and not force:
+        raise RuntimeError(f"trials blocked: {[p.code for p in blocked]}")
+
+
 def run_arms(
     arms: dict[str, runner.Fixture],
     n: int,
@@ -37,18 +43,15 @@ def run_arms(
 ) -> Path:
     """`n` trials per issue per arm, arms alternating with the order flipped each repeat."""
     # GPU warmth and drift then hit all arms alike. Every arm must plant the same issues.
-    first = next(iter(arms.values()))
     issues = schema.load_all(ROOT / "issues")
-    ids = [i for i in first.issue_ids if not only or i in only]
+    ids = [i for i in next(iter(arms.values())).issue_ids if not only or i in only]
     out.parent.mkdir(parents=True, exist_ok=True)
     for rep in range(n):
-        for issue_id in ids if rep % 2 == 0 else reversed(ids):
+        flip = rep % 2 == 1
+        for issue_id in reversed(ids) if flip else ids:
             task = tasks.task_for(issues[issue_id], models)
-            names = list(arms) if rep % 2 == 0 else list(reversed(arms))
-            for arm in names:
-                if blocked := preflight.wait_clear(wait):
-                    if not force:
-                        raise RuntimeError(f"trials blocked: {[p.code for p in blocked]}")
+            for arm in reversed(list(arms)) if flip else list(arms):
+                _blocked(wait, force)
                 spec = runner.TrialSpec(
                     agent=task.agent,
                     model=task.model,

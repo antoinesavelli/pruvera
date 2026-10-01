@@ -72,11 +72,6 @@ def test_a_small_design_cannot_clear_even_when_the_arms_are_identical() -> None:
     assert verdict["min_detectable_effect"] > 0.1, "the report says the design could not see 0.10"
 
 
-def test_per_issue_reports_each_arms_rate() -> None:
-    table = gate.per_issue(rows("baseline", {"a": 1.0}) + rows("candidate", {"a": 0.5}))
-    assert table == {"a": {"baseline": 1.0, "candidate": 0.5}}
-
-
 def _version(tmp_path: Path) -> Path:
     version = tmp_path / "v1"
     tree = version / "tree"

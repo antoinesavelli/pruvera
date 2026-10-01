@@ -118,12 +118,10 @@ def history_groups(files: list[str], chunk: int = HISTORY_CHUNK) -> list[tuple[s
 
 
 def git_base(tree: Path, history: bool = False) -> str:
-    """Give `tree` a fresh repo with fixed author and dates; returns HEAD.
-
-    One commit by default. With `history`, the same final tree arrives through one commit per
-    directory (large ones in parts), a day apart, with generic messages: a session then sees a
-    history of realistic depth without any real commit message being copied in.
-    """
+    """Give `tree` a fresh repo with fixed author and dates; returns HEAD."""
+    # One commit by default. With `history`, the same final tree arrives through one commit per
+    # directory (large ones in parts), a day apart, with generic messages: a session then sees a
+    # history of realistic depth without any real commit message being copied in.
     env = _git_env(tree, BASE_DATE)
     _git(tree, env, "init", "-q", "-b", "main")
     if not history:

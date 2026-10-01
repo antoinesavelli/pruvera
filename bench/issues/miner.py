@@ -72,7 +72,7 @@ def _numstat(repo: Path, commit: str) -> list[tuple[int, str]]:
     return rows
 
 
-def _is_test(path: str) -> bool:
+def _in_tests_dir(path: str) -> bool:
     return path.startswith("tests/") or "/tests/" in path
 
 
@@ -89,7 +89,7 @@ def _eligible(
     rows: list[tuple[int, str]], kept: set[str], max_sources: int
 ) -> list[tuple[int, str]]:
     """The commit's source files as (lines changed, path); empty unless all are small and kept."""
-    sources = [(n, p) for n, p in rows if p.endswith(".py") and not _is_test(p)]
+    sources = [(n, p) for n, p in rows if p.endswith(".py") and not _in_tests_dir(p)]
     if len(sources) > max_sources or any(p not in kept for _, p in sources):
         return []
     return sources
@@ -100,7 +100,7 @@ def _select_one(repo: Path, commit: str, kept: set[str], max_sources: int) -> Se
     sources = _eligible(rows, kept, max_sources)
     if not sources:
         return None
-    touched = [p for _, p in rows if _is_test(p) and p in kept and p.endswith(".py")]
+    touched = [p for _, p in rows if _in_tests_dir(p) and p in kept and p.endswith(".py")]
     tests = tuple(dict.fromkeys([*touched, *sibling_tests(kept, [p for _, p in sources])]))
     return Selected(commit, tuple(p for _, p in sources), tests, sum(n for n, _ in sources))
 
