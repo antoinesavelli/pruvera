@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from bench import agentconfig, preflight, sandbox
+from bench import agentconfig, layout, preflight, sandbox
 from bench.readback import ReadBackError
 from bench.readback import git_state as _git_state
 from bench.readback import read_back as _read_back
@@ -101,6 +101,16 @@ class TrialSpec:
     extra_binds: tuple[tuple[Path, str], ...] = ()  # read-only binds an experiment adds
     inline: dict[str, Any] = field(default_factory=dict)  # merged into the inline config
     trial_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+
+
+def load_profile(version: str, profile: str = "realistic2") -> Fixture:
+    """Fixture version with a planted-issue profile ("clean" for the control)."""
+    return load_fixture(
+        layout.version_dir(version),
+        venv=layout.venv(version),
+        data=layout.data_root(),
+        profile=profile,
+    )
 
 
 def load_fixture(

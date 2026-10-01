@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -76,8 +78,18 @@ def test_check_raises_unless_forced(proc: Path) -> None:
 
 def test_real_host_scan_runs_without_error() -> None:
     assert isinstance(preflight.running_agents(), list)
-    util = preflight.gpu_utilization()
-    assert util is None or 0 <= util <= 100
+
+
+def test_gpu_utilization_reads_nvidia_smi_output_or_gives_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake(out: str) -> Any:
+        return lambda *a, **k: subprocess.CompletedProcess(a, 0, out, "")
+
+    monkeypatch.setattr(subprocess, "run", fake("37\n"))
+    assert preflight.gpu_utilization() == 37
+    monkeypatch.setattr(subprocess, "run", fake("not a number"))
+    assert preflight.gpu_utilization() is None
 
 
 def test_wait_clear_polls_until_clear_or_timeout(proc: Path) -> None:
@@ -132,6 +144,13 @@ def test_every_harness_entry_point_that_starts_trials_is_recognised(proc: Path) 
         ["python3", "-mbench.issues.trials", "run"],
         ["python3", "bench/cli.py", "trial"],
         ["/usr/bin/env", "python3", "-m", "bench.gate", "run"],
+        ["python3", "-X", "dev", "-m", "bench.gate", "run"],
+        ["python3", "-W", "ignore", "-m", "bench.cli", "trial"],
+        ["python3", "-um", "bench.cli", "trial"],
+        ["python3", "-Im", "bench.issues.trials", "run"],
+        ["env", "PYTHONPATH=.", "python3", "-m", "bench.gate", "run"],
+        ["timeout", "3600", "python3", "-m", "bench.issues.trials", "run"],
+        ["nice", "-n", "5", "python3", "-m", "bench.realism"],
     ],
 )
 def test_interpreter_command_line_variants_are_recognised(proc: Path, argv: list[str]) -> None:

@@ -14,16 +14,6 @@ from bench import layout, preflight, runner
 from bench.layout import ROOT
 
 
-def load(version: str, profile: str = "realistic2") -> runner.Fixture:
-    """Fixture version with a planted-issue profile ("clean" for the control)."""
-    return runner.load_fixture(
-        layout.version_dir(version),
-        venv=layout.venv(version),
-        data=layout.data_root(),
-        profile=profile,
-    )
-
-
 def parse_hook(text: str) -> runner.Hook:
     """`kind:path[:content]`, for example `peer_staged:docs/x.md:peer wip`."""
     kind, _, rest = text.partition(":")
@@ -64,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    fx = load(args.version, args.profile)
+    fx = runner.load_profile(args.version, args.profile)
     if args.cmd == "replay":
         print(runner.reproduce_diff(fx, args.trial_dir), end="")
         return 0

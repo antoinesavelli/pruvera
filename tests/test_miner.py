@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
 import tomllib
 from pathlib import Path
 
@@ -13,6 +11,7 @@ from bench import sandbox
 from bench.fixture import scrub
 from bench.issues import check, miner, plant, schema
 from tests.helpers import bwrap_works as _bwrap_works
+from tests.helpers import git
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_VENV = ROOT / "fixtures/paramo/venv/v2"
@@ -21,34 +20,20 @@ FIXED = "def scale(x):\n    if x >= 10:\n        return x * 2\n    return x\n"
 TEST = "from pkg.m import scale\n\n\ndef test_boundary():\n    assert scale(10) == 20\n"
 
 
-def _git(repo: Path, *args: str) -> str:
-    env = {
-        "PATH": os.environ["PATH"],
-        "HOME": str(repo),
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_AUTHOR_NAME": "t",
-        "GIT_AUTHOR_EMAIL": "t@t",
-        "GIT_COMMITTER_NAME": "t",
-        "GIT_COMMITTER_EMAIL": "t@t",
-    }
-    done = subprocess.run(["git", "-C", str(repo), *args], env=env, capture_output=True, check=True)
-    return done.stdout.decode().strip()
-
-
 def _commit(repo: Path, files: dict[str, str], message: str) -> str:
     for rel, text in files.items():
         (repo / rel).parent.mkdir(parents=True, exist_ok=True)
         (repo / rel).write_text(text)
-    _git(repo, "add", "-A")
-    _git(repo, "commit", "-qm", message)
-    return _git(repo, "rev-parse", "HEAD")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", message)
+    return git(repo, "rev-parse", "HEAD")
 
 
 @pytest.fixture
 def repo(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     src = tmp_path / "src"
     src.mkdir()
-    _git(src, "init", "-q", "-b", "main")
+    git(src, "init", "-q", "-b", "main")
     _commit(src, {"pkg/__init__.py": "", "pkg/m.py": BUGGY, "README.md": "x\n"}, "add scale")
     fix = _commit(src, {"pkg/m.py": FIXED, "tests/test_m.py": TEST}, "fix: boundary is inclusive")
     docs = _commit(src, {"README.md": "y\n"}, "fix typo in readme")  # a fix that touches no source

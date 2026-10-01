@@ -12,6 +12,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import threading
 from collections.abc import Iterator, Mapping, Sequence
@@ -175,6 +176,16 @@ TASKS_MAX = 4096  # and may not fork-bomb it
 @functools.cache
 def limit_prefix() -> tuple[str, ...]:
     """A `systemd-run --user --scope` prefix that caps memory and tasks, or () where unavailable."""
+    prefix = _scope_prefix()
+    if not prefix:
+        print(
+            "warning: no systemd user scope: trials run WITHOUT memory, task or CPU caps",
+            file=sys.stderr,
+        )
+    return prefix
+
+
+def _scope_prefix() -> tuple[str, ...]:
     if shutil.which("systemd-run") is None:
         return ()
     prefix = (

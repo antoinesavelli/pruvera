@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import os
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -15,25 +13,12 @@ import pytest
 from bench import preflight, runner, sandbox
 from bench.runner import DriftError, Hook, TrialSpec
 from tests.helpers import bwrap_works as _bwrap_works
+from tests.helpers import git
 
 pytestmark = pytest.mark.skipif(not _bwrap_works(), reason="unprivileged bwrap unavailable")
 
 CONFIG = {"model": "ollama/m", "provider": {"ollama": {}}, "agent": {"a": {"model": "ollama/m"}}}
 EVENT = '{"type":"text","timestamp":1,"part":{"text":"hello"}}'
-
-
-def _git(repo: Path, *args: str) -> str:
-    env = {
-        "PATH": os.environ["PATH"],
-        "HOME": str(repo),
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_AUTHOR_NAME": "t",
-        "GIT_AUTHOR_EMAIL": "t@t",
-        "GIT_COMMITTER_NAME": "t",
-        "GIT_COMMITTER_EMAIL": "t@t",
-    }
-    done = subprocess.run(["git", "-C", str(repo), *args], env=env, capture_output=True, check=True)
-    return done.stdout.decode().strip()
 
 
 @pytest.fixture
@@ -43,12 +28,12 @@ def fx(tmp_path: Path) -> runner.Fixture:
     (tree / "pkg").mkdir(parents=True)
     (tree / "AGENTS.md").write_text("rules\n")
     (tree / "pkg" / "mod.py").write_text("X = 1\n")
-    _git(tree, "init", "-q", "-b", "main")
-    _git(tree, "add", "-A")
-    _git(tree, "commit", "-qm", "fixture base")
+    git(tree, "init", "-q", "-b", "main")
+    git(tree, "add", "-A")
+    git(tree, "commit", "-qm", "fixture base")
     manifest = {
         "tree_hash": sandbox.tree_hash(tree, (".git",)),
-        "fixture_base_commit": _git(tree, "rev-parse", "HEAD"),
+        "fixture_base_commit": git(tree, "rev-parse", "HEAD"),
         "source_commit": "abc",
     }
     (version / "MANIFEST.json").write_text(json.dumps(manifest))
@@ -207,7 +192,7 @@ def test_cli_parse_hook_and_fixture_paths() -> None:
     assert (hook.kind, hook.path, hook.content) == ("peer_staged", "docs/x.md", "peer wip\n")
     default = cli.parse_hook("untracked:notes.txt")
     assert default.content == "# seeded by the trial\n"
-    fx = cli.load("v2", "clean")
+    fx = runner.load_profile("v2", "clean")
     assert fx.tree.name == "tree" and fx.venv is not None and fx.venv.parent.name == "venv"
     assert fx.profile == "clean" and fx.issue_ids == ()
 
