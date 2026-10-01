@@ -119,6 +119,7 @@ def build_argv(spec: Spec, cmd: Sequence[str], proxy_sock: Path | None = None) -
     if spec.net == "ollama" and proxy_sock is None:
         raise SandboxError("net='ollama' needs the host-side proxy socket")
     argv = ["bwrap", "--die-with-parent", "--new-session", "--unshare-user", "--unshare-pid"]
+    argv += ["--disable-userns", "--assert-userns-disabled"]  # no nested user namespaces inside
     argv += ["--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try"]
     if spec.net != "host":
         argv.append("--unshare-net")
@@ -376,14 +377,15 @@ def git_state_hash(tree: Path) -> str:
 def fingerprint(root: Path) -> str:
     """Cheap identity of a big read-only directory: its paths, sizes and modes, not its bytes."""
     # Catches a swapped, added or truncated file in a venv or data slice without reading gigabytes.
+    # String paths, not Path objects: a venv has tens of thousands of files and this runs per trial.
     digest = hashlib.sha256()
+    prefix = len(str(root)) + 1
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames.sort()
         for name in sorted(filenames):
-            path = Path(dirpath) / name
-            info = path.lstat()
-            rel = path.relative_to(root).as_posix()
-            digest.update(f"{rel}\0{info.st_size}\0{info.st_mode & 0o7777}\n".encode())
+            full = os.path.join(dirpath, name)
+            info = os.lstat(full)
+            digest.update(f"{full[prefix:]}\0{info.st_size}\0{info.st_mode & 0o7777}\n".encode())
     return digest.hexdigest()
 
 

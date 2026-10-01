@@ -9,6 +9,7 @@ Depends on: bench.{sandbox,preflight,agentconfig,transcript,readback}; git, loca
 
 from __future__ import annotations
 
+import errno
 import functools
 import hashlib
 import json
@@ -141,6 +142,18 @@ def rules_hash(tree: Path) -> str:
     for path in sorted(files):
         digest.update(path.relative_to(tree).as_posix().encode() + b"\0" + path.read_bytes())
     return digest.hexdigest()
+
+
+ALLOW_UNCAPPED = "AGENT_TESTING_ALLOW_UNCAPPED"
+
+
+def require_caps() -> None:
+    """Refuse to run a trial without the cgroup caps (memory, tasks, CPU) unless told to."""
+    if not sandbox.limit_prefix() and os.environ.get(ALLOW_UNCAPPED) != "1":
+        raise sandbox.SandboxError(
+            "no systemd user scope: a trial would run without memory, task and CPU caps "
+            f"(set {ALLOW_UNCAPPED}=1 to run uncapped anyway)"
+        )
 
 
 def check_fixture(fx: Fixture) -> None:
@@ -384,8 +397,19 @@ def _neutral_base(tree: Path, tdir: Path) -> Path:
     never written, so the original stays untouched.
     """
     base = tdir / "base"
-    shutil.copytree(tree, base, symlinks=True, copy_function=os.link)
+    shutil.copytree(tree, base, symlinks=True, copy_function=_link_or_copy)
     return base
+
+
+def _link_or_copy(src: str, dst: str) -> str:
+    """A hard link where the trial directory shares a filesystem with the fixture, else a copy."""
+    try:
+        os.link(src, dst)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        shutil.copy2(src, dst, follow_symlinks=False)
+    return dst
 
 
 def _sandbox_spec(
@@ -555,6 +579,7 @@ def run_trial(
 ) -> dict[str, Any]:
     """Run one trial and return its record (also appended to `results_file`)."""
     problems = check(force)
+    require_caps()
     check_fixture(fx)
     check_experiment(spec)
     tdir = trials_dir / spec.trial_id

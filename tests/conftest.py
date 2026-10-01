@@ -69,3 +69,9 @@ def _own_session_lock(
     monkeypatch.setattr(
         preflight, "SESSION_LOCK", tmp_path_factory.mktemp("lock") / ".session.lock"
     )
+
+
+@pytest.fixture(autouse=True)
+def _allow_uncapped_trials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fake-agent tests run on hosts without a systemd user scope too."""
+    monkeypatch.setenv("AGENT_TESTING_ALLOW_UNCAPPED", "1")
