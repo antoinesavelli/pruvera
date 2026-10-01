@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+import tomllib
 from datetime import datetime
 from pathlib import Path
 
@@ -132,6 +133,23 @@ def variant_files(variant_dir: Path) -> dict[str, str]:
     }
 
 
+VARIANT_SECTIONS = frozenset({"prompt", "models"})
+PROMPT_KEYS = frozenset({"prefix", "suffix"})
+
+
+def variant_config(variant_dir: Path) -> dict[str, dict[str, str]]:
+    """A variant's `variant.toml`: `[prompt]` prefix and suffix, and `[models]` by role."""
+    path = variant_dir / "variant.toml"
+    if not path.exists():
+        return {}
+    doc = tomllib.loads(path.read_text())
+    if set(doc) - VARIANT_SECTIONS:
+        raise PlantError(f"{path.name}: unknown sections {sorted(set(doc) - VARIANT_SECTIONS)}")
+    if set(doc.get("prompt", {})) - PROMPT_KEYS:
+        raise PlantError(f"{path.name}: [prompt] takes only {sorted(PROMPT_KEYS)}")
+    return {k: {str(a): str(b) for a, b in v.items()} for k, v in doc.items()}
+
+
 def build_profile(
     version_dir: Path,
     name: str,
@@ -139,6 +157,7 @@ def build_profile(
     out_root: Path | None = None,
     rule_files: dict[str, str] | None = None,
     history: bool = False,
+    config: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, object]:
     """Build `versions/<v>/profiles/<name>/tree` and its manifest; returns the manifest."""
     # `rule_files` (repo path to text) replace or add the delegation-rule files in the base commit
@@ -179,6 +198,7 @@ def build_profile(
         "git_hash": sandbox.git_state_hash(tree),
         "rule_files": sorted(rule_files or {}),
         "history": history,
+        "variant_config": config or {},
     }
     (out / "MANIFEST.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest
@@ -208,6 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         [issues[i] for i in ids],
         rule_files=rules,
         history=args.history,
+        config=variant_config(root / "variants" / args.variant) if args.variant else None,
     )
     print(json.dumps({k: manifest[k] for k in ("profile", "fixture_base_commit", "tree_hash")}))
     return 0
