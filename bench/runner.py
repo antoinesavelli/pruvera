@@ -331,6 +331,8 @@ class _Run:
     diff: str = ""
     changes: dict[str, list[str]] = field(default_factory=dict)
     secs: float = 0.0
+    started: float = 0.0  # wall clock when the run began
+    exited: float = 0.0  # wall clock when the agent process exited
 
 
 EMBED_MODEL = "nomic-embed-text"  # the retrieval experiment's query embedder
@@ -368,7 +370,7 @@ def _execute(
     """Seed the hooks, stream the agent under its watchdogs, read the result back."""
     run = _Run()
     digest_before = model_digest(spec.model)
-    started = time.time()
+    started = run.started = time.time()
     try:
         for hook in spec.hooks:
             seeded = sandbox.run(
@@ -380,6 +382,7 @@ def _execute(
             t_out, t_err, last = _stream(proc, run.tr, run.raw, run.err)
             killed = _watch(proc, spec, last)
             run.rc = proc.wait(timeout=10)
+            run.exited = time.time()
             t_out.join(5)
             t_err.join(5)
         run.outcome = _classify(run.rc, killed, run.tr)
@@ -393,6 +396,19 @@ def _execute(
         run.changes = sandbox.overlay_changes(tdir / "upper")
     run.secs = round(time.time() - started, 1)
     return run
+
+
+def _phases(run: _Run) -> dict[str, float]:
+    tr = run.tr
+    if tr.first_ts is None or tr.last_ts is None or not run.exited:
+        return {}
+    first, last = tr.first_ts / 1000, tr.last_ts / 1000
+    return {
+        "startup": round(first - run.started, 2),
+        "agent": round(last - first, 2),
+        "exit_wait": round(run.exited - last, 2),
+        "after_exit": round(run.started + run.secs - run.exited, 2),
+    }
 
 
 def _record(
@@ -442,6 +458,9 @@ def _record(
         "final_text": "" if fx.environment == "reference" else tr.final[:FINAL_TEXT_CHARS],
         "rc": run.rc,
         "secs": run.secs,
+        # where the seconds went: before the agent's first event (startup), the agent's own
+        # window, and after it exited (joins, overlay scan, git read-back, digest check)
+        "phases": _phases(run),
         "events": tr.events,
         "tool_calls": len(tr.tools),
         "tool_errors": tr.tool_errors,
