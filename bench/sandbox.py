@@ -161,6 +161,7 @@ def _host_env() -> dict[str, str]:
 
 
 MEMORY_MAX = "16G"  # one trial's cgroup cap: a runaway test or agent must not OOM the host
+CPU_QUOTA_PERCENT = max(100, (os.cpu_count() or 2) // 2 * 100)  # at most half the cores
 MAX_OUTPUT = 32 * 1024 * 1024  # characters of stdout or stderr the harness keeps from a command
 UPPER_MAX_BYTES = 2 * 1024**3  # what one trial may write to its overlay upper directory
 UPPER_MAX_FILES = 200_000  # and how many files and directories it may create
@@ -175,7 +176,7 @@ def limit_prefix() -> tuple[str, ...]:
     prefix = (
         "systemd-run", "--user", "--scope", "-q",
         "-p", f"MemoryMax={MEMORY_MAX}", "-p", "MemorySwapMax=0",
-        "-p", f"TasksMax={TASKS_MAX}", "--",
+        "-p", f"TasksMax={TASKS_MAX}", "-p", f"CPUQuota={CPU_QUOTA_PERCENT}%", "--",
     )  # fmt: skip
     probe = subprocess.run(
         [*prefix, "true"], capture_output=True, check=False, timeout=30, env=_host_env()
