@@ -455,3 +455,32 @@ def test_a_command_that_floods_stdout_in_the_sandbox_does_not_exhaust_harness_me
 ) -> None:
     result = sandbox.run(spec, ["sh", "-c", "yes | head -c 80000000"], timeout=60)
     assert result.returncode == 0 and len(result.stdout) <= sandbox.MAX_OUTPUT
+
+
+@needs_bwrap
+def test_a_trial_cannot_create_a_nested_user_namespace(spec: Spec) -> None:
+    result = _sh(
+        spec, "unshare --user true >/dev/null 2>&1 && echo nested-ok || echo nested-denied"
+    )
+    assert result.stdout.strip() == "nested-denied"
+
+
+def test_fingerprint_is_the_documented_digest_of_paths_sizes_and_modes(tmp_path: Path) -> None:
+    """Pins in manifests were made by the slow Path-based version; the digest must not change."""
+    import hashlib
+
+    (tmp_path / "a" / "b").mkdir(parents=True)
+    (tmp_path / "a" / "b" / "x.py").write_text("hello")
+    (tmp_path / "z.txt").write_text("zz")
+    (tmp_path / "z.txt").chmod(0o640)
+    link = tmp_path / "a" / "l"
+    link.symlink_to("b/x.py")
+    digest = hashlib.sha256()
+    for rel in (
+        "z.txt",
+        "a/l",
+        "a/b/x.py",
+    ):  # os.walk order: a directory's files, then its subdirectories
+        info = (tmp_path / rel).lstat()
+        digest.update(f"{rel}\0{info.st_size}\0{info.st_mode & 0o7777}\n".encode())
+    assert sandbox.fingerprint(tmp_path) == digest.hexdigest()

@@ -286,6 +286,11 @@ def test_verify_profile_needs_every_test_issue_caught_together_and_records_the_r
     report = verify.verify_profile(env, [one])
     assert report["ok"] is True and report["red_set"] == ["tests/test_a.py::test_a"]
     assert report["detector_files"] == ["tests/test_a.py"]
+    assert report["fix_in_place"] == {one.id: True}
+    absent = _issue(id="x-9", edits=(Edit("pkg/m.py", "return 7\n", "return 8\n"),))
+    broken = verify.verify_profile(env, [one, absent])
+    assert broken["ok"] is False
+    assert broken["issues_whose_fix_does_not_turn_the_detector_green"] == ["x-9"]
     undetected = _issue(id="x-2", tests=("tests/test_a.py::test_b",))  # test_b stays green
     report = verify.verify_profile(env, [one, undetected])
     assert report["ok"] is False and report["issues_not_detected_together"] == ["x-2"]
