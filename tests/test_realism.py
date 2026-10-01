@@ -222,3 +222,16 @@ def test_effects_call_equal_sides_equivalent_and_a_2x_gap_different() -> None:
 def test_effects_with_no_shared_tasks_say_no_data() -> None:
     eff = compare.effects([_rec("fixture", "a", 3, 1.0), _rec("reference", "b", 3, 1.0)])
     assert eff["tool_calls"]["verdict"] == "no data"
+
+
+def test_paired_effect_reports_a_consistent_per_task_gap_the_pooled_ratio_can_hide() -> None:
+    """Regression: a ratio of sums, dominated by one slow task, hid a gap present on every task."""
+    records = []
+    for i in range(10):
+        slow = 100.0 if i == 0 else 10.0
+        records += [_rec("fixture", f"t{i}", 3, slow * 1.5) for _ in range(2)]
+        records += [_rec("reference", f"t{i}", 3, slow) for _ in range(2)]
+    paired = compare.effects(records)["secs"]["paired"]
+    assert paired["tasks"] == 10 and paired["higher"] == 10 and paired["lower"] == 0
+    assert abs(paired["geomean"] - 1.5) < 1e-9 and paired["sign_p"] < 0.01
+    assert "per task" in compare.effects_markdown(compare.effects(records))
