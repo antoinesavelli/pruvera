@@ -300,3 +300,17 @@ def test_records_are_scored_on_the_build_they_ran_on_and_unknown_builds_are_not_
     rows = trials.score_records(recs, "full")
     assert [r["outcome"] for r in rows] == ["fixed", "fixed", "unscorable"]
     assert old_dir / "tree" in seen and "no longer exists" in rows[2]["notes"][0]
+
+
+def test_run_gate_passes_an_issue_subset_through_to_the_runner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(cli, "load", lambda _v, p: mk(p))
+    monkeypatch.setattr(
+        trials,
+        "run_arms",
+        lambda arms, n, out, **kw: seen.update(kw) or out,
+    )
+    gate.run_gate("a", "b", 1, tmp_path / "g.jsonl", only=["x"])
+    assert seen["only"] == ["x"]

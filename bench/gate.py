@@ -223,7 +223,15 @@ def calibrate(
     return counts
 
 
-def run_gate(baseline: str, candidate: str, n: int, out: Path, *, force: bool = False) -> Path:
+def run_gate(
+    baseline: str,
+    candidate: str,
+    n: int,
+    out: Path,
+    *,
+    only: list[str] | None = None,
+    force: bool = False,
+) -> Path:
     """Run both profiles over the same issues, arms interleaved; scores land beside `out`."""
     arms = {
         "baseline": cli.load(layout.VERSION, baseline),
@@ -231,7 +239,7 @@ def run_gate(baseline: str, candidate: str, n: int, out: Path, *, force: bool = 
     }
     if arms["baseline"].issue_ids != arms["candidate"].issue_ids:
         raise ValueError("the two profiles plant different issues: the arms are not comparable")
-    return trials.run_arms(arms, n, out, force=force)
+    return trials.run_arms(arms, n, out, only=only, force=force)
 
 
 def score_arms(results: Path, baseline: str, candidate: str) -> list[dict[str, Any]]:
@@ -251,6 +259,7 @@ def main(argv: list[str] | None = None) -> int:
     go.add_argument("--candidate", required=True)
     go.add_argument("--n", type=int, default=3)
     go.add_argument("--out", type=Path, required=True)
+    go.add_argument("--only", nargs="*", help="a subset of issues (a smoke run cannot clear)")
     cal = sub.add_parser("calibrate", help="simulate the gate's verdicts for a true effect")
     cal.add_argument("--true-diff", type=float, required=True)
     cal.add_argument("--issues", type=int, default=35)
@@ -276,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(counts))
         return 0
     if args.cmd == "run":
-        run_gate(args.baseline, args.candidate, args.n, args.out)
+        run_gate(args.baseline, args.candidate, args.n, args.out, only=args.only)
         return 0
     rows = score_arms(args.results, args.baseline, args.candidate)
     report = decide(arm_rows(rows, "baseline"), arm_rows(rows, "candidate"))
