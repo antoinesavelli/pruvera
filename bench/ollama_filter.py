@@ -47,16 +47,30 @@ def allowed(method: str, target: str) -> bool:
     return (method.upper(), path) in ALLOWED
 
 
+def _no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    keys = [k for k, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate keys")
+    return dict(pairs)
+
+
 def model_allowed(body: bytes | None, models: frozenset[str]) -> bool:
-    """True when no allowlist is set, or the request names no model, or names an allowed one."""
-    if not models or not body:
+    """True when the request names no model, or only models on the allowlist.
+
+    Fails closed: an empty allowlist permits no named model, keys are matched case-insensitively
+    (Ollama's decoder is) under both spellings `model` and `name`, and a body that is not one
+    plain JSON object, or repeats a key, is refused because upstream might read it differently.
+    """
+    if not body:
         return True
     try:
-        doc = json.loads(body)
+        doc = json.loads(body, object_pairs_hook=_no_duplicates)
     except ValueError:
-        return False  # an unparseable body could still name any model upstream
-    name = doc.get("model") if isinstance(doc, dict) else None
-    return name is None or (isinstance(name, str) and name in models)
+        return False
+    if not isinstance(doc, dict):
+        return False
+    named = [v for k, v in doc.items() if k.lower() in ("model", "name")]
+    return all(isinstance(v, str) and v in models for v in named)
 
 
 def make_handler(
@@ -80,7 +94,11 @@ def make_handler(
             if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
                 self._refuse(411, "chunked request bodies are not supported")
                 return
-            length = int(self.headers.get("Content-Length") or 0)
+            lengths = self.headers.get_all("Content-Length") or ["0"]
+            if len(lengths) != 1 or not lengths[0].strip().isdigit():
+                self._refuse(400, "one numeric Content-Length is required")
+                return
+            length = int(lengths[0])
             if length > MAX_BODY:
                 self._refuse(413, "request too large")
                 return

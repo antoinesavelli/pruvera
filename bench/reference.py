@@ -40,6 +40,13 @@ def discard(dest: Path) -> None:
         sandbox.remove_trial_dirs(dest)
 
 
+def sweep(trials_dir: Path) -> None:
+    """Remove every reference copy and trial directory a killed run may have left behind."""
+    if trials_dir.exists():
+        for stale in trials_dir.glob("ref-*"):
+            sandbox.remove_trial_dirs(stale)
+
+
 def fixture(tree: Path, rev: str = "", venv: Path | None = None) -> runner.Fixture:
     """The prepared copy as a trial fixture, pinned like any other (tree, .git, base commit)."""
     commit = subprocess.run(
@@ -52,8 +59,9 @@ def fixture(tree: Path, rev: str = "", venv: Path | None = None) -> runner.Fixtu
         "source_commit": rev,
     }
     venv = venv if venv is not None else (REAL_VENV if REAL_VENV.exists() else None)
+    pins = {"venv": sandbox.fingerprint(venv)} if venv is not None else {}
     return runner.Fixture(
-        "reference", tree, manifest, venv, None, "reference", environment="reference"
+        "reference", tree, manifest, venv, None, "reference", environment="reference", pins=pins
     )
 
 

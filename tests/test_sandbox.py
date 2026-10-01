@@ -379,3 +379,26 @@ def test_pip_install_into_the_read_only_venv_fails_and_changes_nothing(
         result.stdout
     )
     assert sorted(p.name for p in site.iterdir()) == before, "the venv must be unchanged"
+
+
+def test_limit_prefix_caps_memory_and_tasks_or_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    sandbox.limit_prefix.cache_clear()
+    monkeypatch.setattr(shutil, "which", lambda _n: None)
+    assert sandbox.limit_prefix() == ()
+    sandbox.limit_prefix.cache_clear()
+    monkeypatch.undo()
+    prefix = sandbox.limit_prefix()
+    assert prefix == () or (
+        f"MemoryMax={sandbox.MEMORY_MAX}" in prefix and f"TasksMax={sandbox.TASKS_MAX}" in prefix
+    )
+    sandbox.limit_prefix.cache_clear()
+
+
+def test_the_host_side_environment_carries_only_what_systemd_run_needs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+    env = sandbox._host_env()
+    assert set(env) <= {"PATH", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"}
+    assert "OPENROUTER_API_KEY" not in env and env["XDG_RUNTIME_DIR"] == "/run/user/1000"

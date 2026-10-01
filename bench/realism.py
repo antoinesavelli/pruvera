@@ -114,13 +114,24 @@ def run_study(n: int, out: Path, wait: float = 120.0, force: bool = False) -> Pa
             cli.load(layout.VERSION, DEFAULT_PROFILE), environment="default"
         ),
     }
-    reference.discard(ROOT / "overlays" / "ref-source")  # a killed earlier run may have left it
-    source = reference.prepare(
-        layout.REAL_REPO, layout.source_commit(), ROOT / "overlays" / "ref-source"
-    )
     artifacts, trials = ROOT / "artifacts", ROOT / "overlays"
     out.parent.mkdir(parents=True, exist_ok=True)
+    with preflight.session_lock(trials / ".session.lock"):
+        reference.sweep(trials)  # a killed earlier run may have left real code behind
+        return _run_study_locked(n, out, wait, force, fixtures, artifacts, trials)
+
+
+def _run_study_locked(
+    n: int,
+    out: Path,
+    wait: float,
+    force: bool,
+    fixtures: dict[str, runner.Fixture],
+    artifacts: Path,
+    trials: Path,
+) -> Path:
     try:
+        source = reference.prepare(layout.REAL_REPO, layout.source_commit(), trials / "ref-source")
         for rep in range(n):
             for task in TASKS:
                 sides = ("fixture", "default", "reference")
@@ -152,7 +163,7 @@ def run_study(n: int, out: Path, wait: float = 120.0, force: bool = False) -> Pa
                         )
                     print(f"{task.label:22s} {side:9s} rep {rep + 1}/{n}", flush=True)
     finally:
-        reference.discard(ROOT / "overlays" / "ref-source")  # holds real strategy code
+        reference.discard(trials / "ref-source")  # holds real strategy code
     return out
 
 
