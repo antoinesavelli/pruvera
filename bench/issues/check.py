@@ -7,6 +7,7 @@ to kill-check mutants. Depends on: bench.sandbox; a fixture venv and data slice 
 from __future__ import annotations
 
 import re
+import shlex
 import shutil
 import tempfile
 from dataclasses import dataclass, field
@@ -57,7 +58,7 @@ def _run(
         prep = ""
         for i, (rel, text) in enumerate((overrides or {}).items()):
             (work / "ov" / str(i)).write_text(text)
-            target = f"{sandbox.WORKDIR}/{rel}"
+            target = shlex.quote(f"{sandbox.WORKDIR}/{rel}")
             prep += f"mkdir -p $(dirname {target}) && cp /ov/{i} {target} && "
         spec = sandbox.Spec(
             base=env.tree,

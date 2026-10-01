@@ -61,15 +61,19 @@ def sibling_test(module: str) -> str:
 
 
 def main(argv: list[str]) -> int:
-    """`campaign.py [--out FILE] module.py ...`: sample mutants of each module and run its tests."""
+    """`campaign.py [--out FILE] module.py[:tests.py] ...`: sample mutants, run their tests."""
+    if argv[:1] in (["-h"], ["--help"]):
+        print(main.__doc__)
+        return 0
     env = check.Env(layout.tree(), layout.venv(), layout.data_root())
     name = "_campaign.json"
     if argv[:1] == ["--out"]:
         name, argv = argv[1], argv[2:]
     modules = argv or ["utils/price_ticks.py"]
     results = []
-    for module in modules:
-        test_file = sibling_test(module)
+    for spec in modules:
+        module, _, test_file = spec.partition(":")  # `module.py:tests/path.py` names the tests
+        test_file = test_file or sibling_test(module)
         results.append(evaluate(env, module, test_file))
         killed = sum(m["killed"] for m in results[-1]["mutants"])
         print(f"{module}: {killed}/{len(results[-1]['mutants'])} killed", flush=True)

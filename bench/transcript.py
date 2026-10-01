@@ -39,6 +39,8 @@ class Transcript:
             self.first_ts = self.first_ts if self.first_ts is not None else ts
             self.last_ts = ts
         part = event.get("part", {})
+        if not isinstance(part, dict):
+            part = {}
         kind = event["type"]
         if kind == "tool_use":
             state = part.get("state", {})
@@ -88,3 +90,31 @@ def answer_kind(text: str) -> str:
     if body.startswith("{") and any(f'"{k}"' in body[:80] for k in ("name", "tool", "arguments")):
         return "tool_json"
     return "text"
+
+
+OUTPUT_KEEP = 120  # characters of a tool's output kept from a reference trial
+TEXT_KEEP = 300  # and of an assistant message
+
+
+def sanitize_transcript(raw: str) -> str:
+    """A reference transcript with tool output and message bodies cut down to a few characters."""
+    # The copy ran on real strategy code, so a full transcript is real code. What the comparison
+    # needs is which tools ran, with what input, how they ended, and the short error text.
+    kept = []
+    for line in raw.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            kept.append(line[:TEXT_KEEP])  # not an event: keep a short stub, never the body
+            continue
+        part = event.get("part") if isinstance(event, dict) else None
+        if isinstance(part, dict):
+            state = part.get("state")
+            if isinstance(state, dict):
+                state.pop("metadata", None)
+                if "output" in state:
+                    state["output"] = str(state["output"])[:OUTPUT_KEEP]
+            if "text" in part:
+                part["text"] = str(part["text"])[:TEXT_KEEP]
+        kept.append(json.dumps(event))
+    return "\n".join(kept) + "\n"

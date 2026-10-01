@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from bench import cli, layout, preflight, runner, sandbox, stats
 from bench.transcript import answer_kind

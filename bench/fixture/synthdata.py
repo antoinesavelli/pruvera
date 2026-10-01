@@ -8,8 +8,10 @@ Needs pandas and numpy: run it with the fixture venv's python. Depends on: panda
 
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -166,3 +168,25 @@ def build(
     }
     (out_root.parent / "SYNTH_MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Build a synthetic data root from a base root (needs pandas, numpy: the fixture venv)."""
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument("--base", type=Path, required=True, help="the real slice's data root")
+    parser.add_argument(
+        "--out", type=Path, required=True, help="the new data root (must not exist)"
+    )
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--symbols", type=int, default=6)
+    parser.add_argument("--directory", type=Path, help="the public Nasdaq symbol directory parquet")
+    args = parser.parse_args(argv)
+    manifest = build(
+        args.base, args.out, n_symbols=args.symbols, seed=args.seed, directory_src=args.directory
+    )
+    print(json.dumps(manifest, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

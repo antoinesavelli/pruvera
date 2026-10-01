@@ -12,7 +12,7 @@ import pytest
 from bench import sandbox
 from bench.fixture import scrub
 from bench.issues import check, miner, plant, schema
-from tests.test_sandbox import _bwrap_works
+from tests.helpers import bwrap_works as _bwrap_works
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_VENV = ROOT / "fixtures/paramo/venv/v2"
