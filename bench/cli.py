@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.wait:
         preflight.wait_clear(args.wait)
-    with preflight.session_lock(ROOT / "overlays" / ".session.lock"):
+    with preflight.session_lock():
         record = runner.run_trial(
             fx,
             spec,

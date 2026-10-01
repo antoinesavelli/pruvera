@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import http.server
+import json
 import socket
 import threading
 from collections.abc import Iterator
@@ -245,3 +246,24 @@ def test_a_connection_beyond_the_slots_is_told_503_not_queued_in_a_thread(
         status = call(sock, "GET", "/api/tags")[0]
         holder.close()
     assert status == 503
+
+
+def test_trace_records_request_shapes_and_latencies_but_never_text(
+    tmp_path: Path, upstream: int
+) -> None:
+    trace = tmp_path / "trace.jsonl"
+    sock = tmp_path / "f.sock"
+    secret = "def secret_strategy(): pass"
+    body = (
+        b'{"model": "m", "tools": [1], "messages": ['
+        b'{"role": "system", "content": "' + secret.encode() + b'"},'
+        b'{"role": "user", "content": "hi"}]}'
+    )
+    with ollama_filter.serve(sock, upstream, frozenset({"m"}), trace):
+        assert call(sock, "POST", "/v1/chat/completions", body)[0] == 200
+        assert call(sock, "POST", "/v1/chat/completions", body)[0] == 200
+    lines = [json.loads(x) for x in trace.read_text().splitlines()]
+    assert len(lines) == 2 and lines[0]["n_messages"] == 2 and lines[0]["status"] == 200
+    assert lines[0]["system"] == lines[1]["system"] and lines[0]["prefix"] == lines[1]["prefix"]
+    assert lines[0]["first_byte_s"] >= 0 and lines[0]["total_s"] >= lines[0]["first_byte_s"]
+    assert "secret_strategy" not in trace.read_text()

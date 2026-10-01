@@ -69,13 +69,10 @@ def test_parity_fails_on_an_unexplained_difference(tmp_path: Path) -> None:
         agentconfig.check_parity(REAL, asm.config, ())
 
 
-def test_deviations_toml_matches_the_code() -> None:
+def test_deviations_toml_matches_the_code(tmp_path: Path) -> None:
     doc = tomllib.loads((FIXTURE / "deviations.toml").read_text())
     listed = " ".join(d["how"] for d in doc["deviation"])
-    real_path = agentconfig.REAL_GLOBAL
-    if not real_path.exists():
-        pytest.skip("real global config not present")
-    asm = agentconfig.assemble("git", "gpt-oss:20b", real_path)
+    asm = agentconfig.assemble("git", "gpt-oss:20b", _write_real(tmp_path))
     for dev in asm.deviations:
         head = "/agent/<name>/model" if dev.pointer.startswith("/agent/") else dev.pointer
         assert head in listed, f"{dev.pointer} is a deviation in code but not in deviations.toml"

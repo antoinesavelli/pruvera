@@ -46,7 +46,7 @@ def run_arms(
     issues = schema.load_all(ROOT / "issues")
     ids = [i for i in next(iter(arms.values())).issue_ids if not only or i in only]
     out.parent.mkdir(parents=True, exist_ok=True)
-    with preflight.session_lock(ROOT / "overlays" / ".session.lock"):
+    with preflight.session_lock():
         return _run_arms_locked(arms, n, out, ids, issues, models, wait, force)
 
 

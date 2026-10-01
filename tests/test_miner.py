@@ -137,7 +137,7 @@ def test_accept_takes_one_per_file_of_the_wanted_kind_and_to_issue_is_valid() ->
     issue = miner.to_issue(*picked[0])
     assert schema.parse(tomllib.loads(schema.dumps(issue))) == issue
     assert issue.source == "reverted_fix" and issue.origin == picked[0][0].commit
-    assert "became" in issue.summary or "reverted" in issue.summary
+    assert "was reverted" in issue.summary
 
 
 def test_kind_separates_assertion_failures_from_exceptions_and_import_breaks() -> None:

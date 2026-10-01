@@ -340,3 +340,16 @@ def test_a_proof_that_records_hashes_does_not_cover_an_issue_edited_since(tmp_pa
     assert trials._proof_stale(tree, rated) == "", "rating and proof stamps are not the definition"
     proof.write_text(json.dumps({"ok": True}))
     assert trials._proof_stale(tree, edited) == "", "an old proof without hashes is not checked"
+
+
+def test_study_side_order_is_random_but_reproducible_and_covers_every_side() -> None:
+    groups = [(rep, t.label) for rep in range(6) for t in realism.TASKS]
+    orders = [tuple(realism.side_order(1, rep, label)) for rep, label in groups]
+    assert all(sorted(o) == sorted(realism.SIDES) for o in orders)
+    assert orders == [tuple(realism.side_order(1, rep, label)) for rep, label in groups]
+    assert len(set(orders)) == 6, "every permutation occurs, not a fixed rotation"
+    first = [o[0] for o in orders]
+    assert all(first.count(side) > len(first) / 6 for side in realism.SIDES), (
+        "no side is stuck last"
+    )
+    assert orders != [tuple(realism.side_order(2, rep, label)) for rep, label in groups]
