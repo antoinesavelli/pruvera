@@ -10,6 +10,7 @@ Depends on: the standard library; a running Ollama on the host.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import http.client
 import http.server
 import json
@@ -17,6 +18,7 @@ import re
 import socket
 import socketserver
 import threading
+import time
 from collections.abc import Iterator
 from email.message import Message
 from pathlib import Path
@@ -129,8 +131,34 @@ def _vet(method: str, target: str, body: bytes | None, models: frozenset[str]) -
         raise _Refusal(403, "blocked by the trial sandbox: this model is not allowed")
 
 
-def _relay(handler: http.server.BaseHTTPRequestHandler, port: int, body: bytes | None) -> None:
-    """Forward one vetted request to Ollama and stream its response back."""
+def _short(value: object) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()[:12]
+
+
+def request_shape(body: bytes | None) -> dict[str, object]:
+    """Hashes and sizes of a chat request (never its text): enough to see which prefix repeats."""
+    try:
+        doc = json.loads(body or b"{}")
+    except (ValueError, RecursionError):
+        return {}
+    messages = doc.get("messages") if isinstance(doc, dict) else None
+    if not isinstance(messages, list) or not messages:
+        return {"body_len": len(body or b"")}
+    return {
+        "body_len": len(body or b""),
+        "n_messages": len(messages),
+        "system": _short(messages[0]),
+        "tools": _short(doc.get("tools")),
+        "prefix": _short(messages[:-1]),
+    }
+
+
+def _relay(
+    handler: http.server.BaseHTTPRequestHandler, port: int, body: bytes | None
+) -> tuple[int, float]:
+    """Forward one vetted request to Ollama and stream its response back: (status, first byte s)."""
+    began = time.monotonic()
+    first = 0.0
     headers = {k: v for k, v in handler.headers.items() if k.lower() not in HOP_BY_HOP}
     headers.pop("Host", None)
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=900)
@@ -143,14 +171,34 @@ def _relay(handler: http.server.BaseHTTPRequestHandler, port: int, body: bytes |
                 handler.send_header(key, value)
         handler.end_headers()
         while chunk := resp.read1(65536):
+            first = first or time.monotonic() - began
             handler.wfile.write(chunk)
             handler.wfile.flush()
+        return resp.status, first
     finally:
         conn.close()
 
 
+_TRACE_LOCK = threading.Lock()
+
+
+def _trace(
+    path: Path, target: str, status: int, first: float, total: float, body: bytes | None
+) -> None:
+    line = {
+        "t": round(time.time(), 3),
+        "path": target,
+        "status": status,
+        "first_byte_s": round(first, 3),
+        "total_s": round(total, 3),
+        **request_shape(body),
+    }
+    with _TRACE_LOCK, path.open("a") as fh:
+        fh.write(json.dumps(line) + "\n")
+
+
 def make_handler(
-    upstream_port: int, models: frozenset[str] = frozenset()
+    upstream_port: int, models: frozenset[str] = frozenset(), trace: Path | None = None
 ) -> type[http.server.BaseHTTPRequestHandler]:
     slots = threading.BoundedSemaphore(MAX_CONNECTIONS)  # a trial cannot hold unbounded memory
 
@@ -194,7 +242,10 @@ def make_handler(
             except OSError:
                 return  # the client went away or timed out
             try:
-                _relay(self, upstream_port, body)
+                began = time.monotonic()
+                status, first = _relay(self, upstream_port, body)
+                if trace is not None:
+                    _trace(trace, self.path, status, first, time.monotonic() - began, body)
             except (OSError, http.client.HTTPException):
                 with contextlib.suppress(OSError):
                     self._refuse(502, "upstream unavailable")
@@ -213,9 +264,14 @@ class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 
 
 @contextlib.contextmanager
-def serve(sock: Path, upstream_port: int, models: frozenset[str] = frozenset()) -> Iterator[Path]:
+def serve(
+    sock: Path,
+    upstream_port: int,
+    models: frozenset[str] = frozenset(),
+    trace: Path | None = None,
+) -> Iterator[Path]:
     """Serve the filter on the unix socket `sock` until the block exits."""
-    server = _UnixServer(str(sock), make_handler(upstream_port, models))
+    server = _UnixServer(str(sock), make_handler(upstream_port, models, trace))
     sock.chmod(0o600)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

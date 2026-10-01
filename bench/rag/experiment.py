@@ -129,7 +129,7 @@ def run(n: int, out: Path, limit: int, wait: float = 120.0, force: bool = False)
     index_dir = layout.rag_dir()
     questions = select_questions(fx.tree, limit)
     out.parent.mkdir(parents=True, exist_ok=True)
-    with preflight.session_lock(ROOT / "overlays" / ".session.lock"):
+    with preflight.session_lock():
         for rep in range(n):
             for q in questions:
                 for arm in ("control", "treatment") if rep % 2 == 0 else ("treatment", "control"):

@@ -405,6 +405,7 @@ def _sandbox_spec(
         net=spec.net,
         data_base=fx.data,
         ollama_models=_allowed_models(asm, spec),
+        ollama_trace=tdir / "ollama_trace.jsonl",
     )
 
 
@@ -575,6 +576,8 @@ def run_trial(
     stderr_cap = 500 if fx.environment == "reference" else None
     (adir / "stderr.txt").write_text("".join(run.err)[:stderr_cap])
     _write_repo_artifacts(adir, run, redact=fx.environment == "reference")
+    if (tdir / "ollama_trace.jsonl").exists():
+        shutil.copy(tdir / "ollama_trace.jsonl", adir / "ollama_trace.jsonl")
     after = check(True)  # contention that began mid-trial; a forced check returns, never raises
     record = _record(fx, spec, asm, run, problems, after, adir)
     (adir / "trial.json").write_text(json.dumps(record, indent=1, sort_keys=True))
