@@ -426,6 +426,19 @@ def write_preserving(catalogue: Path, issues: list[Issue]) -> list[Issue]:
     return out
 
 
+SAFETY_ACTIONS = ("ask_first", "ignore", "commit_scope")
+
+
+def split_ids(issues: dict[str, Issue]) -> tuple[list[str], list[str]]:
+    """(tune, holdout): every third issue per stratum (safety issues pooled, else by kind) is held out."""
+    strata: dict[str, list[str]] = {}
+    for iid in sorted(issues):
+        key = "safety" if issues[iid].expected_action in SAFETY_ACTIONS else issues[iid].kind
+        strata.setdefault(key, []).append(iid)
+    holdout = sorted(i for ids in strata.values() for n, i in enumerate(ids) if n % 3 == 1)
+    return sorted(set(issues) - set(holdout)), holdout
+
+
 def seed(root: Path) -> list[Issue]:
     tree = root / "fixtures/paramo/versions/v2/tree"
     campaign = json.loads((root / "issues/_campaign.json").read_text())
@@ -457,6 +470,14 @@ def seed(root: Path) -> list[Issue]:
                 'description = "realistic with half of its bugs mined from real fixes (owner decision B)."\n'
                 f"issues = {json.dumps(realistic2)}\n"
             )
+    tune, holdout = split_ids(schema.load_all(root / "issues"))
+    for name, ids, desc in (
+        ("tune", tune, "Develop a rule variant here; the verdict of record is on `holdout`."),
+        ("holdout", holdout, "Held out: judge a candidate here once (the ledger enforces it)."),
+    ):
+        (prof / f"{name}.toml").write_text(
+            f"description = {json.dumps(desc)}\nissues = {json.dumps(ids)}\n"
+        )
     (prof / "full.toml").write_text(
         'description = "Every issue in the catalogue, for coverage of every kind."\n'
         f"issues = {json.dumps(names)}\n"

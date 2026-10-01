@@ -47,3 +47,13 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     if os.environ.get("AGENT_TESTING_REQUIRE_SANDBOX") == "1" and reporter is not None:
         if _sandbox_skips(reporter) and exitstatus == 0:
             session.exitstatus = 1
+
+
+@pytest.fixture(autouse=True)
+def _never_write_the_real_gate_ledger(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """The ledger counts real judgements: a test that judged into it would corrupt the correction."""
+    from bench import gate
+
+    monkeypatch.setattr(gate, "LEDGER", tmp_path_factory.mktemp("ledger") / "ledger.jsonl")
