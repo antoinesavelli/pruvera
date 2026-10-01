@@ -53,7 +53,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 def _never_write_the_real_gate_ledger(
     monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
-    """The ledger counts real judgements: a test that judged into it would corrupt the correction."""
+    """The ledger counts real judgements; a test must never judge into it."""
     from bench import gate
 
     monkeypatch.setattr(gate, "LEDGER", tmp_path_factory.mktemp("ledger") / "ledger.jsonl")
