@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from bench import gate, ledger, stats
+from bench import gate, layout, ledger, stats
 from tests.test_gate import ISSUES, rows
 
 
@@ -153,5 +153,5 @@ def test_variant_toml_wraps_the_prompt_and_swaps_models_per_arm(tmp_path: Path) 
 
 
 def test_the_test_suite_cannot_reach_the_real_ledger() -> None:
-    real = gate.layout.ROOT / "results" / "gate" / "ledger.jsonl"
+    real = layout.ROOT / "results" / "gate" / "ledger.jsonl"
     assert gate.LEDGER != real, "conftest must redirect the ledger to a temp file"
