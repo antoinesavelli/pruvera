@@ -71,6 +71,7 @@ def _run_arms_locked(
                     model=task.model,
                     prompt=task.prompt,
                     label=issue_id,
+                    hooks=tuple(runner.Hook(*h) for h in issues[issue_id].hooks),
                     arm=arm if len(arms) > 1 else "",
                     timeout=600,
                     hang_seconds=240,

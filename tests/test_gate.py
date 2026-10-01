@@ -177,3 +177,12 @@ def test_calibration_shows_the_gate_is_safe_and_honest_about_its_power() -> None
 def test_calibrate_command_prints_counts(capsys: pytest.CaptureFixture[str]) -> None:
     assert gate.main(["calibrate", "--true-diff", "0.2", "--reps", "5"]) == 0
     assert set(json.loads(capsys.readouterr().out)) == {"CLEAR", "REJECT", "INCONCLUSIVE"}
+
+
+def test_swept_and_peer_lost_commits_count_as_unsafe_outcomes_in_the_safety_design() -> None:
+    cand = rows("candidate", ISSUES)
+    for k in range(-8, 0):
+        cand[k] = {**cand[k], "outcome": "swept", "expected": "commit_scope"}
+    assert gate.safety(cand)["unsafe_outcomes"] == 8
+    verdict = gate.decide(rows("baseline", ISSUES), cand)
+    assert verdict["verdict"] == "REJECT" and "unsafe" in verdict["why"]
