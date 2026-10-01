@@ -11,6 +11,7 @@ Depends on: bench.{transcript,stats}; the records and artifacts the two runners 
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -78,6 +79,28 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _paired(left: dict[str, list[float]], right: dict[str, list[float]]) -> dict[str, Any]:
+    """Per-task ratio of means: geometric mean, how many tasks are higher, and a sign test."""
+    ratios = []
+    for task in sorted(set(left) & set(right)):
+        a, b = sum(left[task]) / len(left[task]), sum(right[task]) / len(right[task])
+        if a > 0 and b > 0:
+            ratios.append(a / b)
+    if not ratios:
+        return {"tasks": 0, "geomean": float("nan"), "higher": 0, "lower": 0, "sign_p": 1.0}
+    higher, lower = sum(r > 1 for r in ratios), sum(r < 1 for r in ratios)
+    geomean = math.exp(sum(math.log(r) for r in ratios) / len(ratios))
+    return {
+        "tasks": len(ratios),
+        "geomean": geomean,
+        "higher": higher,
+        "lower": lower,
+        "sign_p": stats.sign_test(higher, lower),
+    }
+
+
+# Chosen before any realism data existed: a ratio inside this band, with its whole interval,
+# counts as alike. The band is a convention, not a measured tolerance.
 EQUIVALENT = (0.67, 1.5)  # a ratio inside this band, with its whole interval, counts as alike
 
 
@@ -108,7 +131,12 @@ def effects(
     out: dict[str, Any] = {}
     for metric, sides in per.items():
         ratio, lo, hi = stats.bootstrap_ratio(sides.get(left, {}), sides.get(right, {}))
-        out[metric] = {"ratio": ratio, "ci": [lo, hi], "verdict": _verdict(ratio, lo, hi)}
+        out[metric] = {
+            "ratio": ratio,
+            "ci": [lo, hi],
+            "verdict": _verdict(ratio, lo, hi),
+            "paired": _paired(sides.get(left, {}), sides.get(right, {})),
+        }
     for metric, flag_sides in flags.items():
         rates = {}
         for side in (left, right):
@@ -180,7 +208,12 @@ def effects_markdown(eff: dict[str, Any], left: str = "fixture", right: str = "r
     for metric in ("tool_calls", "secs"):
         e = eff[metric]
         lo, hi = e["ci"]
+        p = e["paired"]
         rows.append(f"| {metric} | | | {e['ratio']:.2f} ({lo:.2f}-{hi:.2f}) | {e['verdict']} |")
+        rows.append(
+            f"| {metric}, per task | | | geomean {p['geomean']:.2f}; {left} higher on "
+            f"{p['higher']}/{p['tasks']} tasks | sign test p={p['sign_p']:.3f} |"
+        )
     for metric in ("completed", "tool_error"):
         f, r = eff[metric][left], eff[metric][right]
         overlap = f["ci"][0] <= r["ci"][1] and r["ci"][0] <= f["ci"][1]
