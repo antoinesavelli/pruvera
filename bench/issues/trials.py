@@ -143,6 +143,8 @@ def score_records(
             )
         env = envs[key]
         try:
+            if rec["outcome"] == "readback_failed":
+                raise score.ScoreError(f"the repo state could not be read: {rec.get('detail', '')}")
             if env is None:
                 raise score.ScoreError("the build this trial ran on no longer exists")
             verdict = score.score_record(rec, issues, env).as_dict()

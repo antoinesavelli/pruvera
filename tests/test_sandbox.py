@@ -6,6 +6,7 @@ touch real data even if the sandbox failed, because no real path is ever a write
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import socket
@@ -127,6 +128,7 @@ def test_overlay_changes_reads_upper(spec: Spec) -> None:
     assert sandbox.overlay_changes(spec.upper) == {
         "written": ["added.txt", "sub/m.py"],
         "deleted": [],
+        "unreadable": [],
     }
 
 
@@ -292,7 +294,11 @@ def test_real_opencode_runs_from_a_read_only_bind(spec: Spec) -> None:
     with_oc = Spec(**{**spec.__dict__, "ro_binds": ((binary, "/opt/bin/opencode"),)})
     result = _sh(with_oc, "opencode --version")
     assert re.fullmatch(r"\d+\.\d+\.\d+", result.stdout.strip()), result.stderr
-    assert sandbox.overlay_changes(with_oc.upper) == {"written": [], "deleted": []}
+    assert sandbox.overlay_changes(with_oc.upper) == {
+        "written": [],
+        "deleted": [],
+        "unreadable": [],
+    }
 
 
 def test_argv_mounts_data_at_real_path_with_throwaway_writes(spec: Spec, tmp_path: Path) -> None:
@@ -399,6 +405,25 @@ def test_upper_exceeds_counts_bytes_and_entries_and_stops_early(tmp_path: Path) 
     assert sandbox.upper_exceeds(tmp_path, max_bytes=499, max_files=100), "too many bytes"
     assert sandbox.upper_exceeds(tmp_path, max_bytes=10_000, max_files=3), "too many entries"
     assert not sandbox.upper_exceeds(tmp_path / "absent")
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads every directory")
+def test_a_directory_the_cap_cannot_read_counts_as_over_the_cap(tmp_path: Path) -> None:
+    """Regression: `chmod 000` on a full directory hid its bytes from the walk."""
+    hidden = tmp_path / "d"
+    hidden.mkdir()
+    (hidden / "f").write_bytes(b"x" * 10)
+    hidden.chmod(0)
+    try:
+        assert sandbox.upper_exceeds(tmp_path)
+        assert sandbox.overlay_changes(tmp_path)["unreadable"]
+    finally:
+        hidden.chmod(0o700)
+
+
+def test_the_xdg_binds_are_measured_with_the_overlay(spec: Spec) -> None:
+    assert spec.upper in sandbox.measured_roots(spec)
+    assert {p.name for p in sandbox.measured_roots(spec)[1:]} == {"config", "data", "state"}
 
 
 def test_capped_output_keeps_a_bounded_amount_and_still_finishes(tmp_path: Path) -> None:

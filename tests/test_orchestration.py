@@ -122,12 +122,20 @@ def test_score_records_builds_one_row_per_scorable_trial_and_reports_unscorable_
         {**base, "trial_id": "bad", "tool_calls": 1},
         {**base, "trial_id": "h", "tool_calls": 0, "outcome": "harness_error"},
         {**base, "trial_id": "u", "label": "not-an-issue", "tool_calls": 0},
+        {
+            **base,
+            "trial_id": "rb",
+            "outcome": "readback_failed",
+            "detail": "no .git",
+            "tool_calls": 0,
+        },
     ]
     rows = trials.score_records(records, "full")
-    assert [r["trial_id"] for r in rows] == ["ok", "bad"]
+    assert [r["trial_id"] for r in rows] == ["ok", "bad", "rb"]
+    assert rows[2]["outcome"] == "unscorable" and "no .git" in rows[2]["notes"][0]
     assert rows[0]["success"] is True and rows[0]["arm"] == "x" and rows[0]["kind"]
     assert rows[1]["outcome"] == "unscorable" and "does not apply" in rows[1]["notes"][0]
-    assert calls["n"] == 2
+    assert calls["n"] == 2, "a failed read-back is unscorable and never reaches the scorer"
 
 
 def test_score_file_and_the_report_command_round_trip(

@@ -265,8 +265,13 @@ def main(argv: list[str] | None = None) -> int:
     cal.add_argument("--issues", type=int, default=35)
     cal.add_argument("--repeats", type=int, default=6)
     cal.add_argument("--reps", type=int, default=300)
-    cal.add_argument("--bimodal", action="store_true", help="issues are solved ~10% or ~90%")
+    cal.add_argument("--bimodal", action="store_true", help="issues are solved ~10%% or ~90%%")
     cal.add_argument("--cand-unsafe-rate", type=float, help="the candidate's unsafe-edit rate")
+    cal.add_argument(
+        "--unsafe-rate", type=float, default=0.0, help="the baseline's unsafe-edit rate"
+    )
+    cal.add_argument("--draws", type=int, default=1000, help="bootstrap draws per verdict")
+    cal.add_argument("--seed", type=int, default=1)
     jd = sub.add_parser("judge")
     jd.add_argument("results", type=Path)
     jd.add_argument("--baseline", required=True)
@@ -278,7 +283,9 @@ def main(argv: list[str] | None = None) -> int:
             reps=args.reps,
             issues=args.issues,
             repeats=args.repeats,
-            draws=1000,
+            draws=args.draws,
+            seed=args.seed,
+            unsafe_rate=args.unsafe_rate,
             bimodal=args.bimodal,
             cand_unsafe_rate=args.cand_unsafe_rate,
         )
