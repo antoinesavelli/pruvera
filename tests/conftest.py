@@ -57,3 +57,15 @@ def _never_write_the_real_gate_ledger(
     from bench import gate
 
     monkeypatch.setattr(gate, "LEDGER", tmp_path_factory.mktemp("ledger") / "ledger.jsonl")
+
+
+@pytest.fixture(autouse=True)
+def _own_session_lock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """A test must not contend with a real campaign for the machine-wide session lock."""
+    from bench import preflight
+
+    monkeypatch.setattr(
+        preflight, "SESSION_LOCK", tmp_path_factory.mktemp("lock") / ".session.lock"
+    )

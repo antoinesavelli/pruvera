@@ -161,3 +161,9 @@ def test_interpreter_command_line_variants_are_recognised(proc: Path, argv: list
 def test_a_pure_simulation_does_not_block_trials(proc: Path) -> None:
     _proc(proc, 41, ["python3", "-m", "bench.gate", "calibrate", "--true-diff", "0"])
     assert preflight.running_agents(proc, me=999) == []
+
+
+def test_tests_never_contend_for_the_real_session_lock() -> None:
+    """Regression: a running campaign made five unrelated tests fail on the real lock file."""
+    real = Path(preflight.__file__).resolve().parents[1] / "overlays" / ".session.lock"
+    assert preflight.SESSION_LOCK != real

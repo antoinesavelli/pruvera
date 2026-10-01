@@ -39,10 +39,14 @@ INTERPRETER = re.compile(r"python[0-9.]*|bash|sh|env")
 HARNESS_SCRIPT_SUFFIXES = ("bench/cli.py", "bench/realism.py", "bench/gate.py")
 
 
+SESSION_LOCK = Path(__file__).resolve().parents[1] / "overlays" / ".session.lock"
+
+
 @contextlib.contextmanager
-def session_lock(path: Path) -> Iterator[None]:
+def session_lock(path: Path | None = None) -> Iterator[None]:
     """Hold an exclusive lock for a whole run of trials; a second run fails fast, not silently."""
     # Two campaigns could otherwise both pass the process scan in the gap between trials.
+    path = path or SESSION_LOCK
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as handle:
         try:

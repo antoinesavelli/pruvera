@@ -69,6 +69,7 @@ class Spec:
     net: Net = "ollama"
     ollama_port: int = OLLAMA_PORT
     ollama_models: frozenset[str] = frozenset()  # models a trial may name; empty allows none
+    ollama_trace: Path | None = None  # append request shapes and latencies here (no text)
 
 
 def _usr_layout() -> list[str]:
@@ -147,10 +148,12 @@ def build_argv(spec: Spec, cmd: Sequence[str], proxy_sock: Path | None = None) -
 
 
 @contextlib.contextmanager
-def ollama_proxy(port: int = OLLAMA_PORT, models: frozenset[str] = frozenset()) -> Iterator[Path]:
+def ollama_proxy(
+    port: int = OLLAMA_PORT, models: frozenset[str] = frozenset(), trace: Path | None = None
+) -> Iterator[Path]:
     """Host-side unix-socket bridge to Ollama, filtered to inference calls (`ollama_filter`)."""
     with tempfile.TemporaryDirectory(prefix="ollama-proxy-") as d:
-        with ollama_filter.serve(Path(d) / "ollama.sock", port, models) as sock:
+        with ollama_filter.serve(Path(d) / "ollama.sock", port, models, trace) as sock:
             yield sock
 
 
@@ -267,7 +270,9 @@ def run(
     check_layout(spec)
     with contextlib.ExitStack() as stack:
         sock = (
-            stack.enter_context(ollama_proxy(spec.ollama_port, spec.ollama_models))
+            stack.enter_context(
+                ollama_proxy(spec.ollama_port, spec.ollama_models, spec.ollama_trace)
+            )
             if spec.net == "ollama"
             else None
         )
@@ -292,7 +297,9 @@ def popen(spec: Spec, cmd: Sequence[str]) -> Iterator[subprocess.Popen[str]]:
     check_layout(spec)
     with contextlib.ExitStack() as stack:
         sock = (
-            stack.enter_context(ollama_proxy(spec.ollama_port, spec.ollama_models))
+            stack.enter_context(
+                ollama_proxy(spec.ollama_port, spec.ollama_models, spec.ollama_trace)
+            )
             if spec.net == "ollama"
             else None
         )
