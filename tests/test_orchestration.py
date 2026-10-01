@@ -6,13 +6,14 @@ trial gets, what blocks a trial, what is cleaned up, and how records turn into s
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from bench import cli, gate, preflight, realism, reference, runner
+from bench import cli, gate, layout, preflight, realism, reference, runner
 from bench.issues import check, score, trials
 from bench.rag import experiment
 
@@ -105,7 +106,7 @@ def test_score_records_builds_one_row_per_scorable_trial_and_reports_unscorable_
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cli, "load", lambda _v, p: mk(p))
-    monkeypatch.setattr(check, "Env", lambda *a, **k: None)
+    monkeypatch.setattr(check, "Env", lambda *a, **k: object())
     calls = {"n": 0}
 
     def fake_score(rec: dict[str, Any], _issues: Any, _env: Any) -> score.IssueScore:
@@ -267,3 +268,35 @@ def test_rag_experiment_main_analyses_a_results_file(
     assert "not evaluable" in capsys.readouterr().out
     monkeypatch.setattr(experiment, "run", lambda *a, **k: results)
     assert experiment.main(["run", "--n", "1", "--out", str(results)]) == 0
+
+
+def test_records_are_scored_on_the_build_they_ran_on_and_unknown_builds_are_not_scored(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Regression: re-scoring applied old trials' diffs to a newer build of the same profile."""
+    current = mk("full")
+    current = dataclasses.replace(current, manifest={**current.manifest, "tree_hash": "new"})
+    monkeypatch.setattr(cli, "load", lambda _v, _p: current)
+    old_dir = tmp_path / "profiles.old" / "full"
+    old_dir.mkdir(parents=True)
+    (old_dir / "MANIFEST.json").write_text(json.dumps({"tree_hash": "old", "issue_ids": []}))
+    monkeypatch.setattr(
+        layout, "find_profile_dir", lambda h, v="v2": old_dir if h == "old" else None
+    )
+    seen: list[Path] = []
+
+    def fake_env(tree: Path, *_a: Any, **_k: Any) -> Path:
+        seen.append(tree)
+        return tree
+
+    monkeypatch.setattr(check, "Env", fake_env)
+    monkeypatch.setattr(score, "score_record", lambda rec, _i, env: _scored(rec))
+    base = {"label": IDS[0], "model": "m", "agent": "coder", "outcome": "completed", "secs": 1.0}
+    recs = [
+        {**base, "trial_id": "a", "tool_calls": 1, "fixture_tree_hash": "new"},
+        {**base, "trial_id": "b", "tool_calls": 1, "fixture_tree_hash": "old"},
+        {**base, "trial_id": "c", "tool_calls": 1, "fixture_tree_hash": "gone"},
+    ]
+    rows = trials.score_records(recs, "full")
+    assert [r["outcome"] for r in rows] == ["fixed", "fixed", "unscorable"]
+    assert old_dir / "tree" in seen and "no longer exists" in rows[2]["notes"][0]

@@ -84,14 +84,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.wait:
         preflight.wait_clear(args.wait)
-    record = runner.run_trial(
-        fx,
-        spec,
-        ROOT / "artifacts",
-        ROOT / "overlays",
-        ROOT / "results" / "trials.jsonl",
-        force=args.force,
-    )
+    with preflight.session_lock(ROOT / "overlays" / ".session.lock"):
+        record = runner.run_trial(
+            fx,
+            spec,
+            ROOT / "artifacts",
+            ROOT / "overlays",
+            ROOT / "results" / "trials.jsonl",
+            force=args.force,
+        )
     print(
         json.dumps(
             {k: record[k] for k in ("trial_id", "outcome", "secs", "tool_calls", "artifact")}

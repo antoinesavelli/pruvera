@@ -116,7 +116,7 @@ def run_study(n: int, out: Path, wait: float = 120.0, force: bool = False) -> Pa
     }
     artifacts, trials = ROOT / "artifacts", ROOT / "overlays"
     out.parent.mkdir(parents=True, exist_ok=True)
-    with preflight.session_lock(trials / ".session.lock"):
+    with preflight.session_lock(trials / ".session.lock"), reference.cleanup_on_signals():
         reference.sweep(trials)  # a killed earlier run may have left real code behind
         return _run_study_locked(n, out, wait, force, fixtures, artifacts, trials)
 

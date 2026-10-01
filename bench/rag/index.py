@@ -8,6 +8,7 @@ venv's python. Depends on: bench.layout, numpy, a running Ollama.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import urllib.request
@@ -66,6 +67,14 @@ def build(tree: Path, out: Path) -> dict[str, int]:
     return {"chunks": len(items), "files": len({c["file"] for c in items})}
 
 
+def main(argv: list[str] | None = None) -> int:
+    """Build the docs index of a fixture version (needs a running Ollama and numpy)."""
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument("--version", default=layout.VERSION)
+    args = parser.parse_args(argv)
+    print(json.dumps(build(layout.tree(args.version), layout.rag_dir(args.version))))
+    return 0
+
+
 if __name__ == "__main__":
-    print(json.dumps(build(layout.tree(), layout.rag_dir())))
-    sys.exit(0)
+    sys.exit(main())

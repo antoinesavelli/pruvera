@@ -39,3 +39,11 @@ def test_silent_means_no_tool_and_no_text() -> None:
     tr = Transcript().parse(_event("step_start", {}) + "\n" + _event("step_finish", {"tokens": {}}))
     assert tr.silent and tr.events == 2
     assert Transcript().silent
+
+
+def test_an_event_with_a_non_object_part_does_not_kill_the_reader() -> None:
+    """Regression: a non-dict `part` raised in the reader thread and the trial read as a hang."""
+    tr = Transcript()
+    assert tr.feed('{"type": "text", "part": "just a string"}')
+    assert tr.feed('{"type": "step_finish", "part": [1, 2]}')
+    assert tr.events == 2

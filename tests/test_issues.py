@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -12,28 +13,22 @@ from bench import sandbox
 from bench.fixture import build as fixture_build
 from bench.issues import campaign, check, mutate, plant, schema, seed, verify
 from bench.issues.schema import Edit, Issue
-from tests.test_sandbox import _bwrap_works
+from tests.helpers import bwrap_works as _bwrap_works
+from tests.helpers import make_issue
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_VENV = ROOT / "fixtures/paramo/venv/v2"
 SRC = "def f(a, b):\n    if a >= 5 and b:\n        return True\n    return a[1:3]\n"
 
 
-def _issue(**kw: object) -> Issue:
-    base: dict[str, object] = {
-        "id": "x-1",
-        "kind": "logic_bug_caught_by_test",
+def _issue(**kw: Any) -> Issue:
+    base: dict[str, Any] = {
         "source": "mutation",
-        "difficulty": "easy",
-        "roles": ("coder",),
         "summary": "s",
-        "detector": "test",
         "tests": ("tests/test_a.py::test_a",),
-        "expected_action": "fix",
         "edits": (Edit("pkg/m.py", "return 1\n", "return 2\n"),),
     }
-    base.update(kw)
-    return Issue(**base)  # type: ignore[arg-type]
+    return make_issue(**{**base, **kw})
 
 
 # ---------------------------------------------------------------- mutate
@@ -341,3 +336,25 @@ def test_a_profile_keeps_symlinks_as_symlinks(tmp_path: Path) -> None:
     copy = version / "profiles" / "s" / "tree" / "link.md"
     assert copy.is_symlink() and copy.readlink() == Path("README.md")
     assert built["parent_tree_hash"] == manifest["tree_hash"]
+
+
+@needs_env
+def test_a_survivor_in_a_module_with_no_sibling_test_file_is_checked_against_importers(
+    tmp_path: Path,
+) -> None:
+    """Regression: a missing sibling test file made pytest exit 4, read as 'a test catches it'."""
+    env = _env(tmp_path)
+    (env.tree / "pkg" / "orphan.py").write_text("LIMIT = 1\\n")
+    survivor = _issue(
+        id="x-9",
+        kind="logic_bug_no_test_catches",
+        detector="review_only",
+        tests=(),
+        edits=(Edit("pkg/orphan.py", "LIMIT = 1", "LIMIT = 10"),),
+    )
+    assert verify.verify_issue(env, survivor).ok, "no test imports it, so nothing catches it"
+    (env.tree / "tests" / "test_uses_orphan.py").write_text(
+        "from pkg.orphan import LIMIT\\n\\n\\ndef test_limit():\\n    assert LIMIT == 1\\n"
+    )
+    verdict = verify.verify_issue(env, survivor)
+    assert not verdict.ok and any("not a survivor" in n for n in verdict.notes)

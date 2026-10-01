@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from bench.issues import check
-from tests.test_sandbox import _bwrap_works
+from tests.helpers import bwrap_works as _bwrap_works
 
 ROOT = Path(__file__).resolve().parents[1]
 FX = ROOT / "fixtures" / "paramo"

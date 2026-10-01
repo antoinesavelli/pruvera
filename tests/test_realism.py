@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import signal
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -11,8 +13,8 @@ from typing import Any
 import pytest
 
 from bench import compare, reference, runner, sandbox
-from bench.transcript import Transcript
-from tests.test_sandbox import _bwrap_works
+from bench.transcript import Transcript, sanitize_transcript
+from tests.helpers import needs_bwrap as needs_bwrap_marker
 
 CONFIG = {"model": "ollama/m", "provider": {"ollama": {}}, "agent": {"a": {"model": "ollama/m"}}}
 
@@ -94,7 +96,7 @@ def _git_source(tmp_path: Path) -> Path:
 
 
 EVENT = '{"type":"text","part":{"text":"hi"}}'
-needs_bwrap = pytest.mark.skipif(not _bwrap_works(), reason="unprivileged bwrap unavailable")
+needs_bwrap = needs_bwrap_marker
 
 
 def _reference(tmp_path: Path, source: Path, script: str, spec: runner.TrialSpec) -> dict[str, Any]:
@@ -248,3 +250,49 @@ def test_sweep_removes_every_stale_reference_copy_and_leaves_other_trials(tmp_pa
     reference.sweep(tmp_path)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["keep"]
     reference.sweep(tmp_path / "absent")
+
+
+def test_a_reference_transcript_keeps_the_shape_of_the_run_and_none_of_the_code() -> None:
+    long_code = "def secret_strategy():\n" + "    x = 1\n" * 500
+    state = {
+        "status": "completed",
+        "input": {"filePath": "a.py"},
+        "output": long_code,
+        "metadata": {"preview": long_code},
+    }
+    events = [
+        {"type": "tool_use", "part": {"tool": "read", "state": state}},
+        {"type": "text", "part": {"text": long_code}},
+    ]
+    raw = "\n".join(json.dumps(e) for e in events) + "\nplain stdout line\n"
+    out = sanitize_transcript(raw)
+    assert len(out) < 1500 and out.count("x = 1") < 60
+    tool = json.loads(out.splitlines()[0])["part"]
+    assert tool["tool"] == "read" and tool["state"]["input"] == {"filePath": "a.py"}
+    assert "metadata" not in tool["state"] and len(tool["state"]["output"]) == 120
+    assert out.splitlines()[-1] == "plain stdout line"
+
+
+def test_prepare_pins_the_copy_once_so_later_drift_is_visible(tmp_path: Path) -> None:
+    source = _git_source(tmp_path)
+    dest = tmp_path / "ref"
+    tree = dest / "tree"
+    shutil.copytree(source, tree)
+    manifest = reference._manifest(tree, "abc")
+    (dest / "manifest.json").write_text(json.dumps(manifest))
+    clean = reference.fixture(tree)
+    runner.check_fixture(clean)
+    (tree / "pkg" / "m.py").write_text("X = 99\\n")
+    with pytest.raises(runner.DriftError):
+        runner.check_fixture(reference.fixture(tree))
+
+
+def test_sigterm_during_a_reference_run_still_runs_the_cleanup() -> None:
+    cleaned = []
+    with pytest.raises(SystemExit) as exc:
+        with reference.cleanup_on_signals():
+            try:
+                signal.raise_signal(signal.SIGTERM)
+            finally:
+                cleaned.append(True)
+    assert exc.value.code == 128 + signal.SIGTERM and cleaned == [True]

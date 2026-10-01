@@ -10,7 +10,7 @@ import pytest
 
 from bench import sandbox
 from bench.fixture import build, denylist, export, scrub, verify
-from tests.test_sandbox import _bwrap_works as sandbox_ok
+from tests.helpers import bwrap_works as sandbox_ok
 
 
 def _git(repo: Path, *args: str) -> str:
