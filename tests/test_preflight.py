@@ -105,3 +105,20 @@ def test_wait_clear_polls_until_clear_or_timeout(proc: Path) -> None:
         10, 2, sleep=sleep, clock=clock, proc_root=proc, gpu=lambda: 99, ollama=lambda: True, me=999
     )
     assert [p.code for p in stuck] == ["gpu_busy"]
+
+
+def test_a_second_run_of_trials_cannot_take_the_session_lock(tmp_path: Path) -> None:
+    lock = tmp_path / "o" / ".session.lock"
+    with preflight.session_lock(lock):
+        with pytest.raises(PreflightError, match="another run"):
+            with preflight.session_lock(lock):
+                pass
+    with preflight.session_lock(lock):  # released on exit
+        pass
+
+
+def test_every_harness_entry_point_that_starts_trials_is_recognised(proc: Path) -> None:
+    for i, module in enumerate(("bench.gate", "bench.issues.trials", "bench.cli")):
+        _proc(proc, 30 + i, ["python3", "-m", module, "run"])
+    codes = [p.message for p in preflight.running_agents(proc, me=999)]
+    assert len(codes) == 3
