@@ -46,6 +46,20 @@ def run_arms(
     issues = schema.load_all(ROOT / "issues")
     ids = [i for i in next(iter(arms.values())).issue_ids if not only or i in only]
     out.parent.mkdir(parents=True, exist_ok=True)
+    with preflight.session_lock(ROOT / "overlays" / ".session.lock"):
+        return _run_arms_locked(arms, n, out, ids, issues, models, wait, force)
+
+
+def _run_arms_locked(
+    arms: dict[str, runner.Fixture],
+    n: int,
+    out: Path,
+    ids: list[str],
+    issues: dict[str, schema.Issue],
+    models: dict[str, str] | None,
+    wait: float,
+    force: bool,
+) -> Path:
     for rep in range(n):
         flip = rep % 2 == 1
         for issue_id in reversed(ids) if flip else ids:

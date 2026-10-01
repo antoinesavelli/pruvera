@@ -129,13 +129,17 @@ def run(n: int, out: Path, limit: int, wait: float = 120.0, force: bool = False)
     index_dir = layout.rag_dir()
     questions = select_questions(fx.tree, limit)
     out.parent.mkdir(parents=True, exist_ok=True)
-    for rep in range(n):
-        for q in questions:
-            for arm in ("control", "treatment") if rep % 2 == 0 else ("treatment", "control"):
-                preflight.wait_clear(wait)
-                spec = arm_spec(arm, q, index_dir)
-                runner.run_trial(fx, spec, ROOT / "artifacts", ROOT / "overlays", out, force=force)
-                print(f"{q.id:30s} {arm:9s} rep {rep + 1}/{n}", flush=True)
+    with preflight.session_lock(ROOT / "overlays" / ".session.lock"):
+        for rep in range(n):
+            for q in questions:
+                for arm in ("control", "treatment") if rep % 2 == 0 else ("treatment", "control"):
+                    if (blocked := preflight.wait_clear(wait)) and not force:
+                        raise RuntimeError(f"trials blocked: {[p.code for p in blocked]}")
+                    spec = arm_spec(arm, q, index_dir)
+                    runner.run_trial(
+                        fx, spec, ROOT / "artifacts", ROOT / "overlays", out, force=force
+                    )
+                    print(f"{q.id:30s} {arm:9s} rep {rep + 1}/{n}", flush=True)
     return out
 
 

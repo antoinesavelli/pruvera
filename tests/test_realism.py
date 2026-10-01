@@ -235,3 +235,16 @@ def test_paired_effect_reports_a_consistent_per_task_gap_the_pooled_ratio_can_hi
     assert paired["tasks"] == 10 and paired["higher"] == 10 and paired["lower"] == 0
     assert abs(paired["geomean"] - 1.5) < 1e-9 and paired["sign_p"] < 0.01
     assert "per task" in compare.effects_markdown(compare.effects(records))
+
+
+@needs_bwrap
+def test_sweep_removes_every_stale_reference_copy_and_leaves_other_trials(tmp_path: Path) -> None:
+    for name in ("ref-source", "ref-abc123"):
+        locked = tmp_path / name / "work" / "locked"
+        locked.mkdir(parents=True)
+        (locked / "f").write_text("real code")
+        locked.chmod(0)
+    (tmp_path / "keep").mkdir()
+    reference.sweep(tmp_path)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["keep"]
+    reference.sweep(tmp_path / "absent")

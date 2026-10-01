@@ -89,7 +89,7 @@ def test_served_over_a_unix_socket_forwards_allowed_and_blocks_the_rest(
     tmp_path: Path, upstream: int
 ) -> None:
     sock = tmp_path / "f.sock"
-    with ollama_filter.serve(sock, upstream):
+    with ollama_filter.serve(sock, upstream, frozenset({"m"})):
         assert sock.stat().st_mode & 0o777 == 0o600
         status, data = call(sock, "POST", "/v1/chat/completions", b'{"model": "m"}')
         assert status == 200 and data == b'echo:{"model": "m"}'
@@ -119,10 +119,10 @@ def test_a_refused_call_with_a_large_body_gets_a_clean_403_not_a_reset(
 ) -> None:
     """Regression: refusing without reading the body made the client see a connection reset."""
     sock = tmp_path / "f.sock"
-    with ollama_filter.serve(sock, upstream):
+    with ollama_filter.serve(sock, upstream, frozenset({"m"})):
         for _ in range(20):
             assert call(sock, "POST", "/api/pull", b"x" * 300_000)[0] == 403
-        assert call(sock, "POST", "/api/chat", b"x" * 10)[0] == 200
+        assert call(sock, "POST", "/api/chat", b'{"model": "m"}')[0] == 200
 
 
 def test_model_allowlist_refuses_other_models_but_not_requests_without_one() -> None:
@@ -133,7 +133,40 @@ def test_model_allowlist_refuses_other_models_but_not_requests_without_one() -> 
     assert not ollama_filter.model_allowed(b'{"model": ["gpt-oss:20b"]}', models)
     assert ollama_filter.model_allowed(b'{"messages": []}', models)
     assert ollama_filter.model_allowed(None, models)
-    assert ollama_filter.model_allowed(b'{"model": "anything"}', frozenset()), "no list: allow all"
+    assert not ollama_filter.model_allowed(b'{"model": "anything"}', frozenset()), "fails closed"
+
+
+def test_the_model_gate_cannot_be_dodged_by_key_case_alias_or_duplicates() -> None:
+    """Regression: Ollama's decoder is case-insensitive and /api/show reads `name` too."""
+    models = frozenset({"gpt-oss:20b"})
+    for evil in (
+        b'{"MODEL": "x"}',
+        b'{"Model": "x"}',
+        b'{"name": "x"}',
+        b'{"model": "gpt-oss:20b", "Model": "x"}',
+        b'{"model": "gpt-oss:20b", "model": "x"}',
+        b'["model"]',
+        b'"model"',
+    ):
+        assert not ollama_filter.model_allowed(evil, models), evil
+    assert ollama_filter.model_allowed(b'{"NAME": "gpt-oss:20b"}', models)
+
+
+def test_conflicting_or_duplicate_content_length_headers_are_refused(
+    tmp_path: Path, upstream: int
+) -> None:
+    sock = tmp_path / "f.sock"
+    with ollama_filter.serve(sock, upstream, frozenset({"m"})):
+        raw = (
+            b"POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n"
+            b"Content-Length: 50\r\n\r\n{}"
+        )
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.connect(str(sock))
+        client.sendall(raw)
+        reply = client.recv(4096)
+        client.close()
+    assert reply.startswith(b"HTTP/1.0 400") and not _Fake.seen
 
 
 def test_served_with_an_allowlist_blocks_a_model_that_is_not_listed(
