@@ -3,7 +3,7 @@
 Chunks are fixed-size (1,500 characters) and prefixed with their file path, embedded with
 `nomic-embed-text` on the local Ollama. The index lives under `fixtures/paramo/rag/<version>/`
 (gitignored, kept out of the backup: it holds fixture text). Needs numpy: run it with the fixture
-venv's python. Depends on: numpy, a running Ollama.
+venv's python. Depends on: bench.layout, numpy, a running Ollama.
 """
 
 from __future__ import annotations
