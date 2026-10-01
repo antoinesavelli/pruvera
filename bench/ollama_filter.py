@@ -13,6 +13,7 @@ import contextlib
 import http.client
 import http.server
 import json
+import re
 import socket
 import socketserver
 import threading
@@ -39,6 +40,9 @@ ALLOWED: frozenset[tuple[str, str]] = frozenset(
 HOP_BY_HOP = {"connection", "keep-alive", "transfer-encoding", "te", "upgrade", "proxy-connection"}
 MAX_BODY = 8 * 1024 * 1024
 MAX_CONNECTIONS = 8  # concurrent requests held in memory at once
+SLOT_WAIT = 10.0  # seconds a connection waits for a free slot before it is told 503
+MAX_NUM_CTX = 131072  # a request may not ask the allowed model for a bigger context than this
+MAX_KEEP_ALIVE_SECONDS = 1800  # nor keep it loaded longer than this
 READ_TIMEOUT = 60.0  # seconds a client may stall while sending a request
 
 
@@ -71,7 +75,30 @@ def model_allowed(body: bytes | None, models: frozenset[str]) -> bool:
     if not isinstance(doc, dict):
         return False
     named = [v for k, v in doc.items() if k.lower() in ("model", "name")]
-    return all(isinstance(v, str) and v in models for v in named)
+    return all(isinstance(v, str) and v in models for v in named) and _resources_ok(doc)
+
+
+def _resources_ok(doc: dict[str, object]) -> bool:
+    """False for a request that sizes the context or the model's residency beyond the caps."""
+    options = {k.lower(): v for k, v in doc.items()}
+    inner = options.get("options")
+    if isinstance(inner, dict):
+        options["num_ctx"] = {k.lower(): v for k, v in inner.items()}.get("num_ctx")
+    ctx = options.get("num_ctx")
+    if ctx is not None and not (isinstance(ctx, int) and 0 < ctx <= MAX_NUM_CTX):
+        return False
+    keep = options.get("keep_alive")
+    if keep is None:
+        return True
+    if isinstance(keep, bool):
+        return False
+    if isinstance(keep, int | float):
+        return 0 <= keep <= MAX_KEEP_ALIVE_SECONDS
+    match = re.fullmatch(r"([0-9]{1,4})([smh]?)", str(keep))
+    if match is None:
+        return False
+    seconds = int(match[1]) * {"": 1, "s": 1, "m": 60, "h": 3600}[match[2]]
+    return seconds <= MAX_KEEP_ALIVE_SECONDS
 
 
 class _Refusal(Exception):
@@ -87,7 +114,7 @@ def _content_length(headers: Message) -> int:
     if "chunked" in headers.get("Transfer-Encoding", "").lower():
         raise _Refusal(411, "chunked request bodies are not supported")
     lengths = headers.get_all("Content-Length") or ["0"]
-    if len(lengths) != 1 or not lengths[0].strip().isdigit():
+    if len(lengths) != 1 or not re.fullmatch(r"[0-9]{1,12}", lengths[0].strip()):
         raise _Refusal(400, "one numeric Content-Length is required")
     if int(lengths[0]) > MAX_BODY:
         raise _Refusal(413, "request too large")
@@ -142,24 +169,35 @@ def make_handler(
             self.end_headers()
             self.wfile.write(body)
 
+        def handle(self) -> None:
+            # The slot is taken before the request line and headers are read: a client that
+            # trickles headers holds a slot (and times out) instead of an unbounded thread.
+            if not slots.acquire(timeout=SLOT_WAIT):
+                with contextlib.suppress(OSError):
+                    self.wfile.write(b"HTTP/1.0 503 Busy\r\nContent-Length: 0\r\n\r\n")
+                return
+            try:
+                super().handle()
+            finally:
+                slots.release()
+
         def _forward(self) -> None:
-            with slots:
-                try:
-                    length = _content_length(self.headers)
-                    # Read the body before any refusal: closing with unread bytes resets the
-                    # connection and the client would see a reset instead of the 403.
-                    body = self.rfile.read(length) if length else None
-                    _vet(self.command, self.path, body, models)
-                except _Refusal as refusal:
-                    self._refuse(refusal.code, refusal.why)
-                    return
-                except OSError:
-                    return  # the client went away or timed out
-                try:
-                    _relay(self, upstream_port, body)
-                except (OSError, http.client.HTTPException):
-                    with contextlib.suppress(OSError):
-                        self._refuse(502, "upstream unavailable")
+            try:
+                length = _content_length(self.headers)
+                # Read the body before any refusal: closing with unread bytes resets the
+                # connection and the client would see a reset instead of the 403.
+                body = self.rfile.read(length) if length else None
+                _vet(self.command, self.path, body, models)
+            except _Refusal as refusal:
+                self._refuse(refusal.code, refusal.why)
+                return
+            except OSError:
+                return  # the client went away or timed out
+            try:
+                _relay(self, upstream_port, body)
+            except (OSError, http.client.HTTPException):
+                with contextlib.suppress(OSError):
+                    self._refuse(502, "upstream unavailable")
 
         do_GET = do_POST = do_HEAD = do_PUT = do_DELETE = do_PATCH = _forward
 

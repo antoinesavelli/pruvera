@@ -53,7 +53,9 @@ class Spec:
     """Everything one trial needs; the caller creates upper/work/xdg empty on the trial's disk."""
 
     base: Path  # read-only fixture tree, including its .git
-    upper: Path  # overlay upper dir: every write a trial makes lands here
+    upper: (
+        Path  # overlay upper dir: writes to the workdir land here (xdg binds, HOME and /tmp do not)
+    )
     work: Path  # overlay workdir: empty, same filesystem as upper
     xdg: Path  # trial-private config/data/state root (writable)
     ro_binds: tuple[tuple[Path, str], ...] = ()  # (host path, path inside): venv, opencode, data
@@ -163,7 +165,9 @@ def _host_env() -> dict[str, str]:
 MEMORY_MAX = "16G"  # one trial's cgroup cap: a runaway test or agent must not OOM the host
 CPU_QUOTA_PERCENT = max(100, (os.cpu_count() or 2) // 2 * 100)  # at most half the cores
 MAX_OUTPUT = 32 * 1024 * 1024  # characters of stdout or stderr the harness keeps from a command
-UPPER_MAX_BYTES = 2 * 1024**3  # what one trial may write to its overlay upper directory
+UPPER_MAX_BYTES = (
+    2 * 1024**3
+)  # what one trial may write to each measured directory (see measured_roots)
 UPPER_MAX_FILES = 200_000  # and how many files and directories it may create
 TASKS_MAX = 4096  # and may not fork-bomb it
 
@@ -187,18 +191,26 @@ def limit_prefix() -> tuple[str, ...]:
 def upper_exceeds(
     upper: Path, max_bytes: int = UPPER_MAX_BYTES, max_files: int = UPPER_MAX_FILES
 ) -> bool:
-    """True when a trial's overlay upper directory holds more than the allowed bytes or entries."""
+    """True when a directory holds too many bytes or entries, or cannot be fully read."""
+    if not upper.exists():
+        return False
+    unreadable: list[OSError] = []
     total = count = 0
-    for dirpath, dirnames, filenames in os.walk(upper):
+    for dirpath, dirnames, filenames in os.walk(upper, onerror=unreadable.append):
         count += len(dirnames) + len(filenames)
-        if count > max_files:
-            return True
         for name in filenames:
-            with contextlib.suppress(OSError):
+            try:
                 total += (Path(dirpath) / name).lstat().st_size
-        if total > max_bytes:
+            except OSError as exc:
+                unreadable.append(exc)  # a path the cap cannot measure is treated as over it
+        if unreadable or count > max_files or total > max_bytes:
             return True
-    return False
+    return bool(unreadable)
+
+
+def measured_roots(spec: Spec) -> tuple[Path, ...]:
+    """Every host directory a trial can write to: the overlay upper and the xdg binds."""
+    return (spec.upper, *(spec.xdg / sub for sub in ("config", "data", "state")))
 
 
 def _capped_read(stream: IO[str], sink: list[str], cap: int) -> None:
@@ -365,15 +377,26 @@ def verify_base(base: Path, expected: str, exclude_top: tuple[str, ...] = ()) ->
 
 
 def overlay_changes(upper: Path) -> dict[str, list[str]]:
-    """What a trial changed, read from the overlay upper dir: written vs deleted (whiteouts)."""
-    changes: dict[str, list[str]] = {"written": [], "deleted": []}
-    for path in sorted(upper.rglob("*")):
-        info = path.lstat()
-        rel = path.relative_to(upper).as_posix()
-        if stat.S_ISCHR(info.st_mode) and info.st_rdev == 0:
-            changes["deleted"].append(rel)
-        elif stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
-            changes["written"].append(rel)
+    """What a trial changed in the overlay upper dir: written, deleted (whiteouts), unreadable."""
+    changes: dict[str, list[str]] = {"written": [], "deleted": [], "unreadable": []}
+    errors: list[OSError] = []
+    for dirpath, dirnames, filenames in os.walk(upper, onerror=errors.append):
+        dirnames.sort()
+        for name in sorted([*dirnames, *filenames]):
+            path = Path(dirpath) / name
+            rel = path.relative_to(upper).as_posix()
+            try:
+                info = path.lstat()
+            except OSError:
+                changes["unreadable"].append(rel)
+                continue
+            if stat.S_ISCHR(info.st_mode) and info.st_rdev == 0:
+                changes["deleted"].append(rel)
+            elif stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+                changes["written"].append(rel)
+    changes["unreadable"] += [str(getattr(e, "filename", "") or e) for e in errors]
+    changes["written"].sort()
+    changes["deleted"].sort()
     return changes
 
 

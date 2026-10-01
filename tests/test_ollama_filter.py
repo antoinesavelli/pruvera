@@ -198,3 +198,50 @@ def test_a_client_that_stalls_mid_request_is_dropped_after_the_read_timeout(
         assert client.recv(4096) == b"", "the filter hangs up on a stalled sender"
         client.close()
         assert call(sock, "GET", "/api/tags")[0] == 200, "and keeps serving others"
+
+
+def test_a_unicode_digit_content_length_is_a_clean_400_not_a_crash(
+    tmp_path: Path, upstream: int
+) -> None:
+    sock = tmp_path / "f.sock"
+    with ollama_filter.serve(sock, upstream, frozenset({"m"})):
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.connect(str(sock))
+        client.sendall("POST /v1/chat/completions HTTP/1.1\r\nContent-Length: ²\r\n\r\n".encode())
+        reply = client.recv(4096)
+        client.close()
+    assert reply.startswith(b"HTTP/1.0 400") and not _Fake.seen
+
+
+@pytest.mark.parametrize(
+    ("body", "ok"),
+    [
+        (b'{"model": "m", "options": {"num_ctx": 65536}}', True),
+        (b'{"model": "m", "options": {"num_ctx": 100000000}}', False),
+        (b'{"model": "m", "options": {"NUM_CTX": 100000000}}', False),
+        (b'{"model": "m", "num_ctx": "big"}', False),
+        (b'{"model": "m", "keep_alive": -1}', False),
+        (b'{"model": "m", "keep_alive": "-1"}', False),
+        (b'{"model": "m", "keep_alive": "24h"}', False),
+        (b'{"model": "m", "keep_alive": "5m"}', True),
+        (b'{"model": "m", "keep_alive": 0}', True),
+        (b'{"model": "m", "keep_alive": true}', False),
+    ],
+)
+def test_requests_may_not_resize_the_context_or_pin_the_model(body: bytes, ok: bool) -> None:
+    assert ollama_filter.model_allowed(body, frozenset({"m"})) is ok
+
+
+def test_a_connection_beyond_the_slots_is_told_503_not_queued_in_a_thread(
+    tmp_path: Path, upstream: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ollama_filter, "MAX_CONNECTIONS", 1)
+    monkeypatch.setattr(ollama_filter, "SLOT_WAIT", 0.2)
+    sock = tmp_path / "f.sock"
+    with ollama_filter.serve(sock, upstream, frozenset({"m"})):
+        holder = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        holder.connect(str(sock))
+        holder.sendall(b"POST /v1/chat/completions HTTP/1.1\r\nContent-Le")  # holds the one slot
+        status = call(sock, "GET", "/api/tags")[0]
+        holder.close()
+    assert status == 503

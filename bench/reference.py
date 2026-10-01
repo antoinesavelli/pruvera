@@ -24,7 +24,6 @@ from typing import Any
 
 from bench import agentconfig, preflight, runner, sandbox
 from bench.fixture import build, export
-from bench.transcript import sanitize_transcript
 
 REAL_VENV = Path("/mnt/ParamoStorage/Paramo/.venv")
 
@@ -48,7 +47,10 @@ def prepare(repo: Path, rev: str, dest: Path) -> Path:
     export.export_commit(repo, commit, tree)
     build.git_base(tree)
     # Hashed once, here: recomputing it from the same tree at every trial would catch nothing.
-    (dest / "manifest.json").write_text(json.dumps(_manifest(tree, commit)))
+    manifest = _manifest(tree, commit)
+    if REAL_VENV.exists():
+        manifest["venv_pin"] = sandbox.fingerprint(REAL_VENV)
+    (dest / "manifest.json").write_text(json.dumps(manifest))
     return tree
 
 
@@ -66,11 +68,13 @@ def sweep(trials_dir: Path) -> None:
 
 
 def fixture(tree: Path, rev: str = "", venv: Path | None = None) -> runner.Fixture:
-    """The prepared copy as a trial fixture, pinned like any other (tree, .git, base commit)."""
+    """The prepared copy as a trial fixture, pinned like any other (tree, .git, commit, venv)."""
     saved = tree.parent / "manifest.json"
     manifest = json.loads(saved.read_text()) if saved.exists() else _manifest(tree, rev)
+    venv_default = venv is None
     venv = venv if venv is not None else (REAL_VENV if REAL_VENV.exists() else None)
-    pins = {"venv": sandbox.fingerprint(venv)} if venv is not None else {}
+    pinned = manifest.get("venv_pin") if venv_default else None
+    pins = {"venv": pinned or sandbox.fingerprint(venv)} if venv is not None else {}
     return runner.Fixture(
         "reference", tree, manifest, venv, None, "reference", environment="reference", pins=pins
     )
@@ -109,15 +113,6 @@ def run_reference(
         shutil.rmtree(trials_dir / ref_spec.trial_id, ignore_errors=True)
         if (trials_dir / ref_spec.trial_id).exists():
             sandbox.remove_trial_dirs(trials_dir / ref_spec.trial_id)
-
-
-def sanitize_artifacts(artifacts: Path) -> int:
-    """Sanitise every reference trial's transcript under `artifacts`; returns how many."""
-    count = 0
-    for transcript in artifacts.glob("ref-*/transcript.jsonl"):
-        transcript.write_text(sanitize_transcript(transcript.read_text()))
-        count += 1
-    return count
 
 
 @contextlib.contextmanager
