@@ -9,6 +9,23 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+MAX_TOOLS = 20_000  # events kept per trial: a flood of events must not grow the harness's memory
+MAX_TEXT = 1_000_000  # characters of accumulated assistant text kept
+MAX_INPUT = 20_000  # characters of one tool call's arguments kept
+
+
+def _num(value: object) -> float:
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0.0
+
+
+def _dict(value: object) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _bounded_input(value: object) -> object:
+    text = json.dumps(value, default=str)
+    return value if len(text) <= MAX_INPUT else {"truncated": text[:MAX_INPUT]}
+
 
 @dataclass
 class Transcript:
@@ -22,6 +39,7 @@ class Transcript:
     tokens_out: int = 0
     cost: float = 0.0
     tool_errors: int = 0
+    tool_count: int = 0
     first_ts: int | None = None
     last_ts: int | None = None
 
@@ -38,32 +56,34 @@ class Transcript:
         if isinstance(ts, int):
             self.first_ts = self.first_ts if self.first_ts is not None else ts
             self.last_ts = ts
-        part = event.get("part", {})
-        if not isinstance(part, dict):
-            part = {}
+        part = _dict(event.get("part"))
         kind = event["type"]
         if kind == "tool_use":
-            state = part.get("state", {})
-            self.tools.append(
-                {
-                    "tool": part.get("tool"),
-                    "input": state.get("input", {}),
-                    "status": state.get("status"),
-                    "output": str(state.get("output", ""))[:400],
-                    "error": str(state.get("error", ""))[:300],
-                }
-            )
+            state = _dict(part.get("state"))
             self.tool_errors += state.get("status") == "error"
+            self.tool_count += 1
+            if len(self.tools) < MAX_TOOLS:
+                self.tools.append(
+                    {
+                        "tool": part.get("tool"),
+                        "input": _bounded_input(state.get("input", {})),
+                        "status": state.get("status"),
+                        "output": str(state.get("output", ""))[:400],
+                        "error": str(state.get("error", ""))[:300],
+                    }
+                )
         elif kind == "text":
-            self.text += part.get("text", "") + "\n"
-            self.final = str(part.get("text", ""))
+            body = str(part.get("text", ""))
+            if len(self.text) < MAX_TEXT:
+                self.text += body[:MAX_TEXT] + "\n"
+            self.final = body[:MAX_TEXT]
         elif kind == "step_finish":
             self.steps += 1
-            tokens = part.get("tokens", {})
-            self.tokens_total += int(tokens.get("total", 0))
-            self.tokens_in += int(tokens.get("input", 0))
-            self.tokens_out += int(tokens.get("output", 0))
-            self.cost += float(part.get("cost", 0) or 0)
+            tokens = _dict(part.get("tokens"))
+            self.tokens_total += int(_num(tokens.get("total")))
+            self.tokens_in += int(_num(tokens.get("input")))
+            self.tokens_out += int(_num(tokens.get("output")))
+            self.cost += _num(part.get("cost"))
         return True
 
     def parse(self, raw: str) -> Transcript:
@@ -94,12 +114,42 @@ def answer_kind(text: str) -> str:
 
 OUTPUT_KEEP = 120  # characters of a tool's output kept from a reference trial
 TEXT_KEEP = 300  # and of an assistant message
+INPUT_KEEP = 200  # and of each string in a tool call's arguments
+EVENT_FIELDS = ("type", "timestamp")
+PART_FIELDS = ("type", "tool", "reason", "tokens", "cost")
+
+
+def _shorten(value: object, keep: int) -> object:
+    if isinstance(value, str):
+        return value[:keep]
+    if isinstance(value, dict):
+        return {str(k)[:keep]: _shorten(v, keep) for k, v in list(value.items())[:50]}
+    if isinstance(value, list):
+        return [_shorten(v, keep) for v in value[:50]]
+    return value
+
+
+def _sanitize_event(event: dict[str, Any]) -> dict[str, Any]:
+    part = _dict(event.get("part"))
+    kept_part = {k: part[k] for k in PART_FIELDS if k in part}
+    if "text" in part:
+        kept_part["text"] = str(part["text"])[:TEXT_KEEP]
+    state = _dict(part.get("state"))
+    if state:
+        kept_part["state"] = {
+            "status": state.get("status"),
+            "input": _shorten(state.get("input", {}), INPUT_KEEP),
+            "output": str(state.get("output", ""))[:OUTPUT_KEEP],
+            "error": str(state.get("error", ""))[:OUTPUT_KEEP],
+        }
+    return {**{k: event[k] for k in EVENT_FIELDS if k in event}, "part": kept_part}
 
 
 def sanitize_transcript(raw: str) -> str:
-    """A reference transcript with tool output and message bodies cut down to a few characters."""
+    """A reference transcript cut down to a whitelist of fields, each with a few characters."""
     # The copy ran on real strategy code, so a full transcript is real code. What the comparison
-    # needs is which tools ran, with what input, how they ended, and the short error text.
+    # needs is which tools ran, with what input, how they ended, and the short error text; any
+    # field not named here (tool metadata, raw arguments, provider payloads) is dropped.
     kept = []
     for line in raw.splitlines():
         try:
@@ -107,14 +157,5 @@ def sanitize_transcript(raw: str) -> str:
         except ValueError:
             kept.append(line[:TEXT_KEEP])  # not an event: keep a short stub, never the body
             continue
-        part = event.get("part") if isinstance(event, dict) else None
-        if isinstance(part, dict):
-            state = part.get("state")
-            if isinstance(state, dict):
-                state.pop("metadata", None)
-                if "output" in state:
-                    state["output"] = str(state["output"])[:OUTPUT_KEEP]
-            if "text" in part:
-                part["text"] = str(part["text"])[:TEXT_KEEP]
-        kept.append(json.dumps(event))
+        kept.append(json.dumps(_sanitize_event(event) if isinstance(event, dict) else line[:80]))
     return "\n".join(kept) + "\n"

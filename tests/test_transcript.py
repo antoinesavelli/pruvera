@@ -47,3 +47,16 @@ def test_an_event_with_a_non_object_part_does_not_kill_the_reader() -> None:
     assert tr.feed('{"type": "text", "part": "just a string"}')
     assert tr.feed('{"type": "step_finish", "part": [1, 2]}')
     assert tr.events == 2
+
+
+def test_hostile_events_neither_kill_the_reader_nor_grow_without_bound() -> None:
+    tr = Transcript()
+    assert tr.feed('{"type": "tool_use", "part": {"state": "not a dict"}}')
+    assert tr.feed('{"type": "step_finish", "part": {"tokens": {"total": "NaN"}, "cost": "x"}}')
+    assert tr.feed('{"type": "step_finish", "part": {"tokens": [1]}}')
+    huge = json.dumps({"type": "tool_use", "part": {"tool": "t", "state": {"input": "x" * 50_000}}})
+    assert tr.feed(huge)
+    assert len(json.dumps(tr.tools[-1]["input"])) <= 20_100
+    for _ in range(25_000):
+        tr.feed('{"type": "tool_use", "part": {}}')
+    assert len(tr.tools) == 20_000 and tr.tool_count == 25_002

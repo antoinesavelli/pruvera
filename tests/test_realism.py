@@ -125,8 +125,8 @@ def test_reference_runner_uses_a_disposable_copy_and_records_the_same_shape(tmp_
     assert rec["environment"] == "reference" and rec["label"] == "t1"
     assert rec["trial_id"] == f"ref-{spec.trial_id}" and rec["outcome"] == "completed"
     adir = Path(rec["artifact"])
-    assert "?? added.txt" in (adir / "status.txt").read_text()
-    assert "# dirt" in (adir / "diff.patch").read_text()
+    assert "added.txt" not in (adir / "status.txt").read_text(), "real-code paths are not kept"
+    assert (adir / "diff.patch").read_text() == ""
     assert (source / "pkg" / "m.py").read_text() == "X = 1\n", "the source tree must stay untouched"
     assert not any((tmp_path / "trials").iterdir()), "the disposable copy must be deleted"
 
@@ -296,3 +296,36 @@ def test_sigterm_during_a_reference_run_still_runs_the_cleanup() -> None:
             finally:
                 cleaned.append(True)
     assert exc.value.code == 128 + signal.SIGTERM and cleaned == [True]
+
+
+def test_a_reference_transcript_is_a_whitelist_not_a_blacklist() -> None:
+    """Regression: `raw` tool arguments, long errors and unknown fields survived the sanitiser."""
+    code = "def secret():\n" + "    pass\n" * 300
+    event = {
+        "type": "tool_use",
+        "sessionID": "s",
+        "provider_payload": code,
+        "part": {
+            "tool": "edit",
+            "raw": code,
+            "state": {
+                "status": "error",
+                "input": {"filePath": "a.py", "newString": code, "nested": [code]},
+                "error": code,
+                "raw": code,
+            },
+        },
+    }
+    out = sanitize_transcript(json.dumps(event))
+    assert len(out) < 1500 and "provider_payload" not in out and '"raw"' not in out
+    kept = json.loads(out)["part"]["state"]
+    assert len(kept["input"]["newString"]) == 200 and len(kept["error"]) == 120
+
+
+def test_a_reference_trial_keeps_no_diff_status_or_repo_state(tmp_path: Path) -> None:
+    run = runner._Run(status=" M real.py\n", diff="+ secret code\n", changes={"written": ["a"]})
+    runner._write_repo_artifacts(tmp_path, run, redact=True)
+    assert (tmp_path / "diff.patch").read_text() == ""
+    assert "real.py" not in (tmp_path / "status.txt").read_text()
+    assert "secret" not in (tmp_path / "git_state.json").read_text()
+    assert json.loads((tmp_path / "changes.json").read_text())["written"] == 1

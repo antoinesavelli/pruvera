@@ -58,4 +58,4 @@ commands for campaigns, scoring, the gate and the tests.
 1. `git status --short` and `git log --oneline -10`: unfamiliar changes may be a peer session's.
 2. Stage by explicit path; never `git add -A` or `git add .`; check `git diff --cached` before every
    commit.
-3. `pgrep -af 'bench.py|nav_bench|opencode run'`: do not move or delete anything a live run uses.
+3. `pgrep -af 'python.*bench|opencode'` (the exact list is `bench.preflight.BENCH_MODULES`): do not move or delete anything a live run uses.
