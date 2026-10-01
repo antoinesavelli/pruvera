@@ -111,7 +111,7 @@ Built: `bench/rag/` (`server.py` MCP tool `search_docs`, `index.py`, `experiment
 | control | 36 | 11 (31%) | 34 | 9 (26%) | 11 | 0 |
 | treatment | 36 | 13 (36%) | 35 | 12 (34%) | 7 | 7 |
 
-**Verdict by the pre-registered rule: DO NOT ADOPT** (clean correctness +0.08, needs +0.10; tool errors not higher).
+**Verdict by the pre-registered rule: DO NOT ADOPT** (clean correctness +0.08, needs +0.10; tool errors not higher). **Honest reading: the A/B could not decide** (clustered interval -0.18 to +0.33); "not adopted" means undecided, not shown useless.
 
 **Reading it honestly.**
 - The +0.08 is three questions' worth of answers out of about 35 per arm; it is well inside the noise of this design.
@@ -134,6 +134,6 @@ Built: `bench/rag/` (`server.py` MCP tool `search_docs`, `index.py`, `experiment
   reject a +0.10 effect needs roughly 35 issues (or questions) x 6 repeats per arm (`bench/gate.py`).
 - Limits: one model, one embedder, 12 questions, n=3; regex grading rejects a correct answer phrased differently.
 
-**Consequence.** No RAG tool for the agents. Nothing in the real setup changes. If it is revisited, the first
+**Consequence.** No RAG tool is adopted, because nothing here justifies one; nothing in the real setup changes. If it is revisited, the first
 question is why the agent ignores an available search tool (tool description, or model preference for grep),
 not the retrieval quality. Retrieval metrics and the index code stay as a small module (§5 step 3).
