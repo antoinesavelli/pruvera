@@ -107,7 +107,10 @@ def test_schema_rejects_bad_issues(tmp_path: Path) -> None:
 
 def test_the_committed_catalogue_is_valid_and_its_profiles_resolve() -> None:
     issues = schema.load_all(ROOT / "issues")
-    assert len(issues) >= 10 and all(i.summary and i.edits for i in issues.values())
+    assert len(issues) >= 10
+    assert all(
+        i.summary and (i.edits or i.expected_action == "commit_scope") for i in issues.values()
+    )
     assert {i.kind for i in issues.values()} >= {
         "logic_bug_caught_by_test",
         "security",
