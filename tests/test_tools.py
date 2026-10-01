@@ -330,7 +330,7 @@ def test_cli_check_reports_the_fixture_and_the_preflight_and_trial_runs_one(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     fx = runner.Fixture("v", Path("/x"), {"tree_hash": "", "fixture_base_commit": ""})
-    monkeypatch.setattr(cli, "load", lambda _v, _p: fx)
+    monkeypatch.setattr(runner, "load_profile", lambda _v, _p: fx)
     monkeypatch.setattr(runner, "check_fixture", lambda _fx: None)
     monkeypatch.setattr(preflight, "problems", lambda: [])
     assert cli.main(["check"]) == 0 and '"fixture": "ok"' in capsys.readouterr().out
@@ -392,7 +392,7 @@ def test_verify_main_stamps_proofs_only_for_issues_that_pass(
     monkeypatch.setattr(verify, "__file__", str(root / "bench" / "issues" / "verify.py"))
     monkeypatch.setattr(schema, "load_all", lambda _p: issues)
     fx = runner.Fixture("v2", Path("/x"), {}, venv=Path("/v"), issue_ids=("x-1",))
-    monkeypatch.setattr(cli, "load", lambda _v, _p: fx)
+    monkeypatch.setattr(runner, "load_profile", lambda _v, _p: fx)
     monkeypatch.setattr(
         verify,
         "verify_issue",

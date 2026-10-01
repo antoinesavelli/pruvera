@@ -8,9 +8,10 @@ Depends on: stdlib only (tomllib to read; strings are written as JSON, which is 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -116,6 +117,12 @@ def dumps(issue: Issue) -> str:
             f"content = {_q(content)}",
         ]
     return "\n".join(lines) + "\n"
+
+
+def definition_hash(issue: Issue) -> str:
+    """Hash of everything a proof covers (not `proven_on` or the rated `difficulty`)."""
+    stable = replace(issue, proven_on="", difficulty="")
+    return hashlib.sha256(dumps(stable).encode()).hexdigest()[:16]
 
 
 def parse(doc: dict[str, Any]) -> Issue:

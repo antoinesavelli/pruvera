@@ -374,17 +374,22 @@ def test_pip_install_into_the_read_only_venv_fails_and_changes_nothing(
     assert sorted(p.name for p in site.iterdir()) == before, "the venv must be unchanged"
 
 
-def test_limit_prefix_caps_memory_and_tasks_or_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_limit_prefix_caps_memory_and_tasks_or_is_empty(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     sandbox.limit_prefix.cache_clear()
     monkeypatch.setattr(shutil, "which", lambda _n: None)
     assert sandbox.limit_prefix() == ()
+    assert "WITHOUT" in capsys.readouterr().err, "running without caps must not be silent"
     sandbox.limit_prefix.cache_clear()
     monkeypatch.undo()
-    prefix = sandbox.limit_prefix()
-    assert prefix == () or (
-        f"MemoryMax={sandbox.MEMORY_MAX}" in prefix and f"TasksMax={sandbox.TASKS_MAX}" in prefix
-    )
     sandbox.limit_prefix.cache_clear()
+    prefix = sandbox.limit_prefix()
+    sandbox.limit_prefix.cache_clear()
+    if shutil.which("systemd-run") is None or sandbox._scope_prefix() == ():
+        pytest.skip("no systemd user scope on this host")
+    assert f"MemoryMax={sandbox.MEMORY_MAX}" in prefix and f"TasksMax={sandbox.TASKS_MAX}" in prefix
+    assert "MemorySwapMax=0" in prefix
 
 
 def test_the_host_side_environment_carries_only_what_systemd_run_needs(
