@@ -86,23 +86,45 @@ def _ancestors(proc_root: Path, pid: int) -> set[int]:
     return chain
 
 
+WRAPPERS = frozenset({"env", "timeout", "nice", "nohup", "stdbuf", "time", "ionice", "chrt"})
+VALUE_FLAGS = frozenset(
+    {"-X", "-W", "-c", "--check-hash-based-pycs"}
+)  # options that take an argument
+
+
+def _unwrap(argv: list[str]) -> list[str]:
+    """argv with leading wrapper commands (`env A=1`, `timeout 5`, `nice -n 5`) removed."""
+    i = 0
+    while i < len(argv) and Path(argv[i]).name in WRAPPERS:
+        i += 1
+        while i < len(argv) and not INTERPRETER.fullmatch(Path(argv[i]).name):
+            if Path(argv[i]).name in WRAPPERS:
+                break
+            i += 1
+    return argv[i:] if i < len(argv) else argv
+
+
 def _python_target(argv: list[str]) -> tuple[str, str]:
     """(module, script) an interpreter command line runs; either may be empty."""
-    args = argv[1:]
-    if Path(argv[0]).name == "env":  # `env python3 -m ...`: skip the interpreter's own name
-        args = args[1:]
+    args = _unwrap(argv)[1:]
+    skip = False
     for i, arg in enumerate(args):
-        if arg == "-m" and i + 1 < len(args):
+        if skip:
+            skip = False
+        elif arg in VALUE_FLAGS:
+            skip = True
+        elif re.fullmatch(r"-[A-Za-z]*m", arg) and i + 1 < len(args):  # `-m`, `-um`, `-Im`
             return args[i + 1], ""
-        if arg.startswith("-m") and len(arg) > 2:
+        elif arg.startswith("-m") and len(arg) > 2:
             return arg[2:], ""
-        if not arg.startswith("-"):
+        elif not arg.startswith("-"):
             return "", arg
     return "", ""
 
 
 def _classify(pid: str, argv: list[str]) -> Problem | None:
     """The problem a process with this argv represents, if it is another agent or bench run."""
+    argv = _unwrap(argv)
     exe = Path(argv[0]).name
     if exe in AGENT_BINARIES:
         return Problem("agent_running", f"pid {pid}: {exe} is running")

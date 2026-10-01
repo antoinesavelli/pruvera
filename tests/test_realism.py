@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import signal
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +12,7 @@ import pytest
 
 from bench import compare, reference, runner, sandbox
 from bench.transcript import Transcript, sanitize_transcript
+from tests.helpers import git
 from tests.helpers import needs_bwrap as needs_bwrap_marker
 
 CONFIG = {"model": "ollama/m", "provider": {"ollama": {}}, "agent": {"a": {"model": "ollama/m"}}}
@@ -81,17 +80,8 @@ def _git_source(tmp_path: Path) -> Path:
     source = tmp_path / "src"
     (source / "pkg").mkdir(parents=True)
     (source / "pkg" / "m.py").write_text("X = 1\n")
-    env = {
-        "PATH": os.environ["PATH"],
-        "HOME": str(source),
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_AUTHOR_NAME": "t",
-        "GIT_AUTHOR_EMAIL": "t@t",
-        "GIT_COMMITTER_NAME": "t",
-        "GIT_COMMITTER_EMAIL": "t@t",
-    }
     for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-qm", "base"]):
-        subprocess.run(["git", "-C", str(source), *args], env=env, check=True, capture_output=True)
+        git(source, *args)
     return source
 
 

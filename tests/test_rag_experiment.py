@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("yaml")
 
-from bench import cli
+from bench import runner
 from bench.rag import experiment as ex  # noqa: E402
 
 
@@ -215,7 +215,7 @@ def test_the_analyse_command_can_store_the_grades(
     results = graded(
         tmp_path, [("control", "no", NOTHING), ("treatment", "insider_cluster", NOTHING)]
     )
-    monkeypatch.setattr(cli, "load", lambda *_a: type("F", (), {"tree": tmp_path})())
+    monkeypatch.setattr(runner, "load_profile", lambda *_a: type("F", (), {"tree": tmp_path})())
     monkeypatch.setattr(ex, "select_questions", lambda *_a: [Q])
     out = tmp_path / "graded.jsonl"
     assert ex.main(["analyse", str(results), "--write", str(out)]) == 0

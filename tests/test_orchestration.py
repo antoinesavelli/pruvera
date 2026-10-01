@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from bench import cli, gate, layout, preflight, realism, reference, runner
+from bench import gate, layout, preflight, realism, reference, runner
 from bench.issues import check, score, trials
 from bench.rag import experiment
 
@@ -70,7 +70,7 @@ def test_run_arms_interleaves_arms_flips_order_each_repeat_and_names_the_role_mo
 def test_a_single_arm_run_records_no_arm_and_only_filters_issues(
     fake: FakeRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(cli, "load", lambda _v, p: mk(p))
+    monkeypatch.setattr(runner, "load_profile", lambda _v, p: mk(p))
     trials.run("full", 1, tmp_path / "o.jsonl", only=["mut-helpers-60"])
     assert fake.calls == [("full", "mut-helpers-60", "", "coder", "devstral-small-2:24b")]
 
@@ -90,7 +90,7 @@ def test_run_gate_passes_both_arms_and_the_output_to_the_runner(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     seen: dict[str, Any] = {}
-    monkeypatch.setattr(cli, "load", lambda _v, p: mk(p))
+    monkeypatch.setattr(runner, "load_profile", lambda _v, p: mk(p))
     monkeypatch.setattr(
         trials, "run_arms", lambda arms, n, out, **kw: seen.update(arms=list(arms), n=n) or out
     )
@@ -105,7 +105,7 @@ def _scored(record: dict[str, Any]) -> score.IssueScore:
 def test_score_records_builds_one_row_per_scorable_trial_and_reports_unscorable_diffs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(cli, "load", lambda _v, p: mk(p))
+    monkeypatch.setattr(runner, "load_profile", lambda _v, p: mk(p))
     monkeypatch.setattr(check, "Env", lambda *a, **k: object())
     calls = {"n": 0}
 
@@ -197,7 +197,7 @@ def test_run_study_alternates_sides_and_always_discards_the_real_code_copy(
     fake: FakeRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     events: list[str] = []
-    monkeypatch.setattr(cli, "load", lambda _v, _p: mk("fixture"))
+    monkeypatch.setattr(runner, "load_profile", lambda _v, _p: mk("fixture"))
     monkeypatch.setattr(realism, "ROOT", tmp_path)
     monkeypatch.setattr(reference, "sweep", lambda _d: events.append("sweep"))
     monkeypatch.setattr(reference, "discard", lambda _d: events.append("discard"))
@@ -257,7 +257,7 @@ def test_rag_experiment_runs_each_question_in_both_arms_and_flips_order(
         experiment.Question("q1", "What?", ("a",), ()),
         experiment.Question("q2", "Why?", ("b",), ()),
     ]
-    monkeypatch.setattr(cli, "load", lambda _v, _p: mk("fx"))
+    monkeypatch.setattr(runner, "load_profile", lambda _v, _p: mk("fx"))
     monkeypatch.setattr(experiment, "select_questions", lambda *_a: qs)
     experiment.run(2, tmp_path / "r.jsonl", 2)
     arms = [c[2] for c in fake.calls]
@@ -268,7 +268,7 @@ def test_rag_experiment_runs_each_question_in_both_arms_and_flips_order(
 def test_rag_experiment_main_analyses_a_results_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli, "load", lambda _v, _p: mk("fx"))
+    monkeypatch.setattr(runner, "load_profile", lambda _v, _p: mk("fx"))
     monkeypatch.setattr(experiment, "select_questions", lambda *_a: [])
     results = tmp_path / "r.jsonl"
     results.write_text("")
@@ -284,7 +284,7 @@ def test_records_are_scored_on_the_build_they_ran_on_and_unknown_builds_are_not_
     """Regression: re-scoring applied old trials' diffs to a newer build of the same profile."""
     current = mk("full")
     current = dataclasses.replace(current, manifest={**current.manifest, "tree_hash": "new"})
-    monkeypatch.setattr(cli, "load", lambda _v, _p: current)
+    monkeypatch.setattr(runner, "load_profile", lambda _v, _p: current)
     old_dir = tmp_path / "profiles.old" / "full"
     old_dir.mkdir(parents=True)
     (old_dir / "MANIFEST.json").write_text(json.dumps({"tree_hash": "old", "issue_ids": []}))
@@ -314,7 +314,7 @@ def test_run_gate_passes_an_issue_subset_through_to_the_runner(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     seen: dict[str, Any] = {}
-    monkeypatch.setattr(cli, "load", lambda _v, p: mk(p))
+    monkeypatch.setattr(runner, "load_profile", lambda _v, p: mk(p))
     monkeypatch.setattr(
         trials,
         "run_arms",
@@ -322,3 +322,21 @@ def test_run_gate_passes_an_issue_subset_through_to_the_runner(
     )
     gate.run_gate("a", "b", 1, tmp_path / "g.jsonl", only=["x"])
     assert seen["only"] == ["x"]
+
+
+def test_a_proof_that_records_hashes_does_not_cover_an_issue_edited_since(tmp_path: Path) -> None:
+    from bench.issues import schema
+
+    issue = schema.load_all(trials.ROOT / "issues")[IDS[0]]
+    tree = tmp_path / "profile" / "tree"
+    tree.mkdir(parents=True)
+    proof = tmp_path / "profile" / "VERIFY.json"
+    assert trials._proof_stale(tree, issue) == "", "no proof file: nothing to compare"
+    proof.write_text(json.dumps({"issue_hashes": {issue.id: schema.definition_hash(issue)}}))
+    assert trials._proof_stale(tree, issue) == ""
+    edited = dataclasses.replace(issue, prompt=issue.prompt + " Also do more.")
+    assert "changed since" in trials._proof_stale(tree, edited)
+    rated = dataclasses.replace(issue, difficulty="hard", proven_on="v9")
+    assert trials._proof_stale(tree, rated) == "", "rating and proof stamps are not the definition"
+    proof.write_text(json.dumps({"ok": True}))
+    assert trials._proof_stale(tree, edited) == "", "an old proof without hashes is not checked"

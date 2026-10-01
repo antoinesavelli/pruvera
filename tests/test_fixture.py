@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -11,21 +9,7 @@ import pytest
 from bench import sandbox
 from bench.fixture import build, denylist, export, scrub, verify
 from tests.helpers import bwrap_works as sandbox_ok
-
-
-def _git(repo: Path, *args: str) -> str:
-    env = {
-        "PATH": os.environ["PATH"],
-        "HOME": str(repo),
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_AUTHOR_NAME": "t",
-        "GIT_AUTHOR_EMAIL": "t@t",
-        "GIT_COMMITTER_NAME": "t",
-        "GIT_COMMITTER_EMAIL": "t@t",
-    }
-    done = subprocess.run(["git", "-C", str(repo), *args], env=env, capture_output=True, check=True)
-    return done.stdout.decode().strip()
-
+from tests.helpers import git
 
 FILES = {
     "README.md": "Area map.\nThe tuned cell gave DSR 0.XXX in-sample for private_strategy.\n",
@@ -49,12 +33,12 @@ TOKENS = "G | \\b0\\.988\\b | 0.XXX\nG | \\b0\\.6737\\b | 0.XXXX\n"
 def repo(tmp_path: Path) -> Path:
     src = tmp_path / "src"
     src.mkdir()
-    _git(src, "init", "-q", "-b", "main")
+    git(src, "init", "-q", "-b", "main")
     for rel, text in FILES.items():
         (src / rel).parent.mkdir(parents=True, exist_ok=True)
         (src / rel).write_text(text)
-    _git(src, "add", "-A")
-    _git(src, "commit", "-qm", "base")
+    git(src, "add", "-A")
+    git(src, "commit", "-qm", "base")
     return src
 
 
@@ -97,12 +81,12 @@ def test_module_names_map_paths_to_importable_modules() -> None:
 # ---------------------------------------------------------------- export
 def test_export_uses_private_index_and_leaves_source_untouched(repo: Path, tmp_path: Path) -> None:
     (repo / "wip.txt").write_text("uncommitted peer work\n")
-    _git(repo, "add", "wip.txt")
-    staged_before = _git(repo, "diff", "--cached", "--name-only")
+    git(repo, "add", "wip.txt")
+    staged_before = git(repo, "diff", "--cached", "--name-only")
     commit = export.resolve(repo, "HEAD")
     paths = export.export_commit(repo, commit, tmp_path / "out")
     assert "wip.txt" not in paths and not (tmp_path / "out" / "wip.txt").exists()
-    assert _git(repo, "diff", "--cached", "--name-only") == staged_before == "wip.txt"
+    assert git(repo, "diff", "--cached", "--name-only") == staged_before == "wip.txt"
     assert (tmp_path / "out" / "README.md").read_text() == FILES["README.md"]
 
 
@@ -196,8 +180,8 @@ def test_build_end_to_end(repo: Path, tmp_path: Path) -> None:
     assert (out / "MANIFEST.json").exists() and (out / "redaction_report.json").exists()
     report = (out / "redaction_report.json").read_text()
     assert "0.XXX" not in report and "before_sha256" in report, "originals are stored as hashes"
-    assert _git(tree, "log", "--oneline").endswith("fixture base")
-    assert _git(tree, "status", "--porcelain") == ""
+    assert git(tree, "log", "--oneline").endswith("fixture base")
+    assert git(tree, "status", "--porcelain") == ""
 
 
 def test_build_fails_on_unapproved_code_value(repo: Path, tmp_path: Path) -> None:

@@ -4,7 +4,7 @@
 grades every recorded trial against its issue (detector, diff, final text); `report` groups by
 kind, model and issue source with intervals that resample issues, and pass^k. Trials are unseeded,
 so repeats are the control.
-Depends on: bench.{cli,layout,runner,preflight,stats}, bench.issues.{tasks,score,schema,check}.
+Depends on: bench.{layout,runner,preflight,stats}, bench.issues.{tasks,score,schema,check}.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from bench import cli, layout, preflight, runner, stats
+from bench import layout, preflight, runner, stats
 from bench.issues import check, schema, score, tasks
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -94,13 +94,13 @@ def run(
     force: bool = False,
 ) -> Path:
     """`n` trials per issue of `profile`; appends to `out`."""
-    arms = {profile: cli.load(layout.VERSION, profile)}
+    arms = {profile: runner.load_profile(layout.VERSION, profile)}
     return run_arms(arms, n, out, only=only, models=models, wait=wait, force=force)
 
 
 def _fixture_for(profile: str, tree_hash: str | None) -> runner.Fixture | None:
     """The fixture a record ran on: found by its tree hash (current or superseded builds)."""
-    current = cli.load(layout.VERSION, profile)
+    current = runner.load_profile(layout.VERSION, profile)
     if tree_hash in (None, current.manifest["tree_hash"]):
         return current
     found = layout.find_profile_dir(tree_hash)
@@ -119,6 +119,17 @@ def _fixture_for(profile: str, tree_hash: str | None) -> runner.Fixture | None:
     )
 
 
+def _proof_stale(tree: Path | None, issue: schema.Issue) -> str:
+    """Why a profile's proof no longer covers `issue` (empty when it does or records no hashes)."""
+    proof = tree.parent / "VERIFY.json" if tree is not None else None
+    if proof is None or not proof.exists():
+        return ""
+    recorded = json.loads(proof.read_text()).get("issue_hashes", {}).get(issue.id)
+    if recorded is None or recorded == schema.definition_hash(issue):
+        return ""
+    return f"{issue.id} changed since this profile was proven"
+
+
 def _unscorable(rec: dict[str, Any], why: str) -> dict[str, Any]:
     return {"issue": rec["label"], "outcome": "unscorable", "success": False, "notes": [why]}
 
@@ -131,6 +142,7 @@ def score_records(
     # and superseded profile builds); one whose build no longer exists is not scored.
     issues = schema.load_all(ROOT / "issues")
     envs: dict[str | None, check.Env | None] = {}
+    trees: dict[str | None, Path | None] = {}
     rows = []
     for rec in records:
         if rec.get("label") not in issues or rec["outcome"] == "harness_error":
@@ -138,6 +150,7 @@ def score_records(
         key = None if fixture else rec.get("fixture_tree_hash")
         if key not in envs:
             fx = fixture or _fixture_for(profile, key)
+            trees[key] = fx.tree if fx is not None else None
             envs[key] = (
                 check.Env(fx.tree, fx.venv or layout.venv(), fx.data) if fx is not None else None
             )
@@ -147,6 +160,9 @@ def score_records(
                 raise score.ScoreError(f"the repo state could not be read: {rec.get('detail', '')}")
             if env is None:
                 raise score.ScoreError("the build this trial ran on no longer exists")
+            stale = _proof_stale(trees[key], issues[rec["label"]])
+            if stale:
+                raise score.ScoreError(stale)
             verdict = score.score_record(rec, issues, env).as_dict()
         except score.ScoreError as exc:
             verdict = _unscorable(rec, str(exc))
