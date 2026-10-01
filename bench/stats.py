@@ -115,6 +115,53 @@ def bootstrap_ratio(
     return ratio(tasks, False), low, high
 
 
+def fisher_greater(k_base: int, n_base: int, k_cand: int, n_cand: int) -> float:
+    """One-sided Fisher exact p-value that the candidate's event rate exceeds the baseline's.
+
+    P(X >= k_cand) for X hypergeometric with the pooled event count fixed; 1.0 with no events.
+    """
+    events, total = k_base + k_cand, n_base + n_cand
+    if events == 0 or n_base == 0 or n_cand == 0:
+        return 1.0
+    denom = math.comb(total, events)
+    return (
+        sum(
+            math.comb(n_cand, x) * math.comb(n_base, events - x)
+            for x in range(k_cand, min(n_cand, events) + 1)
+        )
+        / denom
+    )
+
+
+def sign_test(higher: int, lower: int) -> float:
+    """Two-sided exact sign test p-value for `higher` tasks above, `lower` below (ties dropped)."""
+    n = higher + lower
+    if n == 0:
+        return 1.0
+    tail = sum(math.comb(n, k) for k in range(min(higher, lower) + 1)) / 2**n
+    return float(min(1.0, 2 * tail))
+
+
+def cluster_ci(
+    outcomes: Mapping[str, Sequence[bool]], *, draws: int = 4000, seed: int = 1
+) -> tuple[float, float, float]:
+    """(mean of per-task success rates, lower, upper 95%), resampling tasks, then trials."""
+    tasks = sorted(t for t, r in outcomes.items() if r)
+    if not tasks:
+        return float("nan"), float("nan"), float("nan")
+    rng = random.Random(seed)
+    means = []
+    for _ in range(draws):
+        picked = [tasks[rng.randrange(len(tasks))] for _ in tasks]
+        total = 0.0
+        for t in picked:
+            r = outcomes[t]
+            total += sum(r[rng.randrange(len(r))] for _ in r) / len(r)
+        means.append(total / len(picked))
+    means.sort()
+    return cluster_rate(outcomes), means[int(0.025 * draws)], means[int(0.975 * draws) - 1]
+
+
 def min_detectable_effect(n_tasks: int, trials_per_task: int, p: float = 0.5) -> float:
     """Rough smallest true difference in rates detectable at 80% power, two-sided 5%."""
     # About 2.8 standard errors of a difference, at the worst-case binary spread; the design effect
