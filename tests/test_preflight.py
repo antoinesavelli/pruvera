@@ -122,3 +122,23 @@ def test_every_harness_entry_point_that_starts_trials_is_recognised(proc: Path) 
         _proc(proc, 30 + i, ["python3", "-m", module, "run"])
     codes = [p.message for p in preflight.running_agents(proc, me=999)]
     assert len(codes) == 3
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["python3.12", "-m", "bench.cli", "trial"],
+        ["python3", "-u", "-m", "bench.realism"],
+        ["python3", "-mbench.issues.trials", "run"],
+        ["python3", "bench/cli.py", "trial"],
+        ["/usr/bin/env", "python3", "-m", "bench.gate", "run"],
+    ],
+)
+def test_interpreter_command_line_variants_are_recognised(proc: Path, argv: list[str]) -> None:
+    _proc(proc, 40, argv)
+    assert [p.code for p in preflight.running_agents(proc, me=999)] == ["bench_running"]
+
+
+def test_a_pure_simulation_does_not_block_trials(proc: Path) -> None:
+    _proc(proc, 41, ["python3", "-m", "bench.gate", "calibrate", "--true-diff", "0"])
+    assert preflight.running_agents(proc, me=999) == []

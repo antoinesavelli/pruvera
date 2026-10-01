@@ -8,7 +8,10 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
+select = ["E", "F", "I", "B", "UP", "C901"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 14  # the owner's hard ceiling is CCN < 15
 
 [tool.ruff.lint.per-file-ignores]
 # Catalogue data: long prose strings (issue summaries, planted code), not logic.
@@ -23,5 +26,5 @@ strict = true
 
 [[tool.mypy.overrides]]
 # The harness's own venv has no pandas stubs; synthdata runs under the fixture venv.
-module = ["pandas", "pandas.*", "numpy", "numpy.*"]
+module = ["pandas", "pandas.*", "numpy", "numpy.*", "yaml"]
 ignore_missing_imports = true

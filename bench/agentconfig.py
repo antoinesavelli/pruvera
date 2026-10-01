@@ -2,7 +2,7 @@
 
 Every difference from the real file is a named deviation with a reason; `check_parity` fails on any
 that is not. The project config, prompts, commands and AGENTS.md are never touched: they come from
-the fixture tree at /work, as in a real session. The model under test goes in through
+the fixture tree at the real repo path, as in a real session. The model under test goes in through
 OPENCODE_CONFIG_CONTENT (highest precedence), so no project file is edited.
 
 Depends on: the real global config file (system-library); stdlib only.

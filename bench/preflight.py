@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import os
+import re
 import socket
 import subprocess
 import time
@@ -34,7 +35,8 @@ BENCH_MODULES = frozenset(
         "bench.gate",
     }
 )
-INTERPRETERS = frozenset({"python", "python3", "bash", "sh"})
+INTERPRETER = re.compile(r"python[0-9.]*|bash|sh|env")
+HARNESS_SCRIPT_SUFFIXES = ("bench/cli.py", "bench/realism.py", "bench/gate.py")
 
 
 @contextlib.contextmanager
@@ -84,18 +86,35 @@ def _ancestors(proc_root: Path, pid: int) -> set[int]:
     return chain
 
 
+def _python_target(argv: list[str]) -> tuple[str, str]:
+    """(module, script) an interpreter command line runs; either may be empty."""
+    args = argv[1:]
+    if Path(argv[0]).name == "env":  # `env python3 -m ...`: skip the interpreter's own name
+        args = args[1:]
+    for i, arg in enumerate(args):
+        if arg == "-m" and i + 1 < len(args):
+            return args[i + 1], ""
+        if arg.startswith("-m") and len(arg) > 2:
+            return arg[2:], ""
+        if not arg.startswith("-"):
+            return "", arg
+    return "", ""
+
+
 def _classify(pid: str, argv: list[str]) -> Problem | None:
     """The problem a process with this argv represents, if it is another agent or bench run."""
     exe = Path(argv[0]).name
     if exe in AGENT_BINARIES:
         return Problem("agent_running", f"pid {pid}: {exe} is running")
-    if exe not in INTERPRETERS:
+    if not (INTERPRETER.fullmatch(exe)):
         return None
-    if argv[1:2] == ["-m"] and argv[2:3] and argv[2] in BENCH_MODULES:
-        return Problem("bench_running", f"pid {pid}: {argv[2]} is running")
-    script = Path(argv[1]).name if len(argv) > 1 else ""
-    if script in BENCH_SCRIPTS:
-        return Problem("bench_running", f"pid {pid}: {script} is running")
+    module, script = _python_target(argv)
+    if module in BENCH_MODULES and "calibrate" not in argv:  # a pure simulation uses no GPU
+        return Problem("bench_running", f"pid {pid}: {module} is running")
+    name = Path(script).name
+    harness_script = script.endswith(HARNESS_SCRIPT_SUFFIXES)
+    if name in BENCH_SCRIPTS or harness_script:
+        return Problem("bench_running", f"pid {pid}: {name} is running")
     return None
 
 
@@ -174,13 +193,16 @@ def wait_clear(
     *,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
-    **kwargs: object,
+    proc_root: Path = Path("/proc"),
+    gpu: Callable[[], int | None] = gpu_utilization,
+    ollama: Callable[[], bool] = ollama_reachable,
+    me: int | None = None,
 ) -> list[Problem]:
     """Poll until nothing blocks a trial or `timeout` passes; return what still blocks."""
     # For back-to-back trials, where the previous trial's model is still finishing on the GPU.
     deadline = clock() + timeout
     while True:
-        found = problems(**kwargs)  # type: ignore[arg-type]
+        found = problems(proc_root, gpu, ollama, me)
         if not found or clock() >= deadline:
             return found
         sleep(interval)

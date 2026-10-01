@@ -10,11 +10,12 @@ import pytest
 
 from bench import agentconfig, sandbox
 from bench.agentconfig import ParityError
-from tests.test_sandbox import _bwrap_works, _sh
+from tests.helpers import bwrap_works as _bwrap_works
+from tests.helpers import sh as _sh
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "fixtures/paramo"
-OPENCODE = Path("/home/antoine/.opencode/bin/opencode")
+OPENCODE = Path.home() / ".opencode" / "bin" / "opencode"
 
 REAL = {
     "model": "ollama/a",

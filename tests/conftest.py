@@ -12,7 +12,16 @@ import os
 
 import pytest
 
-NEEDLES = ("bwrap", "fixture venv", "fixture is built", "Ollama")
+NEEDLES = (
+    "bwrap",
+    "fixture venv",
+    "fixture is built",
+    "Ollama",
+    "not installed",
+    "not built",
+    "not present",
+    "could not import",
+)
 
 
 def _sandbox_skips(terminalreporter: pytest.TerminalReporter) -> list[str]:
@@ -28,7 +37,8 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     skipped = _sandbox_skips(terminalreporter)
     if skipped:
         terminalreporter.write_sep(
-            "!", f"{len(skipped)} SANDBOX TESTS SKIPPED: the escape and scorer checks did NOT run"
+            "!",
+            f"{len(skipped)} TESTS SKIPPED (no sandbox, fixture or tool): those checks did NOT run",
         )
 
 

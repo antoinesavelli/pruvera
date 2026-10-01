@@ -17,6 +17,7 @@ import socket
 import socketserver
 import threading
 from collections.abc import Iterator
+from email.message import Message
 from pathlib import Path
 
 ALLOWED: frozenset[tuple[str, str]] = frozenset(
@@ -37,6 +38,8 @@ ALLOWED: frozenset[tuple[str, str]] = frozenset(
 )
 HOP_BY_HOP = {"connection", "keep-alive", "transfer-encoding", "te", "upgrade", "proxy-connection"}
 MAX_BODY = 8 * 1024 * 1024
+MAX_CONNECTIONS = 8  # concurrent requests held in memory at once
+READ_TIMEOUT = 60.0  # seconds a client may stall while sending a request
 
 
 def allowed(method: str, target: str) -> bool:
@@ -55,17 +58,15 @@ def _no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def model_allowed(body: bytes | None, models: frozenset[str]) -> bool:
-    """True when the request names no model, or only models on the allowlist.
-
-    Fails closed: an empty allowlist permits no named model, keys are matched case-insensitively
-    (Ollama's decoder is) under both spellings `model` and `name`, and a body that is not one
-    plain JSON object, or repeats a key, is refused because upstream might read it differently.
-    """
+    """True when the request names no model, or only models on the allowlist."""
+    # Fails closed: an empty allowlist permits no named model, keys are matched case-insensitively
+    # (Ollama's decoder is) under both spellings `model` and `name`, and a body that is not one
+    # plain JSON object, or repeats a key, is refused because upstream might read it differently.
     if not body:
         return True
     try:
         doc = json.loads(body, object_pairs_hook=_no_duplicates)
-    except ValueError:
+    except (ValueError, RecursionError):
         return False
     if not isinstance(doc, dict):
         return False
@@ -73,13 +74,64 @@ def model_allowed(body: bytes | None, models: frozenset[str]) -> bool:
     return all(isinstance(v, str) and v in models for v in named)
 
 
+class _Refusal(Exception):
+    """A request the filter will not forward: the status code and the reason for the client."""
+
+    def __init__(self, code: int, why: str) -> None:
+        super().__init__(why)
+        self.code, self.why = code, why
+
+
+def _content_length(headers: Message) -> int:
+    """The body length of a request, or a refusal for anything ambiguous."""
+    if "chunked" in headers.get("Transfer-Encoding", "").lower():
+        raise _Refusal(411, "chunked request bodies are not supported")
+    lengths = headers.get_all("Content-Length") or ["0"]
+    if len(lengths) != 1 or not lengths[0].strip().isdigit():
+        raise _Refusal(400, "one numeric Content-Length is required")
+    if int(lengths[0]) > MAX_BODY:
+        raise _Refusal(413, "request too large")
+    return int(lengths[0])
+
+
+def _vet(method: str, target: str, body: bytes | None, models: frozenset[str]) -> None:
+    """Refuse a call that is not an allowed inference request for an allowed model."""
+    if not allowed(method, target):
+        raise _Refusal(403, "blocked by the trial sandbox: inference calls only")
+    if not model_allowed(body, models):
+        raise _Refusal(403, "blocked by the trial sandbox: this model is not allowed")
+
+
+def _relay(handler: http.server.BaseHTTPRequestHandler, port: int, body: bytes | None) -> None:
+    """Forward one vetted request to Ollama and stream its response back."""
+    headers = {k: v for k, v in handler.headers.items() if k.lower() not in HOP_BY_HOP}
+    headers.pop("Host", None)
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=900)
+    try:
+        conn.request(handler.command, handler.path, body, headers)
+        resp = conn.getresponse()
+        handler.send_response(resp.status)
+        for key, value in resp.getheaders():
+            if key.lower() not in HOP_BY_HOP | {"content-length"}:
+                handler.send_header(key, value)
+        handler.end_headers()
+        while chunk := resp.read1(65536):
+            handler.wfile.write(chunk)
+            handler.wfile.flush()
+    finally:
+        conn.close()
+
+
 def make_handler(
     upstream_port: int, models: frozenset[str] = frozenset()
 ) -> type[http.server.BaseHTTPRequestHandler]:
+    slots = threading.BoundedSemaphore(MAX_CONNECTIONS)  # a trial cannot hold unbounded memory
+
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.0"  # one request per connection; bodies end at close
+        timeout = READ_TIMEOUT  # a client that stops sending frees its slot
 
-        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+        def log_message(self, format: str, *args: object) -> None:
             return
 
         def _refuse(self, code: int, why: str) -> None:
@@ -91,45 +143,23 @@ def make_handler(
             self.wfile.write(body)
 
         def _forward(self) -> None:
-            if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
-                self._refuse(411, "chunked request bodies are not supported")
-                return
-            lengths = self.headers.get_all("Content-Length") or ["0"]
-            if len(lengths) != 1 or not lengths[0].strip().isdigit():
-                self._refuse(400, "one numeric Content-Length is required")
-                return
-            length = int(lengths[0])
-            if length > MAX_BODY:
-                self._refuse(413, "request too large")
-                return
-            # Read the body before any refusal: closing with unread bytes resets the connection
-            # and the client would see a reset instead of the 403.
-            body = self.rfile.read(length) if length else None
-            if not allowed(self.command, self.path):
-                self._refuse(403, "blocked by the trial sandbox: inference calls only")
-                return
-            if not model_allowed(body, models):
-                self._refuse(403, "blocked by the trial sandbox: this model is not allowed")
-                return
-            headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_BY_HOP}
-            headers.pop("Host", None)
-            conn = http.client.HTTPConnection("127.0.0.1", upstream_port, timeout=900)
-            try:
-                conn.request(self.command, self.path, body, headers)
-                resp = conn.getresponse()
-                self.send_response(resp.status)
-                for key, value in resp.getheaders():
-                    if key.lower() not in HOP_BY_HOP | {"content-length"}:
-                        self.send_header(key, value)
-                self.end_headers()
-                while chunk := resp.read1(65536):
-                    self.wfile.write(chunk)
-                    self.wfile.flush()
-            except (OSError, http.client.HTTPException):
-                with contextlib.suppress(OSError):
-                    self._refuse(502, "upstream unavailable")
-            finally:
-                conn.close()
+            with slots:
+                try:
+                    length = _content_length(self.headers)
+                    # Read the body before any refusal: closing with unread bytes resets the
+                    # connection and the client would see a reset instead of the 403.
+                    body = self.rfile.read(length) if length else None
+                    _vet(self.command, self.path, body, models)
+                except _Refusal as refusal:
+                    self._refuse(refusal.code, refusal.why)
+                    return
+                except OSError:
+                    return  # the client went away or timed out
+                try:
+                    _relay(self, upstream_port, body)
+                except (OSError, http.client.HTTPException):
+                    with contextlib.suppress(OSError):
+                        self._refuse(502, "upstream unavailable")
 
         do_GET = do_POST = do_HEAD = do_PUT = do_DELETE = do_PATCH = _forward
 

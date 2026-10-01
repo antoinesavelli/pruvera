@@ -17,7 +17,7 @@ from bench import ollama_filter
 class _Fake(http.server.BaseHTTPRequestHandler):
     seen: list[tuple[str, str]] = []
 
-    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+    def log_message(self, format: str, *args: object) -> None:
         return
 
     def _reply(self) -> None:
@@ -177,3 +177,24 @@ def test_served_with_an_allowlist_blocks_a_model_that_is_not_listed(
         assert call(sock, "POST", "/v1/chat/completions", b'{"model": "ok:1b"}')[0] == 200
         assert call(sock, "POST", "/v1/chat/completions", b'{"model": "huge:405b"}')[0] == 403
     assert all("huge" not in path for _, path in _Fake.seen)
+
+
+def test_deeply_nested_json_is_refused_not_a_crash() -> None:
+    """Regression: 200k opening brackets raised RecursionError instead of being refused."""
+    deep = b"[" * 200_000
+    assert not ollama_filter.model_allowed(deep, frozenset({"m"}))
+
+
+def test_a_client_that_stalls_mid_request_is_dropped_after_the_read_timeout(
+    tmp_path: Path, upstream: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ollama_filter, "READ_TIMEOUT", 0.4)
+    sock = tmp_path / "f.sock"
+    with ollama_filter.serve(sock, upstream, frozenset({"m"})):
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.connect(str(sock))
+        client.sendall(b"POST /v1/chat/completions HTTP/1.1\\r\\nContent-Length: 1000\\r\\n\\r\\n{")
+        client.settimeout(3)
+        assert client.recv(4096) == b"", "the filter hangs up on a stalled sender"
+        client.close()
+        assert call(sock, "GET", "/api/tags")[0] == 200, "and keeps serving others"

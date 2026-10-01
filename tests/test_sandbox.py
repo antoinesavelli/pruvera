@@ -6,30 +6,21 @@ touch real data even if the sandbox failed, because no real path is ever a write
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import socket
 import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
-from bench import sandbox
+from bench import runner, sandbox
 from bench.sandbox import SandboxError, Spec
+from tests.helpers import bwrap_works, needs_bwrap, sh
 
-
-def _bwrap_works() -> bool:
-    if shutil.which("bwrap") is None:
-        return False
-    probe = subprocess.run(
-        ["bwrap", "--unshare-user", "--ro-bind", "/", "/", "true"], capture_output=True, check=False
-    )
-    return probe.returncode == 0
-
-
-needs_bwrap = pytest.mark.skipif(not _bwrap_works(), reason="unprivileged bwrap unavailable")
+_bwrap_works = bwrap_works
 
 
 def _ollama_up() -> bool:
@@ -57,8 +48,7 @@ def spec(tmp_path: Path) -> Iterator[Spec]:
     sandbox.remove_trial_dirs(dirs["upper"], dirs["work"])
 
 
-def _sh(spec: Spec, script: str, timeout: float = 20) -> subprocess.CompletedProcess[str]:
-    return sandbox.run(spec, ["sh", "-c", script], timeout=timeout)
+_sh = sh
 
 
 # ---------------------------------------------------------------- pure: argv construction
@@ -163,7 +153,7 @@ def test_host_filesystem_is_absent(spec: Spec) -> None:
     real = ["AIModels", "system-library", "harness", "trading", "archive", "ParamoLLC"]
     probes = [f"/mnt/ParamoStorage/{d}" for d in real]
     probes += ["/mnt/Media", "/root", "/media", home, f"{home}/.config/opencode"]
-    probes += [f"{home}/.claude", "/etc/shadow", "/var/lib", "/home/antoine"]
+    probes += [f"{home}/.claude", "/etc/shadow", "/var/lib", f"/home/{Path.home().name}"]
     script = "for p in " + " ".join(f"'{p}'" for p in probes)
     script += '; do test -e "$p" && echo "VISIBLE:$p"; done; true'
     result = _sh(spec, script)
@@ -293,15 +283,12 @@ def test_run_refuses_without_bwrap(spec: Spec, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(shutil, "which", lambda _name: None)
     with pytest.raises(SandboxError, match="bwrap"):
         sandbox.run(spec, ["true"])
-    assert os.environ.get("PATH")
 
 
 @needs_bwrap
-@pytest.mark.skipif(
-    not Path("/home/antoine/.opencode/bin/opencode").exists(), reason="opencode not installed"
-)
+@pytest.mark.skipif(not runner.OPENCODE.exists(), reason="opencode not installed")
 def test_real_opencode_runs_from_a_read_only_bind(spec: Spec) -> None:
-    binary = Path("/home/antoine/.opencode/bin/opencode").resolve()
+    binary = runner.OPENCODE.resolve()
     with_oc = Spec(**{**spec.__dict__, "ro_binds": ((binary, "/opt/bin/opencode"),)})
     result = _sh(with_oc, "opencode --version")
     assert re.fullmatch(r"\d+\.\d+\.\d+", result.stdout.strip()), result.stderr
@@ -402,3 +389,39 @@ def test_the_host_side_environment_carries_only_what_systemd_run_needs(
     env = sandbox._host_env()
     assert set(env) <= {"PATH", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"}
     assert "OPENROUTER_API_KEY" not in env and env["XDG_RUNTIME_DIR"] == "/run/user/1000"
+
+
+def test_upper_exceeds_counts_bytes_and_entries_and_stops_early(tmp_path: Path) -> None:
+    (tmp_path / "d").mkdir()
+    for i in range(5):
+        (tmp_path / "d" / f"f{i}").write_bytes(b"x" * 100)
+    assert not sandbox.upper_exceeds(tmp_path, max_bytes=1000, max_files=100)
+    assert sandbox.upper_exceeds(tmp_path, max_bytes=499, max_files=100), "too many bytes"
+    assert sandbox.upper_exceeds(tmp_path, max_bytes=10_000, max_files=3), "too many entries"
+    assert not sandbox.upper_exceeds(tmp_path / "absent")
+
+
+def test_capped_output_keeps_a_bounded_amount_and_still_finishes(tmp_path: Path) -> None:
+    flood = "import sys; sys.stdout.write('x' * 3_000_000); sys.stderr.write('err')"
+    proc = subprocess.Popen(
+        [sys.executable, "-c", flood],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    out, err = sandbox._communicate_capped(proc, 30, cap=10_000)
+    assert len(out) == 10_000 and err == "err" and proc.returncode == 0
+    slow = subprocess.Popen(
+        ["sleep", "30"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        sandbox._communicate_capped(slow, 0.3)
+    assert slow.poll() is not None, "a timed-out process is killed"
+
+
+@needs_bwrap
+def test_a_command_that_floods_stdout_in_the_sandbox_does_not_exhaust_harness_memory(
+    spec: Spec,
+) -> None:
+    result = sandbox.run(spec, ["sh", "-c", "yes | head -c 80000000"], timeout=60)
+    assert result.returncode == 0 and len(result.stdout) <= sandbox.MAX_OUTPUT
