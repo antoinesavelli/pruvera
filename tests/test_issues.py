@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -398,3 +400,22 @@ def test_grader_winnable_proves_restoration_and_scenario_issues_can_be_passed(
         edits=(Edit("pkg/m.py", "return 7\n", "return 9\n"),),
     )
     assert verify.grader_winnable(env, [ghost]) == {"r-2": False}
+
+
+def test_a_documented_conflict_does_not_fail_the_profile_but_an_unknown_one_does(
+    tmp_path: Path,
+) -> None:
+    """A planted issue whose detector another planted issue also fails is skipped; declaring the
+    interaction (`conflicts_with`) is what keeps `ok` meaning "no unknown defect"."""
+    env = _env(tmp_path)
+    (env.tree / "pkg" / "m.py").write_text("def f():\n    return 2\n")
+    ghost = _issue(id="x-2", edits=(Edit("pkg/m.py", "return 7\n", "return 8\n"),))
+    base = verify.verify_profile(env, [ghost])
+    assert base["ok"] is False and base["documented_interactions"] == []
+    declared = dataclasses.replace(ghost, conflicts_with=("x-1",))
+    other = _issue(id="x-1", tests=("tests/test_a.py::test_a",))
+    report = verify.verify_profile(env, [declared, other])
+    assert report["documented_interactions"] == ["x-2"] and report["ok"] is True
+    alone = verify.verify_profile(env, [declared])
+    assert alone["ok"] is False, "the declared partner is not planted here"
+    assert schema.parse(tomllib.loads(schema.dumps(declared))) == declared

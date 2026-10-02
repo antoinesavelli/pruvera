@@ -69,3 +69,21 @@ def test_no_harness_module_is_over_the_500_logical_line_ceiling() -> None:
     sizes = {p.relative_to(ROOT).as_posix(): _logical_lines(p) for p in MODULES}
     assert {k: v for k, v in sizes.items() if v >= 500} == {}, "split the module"
     assert max(sizes.values()) > 100, "the counter counts something"
+
+
+def _stems(paths: list[Path]) -> set[str]:
+    return {p.stem for p in paths}
+
+
+def test_every_harness_module_is_named_in_the_module_tables() -> None:
+    """The READMEs list modules by name; a new module that is not listed is a doc defect."""
+    tables = (ROOT / "bench" / "README.md").read_text()
+    top = (ROOT / "README.md").read_text()
+
+    def listed(stem: str, text: str) -> bool:
+        return re.search(rf"`{stem}(\.py)?`", text) is not None
+
+    missing_in_bench = sorted(s for s in _stems(MODULES) if not listed(s, tables))
+    top_level = _stems([p for p in MODULES if p.parent == ROOT / "bench"])
+    missing_in_top = sorted(s for s in top_level if not listed(s, top))
+    assert missing_in_bench == [] and missing_in_top == [], (missing_in_bench, missing_in_top)
