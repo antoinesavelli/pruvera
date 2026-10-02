@@ -9,7 +9,7 @@ import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CEILING = 15
+CEILING = 11  # a function may reach 10, as ROAD_TO_A C10 asks
 BRANCHES = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.ExceptHandler, ast.Assert, ast.IfExp)
 
 

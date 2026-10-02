@@ -114,6 +114,23 @@ def trial_env(spec: Spec) -> dict[str, str]:
     return env
 
 
+def _extra_mounts(spec: Spec, proxy_sock: Path | None) -> list[str]:
+    """The state directories, the caller's binds, the data overlay and the proxy socket."""
+    argv: list[str] = []
+    for sub, dest in (("config", ".config"), ("data", ".local/share"), ("state", ".local/state")):
+        argv += ["--bind", str(spec.xdg / sub), f"{HOME}/{dest}"]
+    for host, inside in spec.ro_binds:
+        argv += ["--ro-bind", str(host), inside]
+    for host, inside in spec.rw_binds:
+        argv += ["--bind", str(host), inside]
+    if spec.data_base is not None:
+        argv += ["--overlay-src", str(spec.data_base), "--tmp-overlay", spec.data_dest]
+        argv += ["--tmpfs", "/mnt/ParamoStorage/archive"]
+    if proxy_sock is not None:
+        argv += ["--ro-bind", str(proxy_sock), "/run/ollama.sock"]
+    return argv
+
+
 def build_argv(spec: Spec, cmd: Sequence[str], proxy_sock: Path | None = None) -> list[str]:
     """Pure function: the full bwrap command line for one trial (unit-testable without bwrap)."""
     if spec.net == "ollama" and proxy_sock is None:
@@ -126,17 +143,7 @@ def build_argv(spec: Spec, cmd: Sequence[str], proxy_sock: Path | None = None) -
     argv += _usr_layout() + _etc_layout()
     argv += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", HOME]
     argv += ["--overlay-src", str(spec.base), "--overlay", str(spec.upper), str(spec.work), WORKDIR]
-    for sub, dest in (("config", ".config"), ("data", ".local/share"), ("state", ".local/state")):
-        argv += ["--bind", str(spec.xdg / sub), f"{HOME}/{dest}"]
-    for host, inside in spec.ro_binds:
-        argv += ["--ro-bind", str(host), inside]
-    for host, inside in spec.rw_binds:
-        argv += ["--bind", str(host), inside]
-    if spec.data_base is not None:
-        argv += ["--overlay-src", str(spec.data_base), "--tmp-overlay", spec.data_dest]
-        argv += ["--tmpfs", "/mnt/ParamoStorage/archive"]
-    if proxy_sock is not None:
-        argv += ["--ro-bind", str(proxy_sock), "/run/ollama.sock"]
+    argv += _extra_mounts(spec, proxy_sock)
     argv += ["--chdir", WORKDIR, "--clearenv"]
     for key, value in trial_env(spec).items():
         argv += ["--setenv", key, value]
@@ -329,17 +336,21 @@ def check_layout(spec: Spec) -> None:
     for label, path in dirs:
         if not path.is_dir():
             raise SandboxError(f"{label} is not a directory: {path}")
-    if {p.name for p in spec.work.iterdir()} - {"work"}:
-        # The kernel keeps its own `work` subdir between mounts; anything else is foreign.
-        raise SandboxError("overlay workdir must start empty")
-    if spec.upper.stat().st_dev != spec.work.stat().st_dev:
-        raise SandboxError("overlay upper and work must be on the same filesystem")
+    _check_overlay(spec)
     for sub in ("config", "data", "state"):
         if not (spec.xdg / sub).is_dir():
             raise SandboxError(f"xdg/{sub} missing under {spec.xdg}")
     trial_roots = {spec.upper.resolve(), spec.work.resolve(), spec.xdg.resolve()}
     if spec.base.resolve() in trial_roots or len(trial_roots) != 3:
         raise SandboxError("base, upper, work and xdg must be four distinct directories")
+
+
+def _check_overlay(spec: Spec) -> None:
+    if {p.name for p in spec.work.iterdir()} - {"work"}:
+        # The kernel keeps its own `work` subdir between mounts; anything else is foreign.
+        raise SandboxError("overlay workdir must start empty")
+    if spec.upper.stat().st_dev != spec.work.stat().st_dev:
+        raise SandboxError("overlay upper and work must be on the same filesystem")
 
 
 def tree_hash(root: Path, exclude_top: tuple[str, ...] = ()) -> str:

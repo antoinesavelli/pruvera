@@ -111,6 +111,27 @@ def _unsafe_by_issue(rows: list[dict[str, Any]]) -> dict[str, list[bool]]:
     return grouped
 
 
+def _safety_trials(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [r for r in rows if _is_safety_trial(r)]
+
+
+def _safety_certifiable(rows: list[dict[str, Any]]) -> bool:
+    """Enough safety trials over enough distinct safety issues to see a rise in unsafe outcomes."""
+    return len(rows) >= MIN_SAFETY_TRIALS and len({r["issue"] for r in rows}) >= MIN_SAFETY_ISSUES
+
+
+def _damage_up(
+    base: list[dict[str, Any]], cand: list[dict[str, Any]], family: int
+) -> dict[str, tuple[int, int]]:
+    """Damage counts (baseline, candidate) that rose significantly."""
+    safe_b, safe_c = safety(base), safety(cand)
+    return {
+        k: (safe_b[k], safe_c[k])
+        for k in DAMAGE_FIELDS
+        if stats.fisher_greater(safe_b[k], len(base), safe_c[k], len(cand)) < DAMAGE_ALPHA / family
+    }
+
+
 def _evidence(
     base: list[dict[str, Any]], cand: list[dict[str, Any]], draws: int, family: int = 1
 ) -> tuple[_Evidence, dict[str, Any]]:
@@ -121,9 +142,7 @@ def _evidence(
         min((len(c[i]) for i in shared), default=0),
     )
     diff, lo, hi = stats.bootstrap_diff(b, c, draws=draws, alpha=0.05 / family)
-    safe_b, safe_c = safety(base), safety(cand)
-    nb, nc = len(base), len(cand)
-    sk_b, sk_c = ([r for r in arm if _is_safety_trial(r)] for arm in (base, cand))
+    sk_b, sk_c = _safety_trials(base), _safety_trials(cand)
     _, unsafe_lo, unsafe_hi = stats.bootstrap_diff(
         _unsafe_by_issue(sk_b), _unsafe_by_issue(sk_c), draws=draws, alpha=2 * UNSAFE_ALPHA / family
     )
@@ -131,17 +150,10 @@ def _evidence(
         lo=lo,
         hi=hi,
         enough=len(shared) >= MIN_ISSUES and min(repeats) >= MIN_REPEATS,
-        safety_ok=all(
-            len(rows) >= MIN_SAFETY_TRIALS and len({r["issue"] for r in rows}) >= MIN_SAFETY_ISSUES
-            for rows in (sk_b, sk_c)
-        ),
+        safety_ok=_safety_certifiable(sk_b) and _safety_certifiable(sk_c),
         unsafe_up=unsafe_lo > 0,
         unsafe_bound=unsafe_hi,
-        worse={
-            k: (safe_b[k], safe_c[k])
-            for k in DAMAGE_FIELDS
-            if stats.fisher_greater(safe_b[k], nb, safe_c[k], nc) < DAMAGE_ALPHA / family
-        },
+        worse=_damage_up(base, cand, family),
     )
     report = {
         "issues": len(shared),
@@ -154,8 +166,8 @@ def _evidence(
         },
         "pass_hat_2": {"baseline": stats.pass_hat_k(b, 2), "candidate": stats.pass_hat_k(c, 2)},
         "safety": {
-            "baseline": safe_b,
-            "candidate": safe_c,
+            "baseline": safety(base),
+            "candidate": safety(cand),
             "unsafe_upper_bound": evidence.unsafe_bound,
         },
         "family": family,
@@ -367,38 +379,37 @@ def judge(
     return report
 
 
+def _entry_for(results: Path, ledger_path: Path) -> dict[str, Any] | None:
+    """The latest ledger row judged on this results file, if any."""
+    rows = [e for e in ledger.read(ledger_path) if Path(e["results"]).name == results.name]
+    return rows[-1] if rows else None
+
+
+def _arm_profiles(records: list[dict[str, Any]], entry: dict[str, Any] | None) -> dict[str, str]:
+    """Baseline and candidate profile names: the ledger's, else those the records ran on."""
+    if entry:
+        return {arm: entry[arm] for arm in ("baseline", "candidate")}
+    ran = {r["arm"]: r["fixture_profile"] for r in records if r.get("arm")}
+    return {arm: ran.get(arm, "") for arm in ("baseline", "candidate")}
+
+
 def rederive(results: Path, ledger_path: Path = LEDGER, today: datetime.date | None = None) -> Path:
     """Rescore a gate run with today's scorer into a dated `*.rederived-<date>.json` beside it."""
     # Never a new look: the ledger and the verdict of record are not touched, and the candidates
     # tried (`family`) are the ones the run was judged with. The per-trial rows land in
     # `<stem>.scored.jsonl` so the numbers can be audited from git.
-    records = read_jsonl(results)
-    entry = next(
-        (e for e in reversed(ledger.read(ledger_path)) if Path(e["results"]).name == results.name),
-        None,
-    )
-    names = {
-        arm: entry[arm]
-        if entry
-        else next((r["fixture_profile"] for r in records if r.get("arm") == arm), "")
-        for arm in ("baseline", "candidate")
-    }
+    entry = _entry_for(results, ledger_path)
+    names = _arm_profiles(read_jsonl(results), entry)
     rows = score_arms(results, names["baseline"], names["candidate"])
-    report = decide(
-        arm_rows(rows, "baseline"),
-        arm_rows(rows, "candidate"),
-        family=entry["family"] if entry else 1,
-    )
-    report |= {
-        **names,
-        "results": results.name,
-        "date": (today or datetime.date.today()).isoformat(),
-        "of_record": {k: entry[k] for k in ("verdict", "diff", "set")} if entry else None,
-    }
+    family = entry["family"] if entry else 1
+    report = decide(arm_rows(rows, "baseline"), arm_rows(rows, "candidate"), family=family)
+    date = (today or datetime.date.today()).isoformat()
+    of_record = {k: entry[k] for k in ("verdict", "diff", "set")} if entry else None
+    report |= {**names, "results": results.name, "date": date, "of_record": of_record}
     results.with_suffix(".scored.jsonl").write_text(
         "".join(json.dumps(r, sort_keys=True) + "\n" for r in rows)
     )
-    out = results.with_suffix(f".rederived-{report['date']}.json")
+    out = results.with_suffix(f".rederived-{date}.json")
     out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return out
 
@@ -409,7 +420,7 @@ def clearance(variant: str, ledger_path: Path = LEDGER) -> str:
     return ledger.cleared(ledger.read(ledger_path), variant, current)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     go = sub.add_parser("run")
@@ -453,43 +464,67 @@ def main(argv: list[str] | None = None) -> int:
     jd.add_argument(
         "--no-ledger", action="store_true", help="a dry look: counts nothing, records nothing"
     )
-    args = parser.parse_args(argv)
-    if args.cmd == "calibrate":
-        design = design_of(args.design, args.repeats, args.safety_repeats) if args.design else None
-        family = args.family or 1
-        if args.design and not args.family:
-            family = ledger.family_size(ledger.read(LEDGER), "", "<next>")
-        counts = calibrate(
-            args.true_diff,
-            reps=args.reps,
-            issues=args.issues,
-            repeats=args.repeats,
-            draws=args.draws,
-            seed=args.seed,
-            safety_issues=args.safety_issues,
-            unsafe_rate=args.unsafe_rate,
-            bimodal=args.bimodal,
-            cand_unsafe_rate=args.cand_unsafe_rate,
-            design=design,
-            family=family,
-        )
-        print(json.dumps(counts))
-        return 0
-    if args.cmd == "rederive":
-        print(rederive(args.results, args.ledger))
-        return 0
-    if args.cmd == "clear":
-        why = clearance(args.variant, args.ledger)
-        print(why or f"{args.variant}: cleared")
-        return 1 if why else 0
-    if args.cmd == "run":
-        run_gate(args.baseline, args.candidate, args.n, args.out, only=args.only)
-        return 0
-    report = judge(
-        args.results, args.baseline, args.candidate, None if args.no_ledger else args.ledger
+    return parser
+
+
+def _calibrate_cmd(args: argparse.Namespace) -> int:
+    design = design_of(args.design, args.repeats, args.safety_repeats) if args.design else None
+    family = args.family or 1
+    if args.design and not args.family:
+        family = ledger.family_size(ledger.read(LEDGER), "", "<next>")
+    counts = calibrate(
+        args.true_diff,
+        reps=args.reps,
+        issues=args.issues,
+        repeats=args.repeats,
+        draws=args.draws,
+        seed=args.seed,
+        safety_issues=args.safety_issues,
+        unsafe_rate=args.unsafe_rate,
+        bimodal=args.bimodal,
+        cand_unsafe_rate=args.cand_unsafe_rate,
+        design=design,
+        family=family,
     )
+    print(json.dumps(counts))
+    return 0
+
+
+def _clear_cmd(args: argparse.Namespace) -> int:
+    why = clearance(args.variant, args.ledger)
+    print(why or f"{args.variant}: cleared")
+    return 1 if why else 0
+
+
+def _judge_cmd(args: argparse.Namespace) -> int:
+    ledger_path = None if args.no_ledger else args.ledger
+    report = judge(args.results, args.baseline, args.candidate, ledger_path)
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["verdict"] == "CLEAR" else 1
+
+
+def _run_cmd(args: argparse.Namespace) -> int:
+    run_gate(args.baseline, args.candidate, args.n, args.out, only=args.only)
+    return 0
+
+
+def _rederive_cmd(args: argparse.Namespace) -> int:
+    print(rederive(args.results, args.ledger))
+    return 0
+
+
+COMMANDS = {
+    "calibrate": _calibrate_cmd,
+    "rederive": _rederive_cmd,
+    "clear": _clear_cmd,
+    "run": _run_cmd,
+    "judge": _judge_cmd,
+}
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    return COMMANDS[args.cmd](args)
 
 
 if __name__ == "__main__":

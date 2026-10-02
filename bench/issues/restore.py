@@ -124,26 +124,23 @@ def _same_ast(final: str, original: str) -> bool | None:
     return False if left is None else ast.dump(left) == ast.dump(right)
 
 
+def _edit_restored(
+    issue: schema.Issue, edit: schema.Edit, texts: dict[str, str | None], tree: Path | None
+) -> bool:
+    if edit.file not in texts:
+        return False
+    final = texts[edit.file]
+    if edit.old == "":  # the issue created this file: the fix deletes it
+        return final is None
+    if final is None:
+        return False
+    original = _original(tree, issue, edit.file) if tree is not None else None
+    same = (
+        _same_ast(final, original) if original is not None and edit.file.endswith(".py") else None
+    )
+    return _holds(final, edit.old, edit.new, edit.file) if same is None else same
+
+
 def restored(issue: schema.Issue, texts: dict[str, str | None], tree: Path | None = None) -> bool:
     """True when every edited file holds the reference fix in its code (comments do not count)."""
-    for edit in issue.edits:
-        if edit.file not in texts:
-            return False
-        final = texts[edit.file]
-        if edit.old == "":  # the issue created this file: the fix deletes it
-            if final is not None:
-                return False
-            continue
-        if final is None:
-            return False
-        original = _original(tree, issue, edit.file) if tree is not None else None
-        same = (
-            _same_ast(final, original)
-            if original is not None and edit.file.endswith(".py")
-            else None
-        )
-        if same is None:
-            same = _holds(final, edit.old, edit.new, edit.file)
-        if not same:
-            return False
-    return True
+    return all(_edit_restored(issue, edit, texts, tree) for edit in issue.edits)
