@@ -13,6 +13,7 @@ Depends on: bench.{stats,runner,layout,ledger,jsonl}, bench.issues.{schema,trial
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import random
 import sys
@@ -176,27 +177,43 @@ def decide(
     return {"verdict": verdict, "why": why, **report}
 
 
+@dataclasses.dataclass(frozen=True)
+class Design:
+    """A gate's shape: per issue, whether it is a safety issue and how many repeats it gets."""
+
+    safety: tuple[bool, ...]
+    repeats: tuple[int, ...]
+
+
+def design_of(profile: str, repeats: int, safety_repeats: int | None = None) -> Design:
+    """The shape of a real run over `profile`'s issues (safety issues may get more repeats)."""
+    ids = schema.load_profile(layout.ROOT / "issues" / "profiles" / f"{profile}.toml")[1]
+    catalogue = schema.load_all(trials.ROOT / "issues")
+    safety = tuple(catalogue[i].expected_action in SAFETY_ACTIONS for i in ids)
+    reps = tuple((safety_repeats or repeats) if s else repeats for s in safety)
+    return Design(safety, reps)
+
+
 def simulate_rows(
     arm: str,
     rates: list[float],
-    repeats: int,
+    design: Design,
     rng: random.Random,
     unsafe_rate: float = 0.0,
     damage_rate: float = 0.0,
-    safety_issues: int = SAFETY_ISSUES_SIM,
 ) -> list[dict[str, Any]]:
     """Scored rows for one arm: each issue succeeds with its own probability."""
     rows = []
     for k, p in enumerate(rates):
-        for _ in range(repeats):
-            unsafe = k < safety_issues and rng.random() < unsafe_rate  # ask-first files
+        for _ in range(design.repeats[k]):
+            unsafe = design.safety[k] and rng.random() < unsafe_rate  # ask-first files
             rows.append(
                 {
                     "arm": arm,
                     "issue": f"i{k}",
                     "success": not unsafe and rng.random() < p,
                     "outcome": "edited_protected" if unsafe else "fixed",
-                    "expected": "ask_first" if k < safety_issues else "fix",
+                    "expected": "ask_first" if design.safety[k] else "fix",
                     "collateral": ["x.py"] if rng.random() < damage_rate else [],
                 }
             )
@@ -218,37 +235,33 @@ def calibrate(
     bimodal: bool = False,
     cand_unsafe_rate: float | None = None,
     safety_issues: int = SAFETY_ISSUES_SIM,
+    design: Design | None = None,
+    family: int = 1,
 ) -> dict[str, int]:
     """How often the gate says each verdict when the candidate truly differs by `true_diff`."""
     # Issues differ in difficulty (uniform around `base_rate`, width `spread`); the candidate shifts
     # every issue's success probability by `true_diff`. A gate worth trusting rejects a real loss,
     # clears a null change, and is rarely wrong in the dangerous direction. Both arms also draw the
-    # same noise: an unsafe outcome at `unsafe_rate` on one issue (an ask-first file) and a damage
-    # flag at `damage_rate` on any trial, so the safety rules are tested against chance too.
+    # same noise: an unsafe outcome at `unsafe_rate` on each safety issue and a damage flag at
+    # `damage_rate` on any trial, so the safety rules are tested against chance too.
+    design = design or Design(tuple(k < safety_issues for k in range(issues)), (repeats,) * issues)
+    n = len(design.safety)
     rng = random.Random(seed)
     counts = {"CLEAR": 0, "REJECT": 0, "INCONCLUSIVE": 0}
     for _ in range(reps):
         if (
             bimodal
         ):  # real campaigns look like this: most issues nearly always or nearly never solved
-            base = [rng.choice((0.1, 0.9)) + rng.uniform(-0.05, 0.05) for _ in range(issues)]
+            base = [rng.choice((0.1, 0.9)) + rng.uniform(-0.05, 0.05) for _ in range(n)]
         else:
-            base = [
-                min(1.0, max(0.0, base_rate + rng.uniform(-spread, spread))) for _ in range(issues)
-            ]
+            base = [min(1.0, max(0.0, base_rate + rng.uniform(-spread, spread))) for _ in range(n)]
         cand = [min(1.0, max(0.0, p + true_diff)) for p in base]
+        cand_unsafe = unsafe_rate if cand_unsafe_rate is None else cand_unsafe_rate
         verdict = decide(
-            simulate_rows("baseline", base, repeats, rng, unsafe_rate, damage_rate, safety_issues),
-            simulate_rows(
-                "candidate",
-                cand,
-                repeats,
-                rng,
-                unsafe_rate if cand_unsafe_rate is None else cand_unsafe_rate,
-                damage_rate,
-                safety_issues,
-            ),
+            simulate_rows("baseline", base, design, rng, unsafe_rate, damage_rate),
+            simulate_rows("candidate", cand, design, rng, cand_unsafe, damage_rate),
             draws=draws,
+            family=family,
         )
         counts[verdict["verdict"]] += 1
     return counts
@@ -371,6 +384,9 @@ def main(argv: list[str] | None = None) -> int:
     cal = sub.add_parser("calibrate", help="simulate the gate's verdicts for a true effect")
     cal.add_argument("--true-diff", type=float, required=True)
     cal.add_argument("--issues", type=int, default=35)
+    cal.add_argument("--design", help="a profile: its issues, the safety mix of its real run")
+    cal.add_argument("--safety-repeats", type=int, help="repeats of each safety issue (--design)")
+    cal.add_argument("--family", type=int, help="candidates tried; default: the ledger's, plus one")
     cal.add_argument("--repeats", type=int, default=6)
     cal.add_argument("--reps", type=int, default=300)
     cal.add_argument("--bimodal", action="store_true", help="issues are solved ~10%% or ~90%%")
@@ -399,6 +415,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     if args.cmd == "calibrate":
+        design = design_of(args.design, args.repeats, args.safety_repeats) if args.design else None
+        family = args.family or 1
+        if args.design and not args.family:
+            family = ledger.family_size(ledger.read(LEDGER), "", "<next>")
         counts = calibrate(
             args.true_diff,
             reps=args.reps,
@@ -410,6 +430,8 @@ def main(argv: list[str] | None = None) -> int:
             unsafe_rate=args.unsafe_rate,
             bimodal=args.bimodal,
             cand_unsafe_rate=args.cand_unsafe_rate,
+            design=design,
+            family=family,
         )
         print(json.dumps(counts))
         return 0
