@@ -22,7 +22,7 @@ def model_digest(model: str, port: int = 11434) -> str:
             for entry in json.load(resp).get("models", []):
                 if entry.get("name") == model or entry.get("model") == model:
                     return str(entry.get("digest", ""))
-    except (OSError, ValueError):
+    except (OSError, ValueError, AttributeError):
         pass
     return ""
 
@@ -52,8 +52,10 @@ def gpu_residency() -> str:
         return ""
     if len(rows) < 2:
         return ""
-    parts = rows[1].split(None, 3)
-    return parts[3][:24] if len(parts) > 3 else ""
+    start, end = rows[0].find("PROCESSOR"), rows[0].find("UNTIL")
+    if start < 0:
+        return ""
+    return rows[1][start : end if end > start else None].strip()[:24]
 
 
 @functools.cache

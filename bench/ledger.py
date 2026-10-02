@@ -2,8 +2,8 @@
 
 A rule variant is tuned against known issues, and the more variants are tried, the likelier one
 clears by chance. The ledger records each verdict (append-only JSONL). A candidate is its variant
-name, whatever profile it ran on. Its family is the distinct variants judged against the same
-baseline, and the family size widens the gate's intervals (Bonferroni). Any judgement whose
+name, whatever profile it ran on. Its family is every distinct variant judged so far, on any
+split, and the family size widens the gate's intervals (Bonferroni). Any judgement whose
 trials include a holdout issue uses up that variant's one look at the holdout, however the
 profiles were named, and may not be a `--no-ledger` dry look. Rows carry a hash of the variant's
 files, so a verdict can be tied to the text it judged. Depends on: bench.jsonl.
@@ -21,7 +21,7 @@ from bench.jsonl import read_jsonl
 
 HOLDOUT = "holdout"
 TUNE = "tune"
-SETS = (HOLDOUT, TUNE, "holdout2", "tune2")
+SETS = (HOLDOUT, TUNE, "holdout2", "tune2", "dev")
 
 
 class LedgerError(RuntimeError):
@@ -62,9 +62,8 @@ def read(path: Path) -> list[dict[str, Any]]:
 
 
 def family_size(entries: list[dict[str, Any]], baseline: str, candidate: str) -> int:
-    """Distinct variants judged against this baseline's base profile, this one included."""
-    base = base_of(baseline)
-    names = {variant_of(e["candidate"]) for e in entries if base_of(e["baseline"]) == base}
+    """Distinct variants ever judged, this one included: every split tests the same claim."""
+    names = {variant_of(e["candidate"]) for e in entries} - {""}
     return len(names | {variant_of(candidate)})
 
 
@@ -89,3 +88,20 @@ def record(path: Path, entry: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as fh:
         fh.write(json.dumps(entry, sort_keys=True) + "\n")
+
+
+def cleared(entries: list[dict[str, Any]], variant: str, current_hash: str) -> str:
+    """'' when the variant has a CLEAR holdout verdict for its current files, else why not."""
+    mine = [e for e in entries if variant_of(e["candidate"]) == variant]
+    holdout = [e for e in mine if e.get("holdout_used")]
+    verdicts = [e for e in holdout if e["verdict"] == "CLEAR"]
+    problems = [
+        (not mine, f"{variant} was never judged"),
+        (not holdout, f"{variant} has no holdout verdict"),
+        (not verdicts, f"{variant}: the holdout verdicts are {[e['verdict'] for e in holdout]}"),
+        (
+            not any(current_hash and e.get("variant_hash") == current_hash for e in verdicts),
+            f"{variant}: its files changed since the CLEAR verdict (or are unhashed)",
+        ),
+    ]
+    return next((why for failed, why in problems if failed), "")

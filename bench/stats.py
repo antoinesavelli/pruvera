@@ -119,16 +119,6 @@ def bootstrap_ratio(
     return ratio(tasks, False), low, high
 
 
-def newcombe_upper(k_base: int, n_base: int, k_cand: int, n_cand: int) -> float:
-    """Upper 95% bound of (candidate rate - baseline rate), Newcombe's hybrid-score interval."""
-    if n_base == 0 or n_cand == 0:
-        return 1.0
-    p_b, p_c = k_base / n_base, k_cand / n_cand
-    _, upper_c = wilson(k_cand, n_cand)
-    lower_b, _ = wilson(k_base, n_base)
-    return float(p_c - p_b + math.sqrt((upper_c - p_c) ** 2 + (p_b - lower_b) ** 2))
-
-
 def fisher_greater(k_base: int, n_base: int, k_cand: int, n_cand: int) -> float:
     """One-sided Fisher exact p-value that the candidate's event rate exceeds the baseline's."""
     # P(X >= k_cand) for X hypergeometric with the pooled event count fixed; 1.0 with no events.
