@@ -170,7 +170,7 @@ def test_a_killed_or_failed_reference_trial_still_leaves_no_copy_behind(tmp_path
             check=blocked,
             venv=None,
         )
-    assert not (tmp_path / "trials").exists() or not any((tmp_path / "trials").iterdir())
+    assert sorted((tmp_path / "trials").glob("**/*")) == [], "nothing is left of a blocked run"
 
 
 def test_discard_removes_a_stale_prepared_copy_including_unreadable_dirs(tmp_path: Path) -> None:
@@ -246,7 +246,7 @@ def test_a_reference_transcript_keeps_the_shape_of_the_run_and_none_of_the_code(
     long_code = "def secret_strategy():\n" + "    x = 1\n" * 500
     state = {
         "status": "completed",
-        "input": {"filePath": "a.py"},
+        "input": {"filePath": "a.py", "content": long_code, "command": "ls -la " + "x" * 100},
         "output": long_code,
         "metadata": {"preview": long_code},
     }
@@ -256,11 +256,22 @@ def test_a_reference_transcript_keeps_the_shape_of_the_run_and_none_of_the_code(
     ]
     raw = "\n".join(json.dumps(e) for e in events) + "\nplain stdout line\n"
     out = sanitize_transcript(raw)
-    assert len(out) < 1500 and out.count("x = 1") < 60
+    assert len(out) < 1200 and "secret_strategy" not in out.splitlines()[0]
     tool = json.loads(out.splitlines()[0])["part"]
-    assert tool["tool"] == "read" and tool["state"]["input"] == {"filePath": "a.py"}
-    assert "metadata" not in tool["state"] and len(tool["state"]["output"]) == 120
+    assert tool["tool"] == "read" and tool["state"]["status"] == "completed"
+    assert tool["state"]["input"]["filePath"] == "a.py"
+    assert tool["state"]["input"]["content"] == f"<{len(long_code)} chars>"
+    assert len(tool["state"]["input"]["command"]) == 40
+    assert tool["state"]["output"] == "" and "metadata" not in tool["state"]
+    assert len(json.loads(out.splitlines()[1])["part"]["text"]) == 160
     assert out.splitlines()[-1] == "plain stdout line"
+
+
+def test_tool_output_survives_only_as_a_not_found_flag() -> None:
+    event = {"type": "tool_use", "part": {"tool": "bash", "state": {"output": "sh: x: not found"}}}
+    assert json.loads(sanitize_transcript(json.dumps(event)))["part"]["state"]["output"] == (
+        "not found"
+    )
 
 
 def test_prepare_pins_the_copy_once_so_later_drift_is_visible(tmp_path: Path) -> None:
@@ -307,9 +318,9 @@ def test_a_reference_transcript_is_a_whitelist_not_a_blacklist() -> None:
         },
     }
     out = sanitize_transcript(json.dumps(event))
-    assert len(out) < 1500 and "provider_payload" not in out and '"raw"' not in out
+    assert len(out) < 1000 and "provider_payload" not in out and '"raw"' not in out
     kept = json.loads(out)["part"]["state"]
-    assert len(kept["input"]["newString"]) == 200 and len(kept["error"]) == 120
+    assert kept["input"]["newString"] == f"<{len(code)} chars>" and len(kept["error"]) == 60
 
 
 def test_a_reference_trial_keeps_no_diff_status_or_repo_state(tmp_path: Path) -> None:
@@ -319,3 +330,13 @@ def test_a_reference_trial_keeps_no_diff_status_or_repo_state(tmp_path: Path) ->
     assert "real.py" not in (tmp_path / "status.txt").read_text()
     assert "secret" not in (tmp_path / "git_state.json").read_text()
     assert json.loads((tmp_path / "changes.json").read_text())["written"] == 1
+
+
+def test_a_reference_record_keeps_the_kind_of_failure_but_not_its_text(tmp_path: Path) -> None:
+    """The detail of a harness error can hold git or hook stderr from the real repo."""
+    source = _git_source(tmp_path)
+    hooks = (runner.Hook("dirty", "no/such/dir/secret_module.py", "# x\n"),)
+    spec = runner.TrialSpec(agent="a", model="m", prompt="p", net="none", hooks=hooks)
+    rec = _reference(tmp_path, source, "exit 0", spec)
+    assert rec["outcome"] == "harness_error"
+    assert rec["detail"] == "RuntimeError"
