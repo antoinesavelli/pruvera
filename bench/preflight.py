@@ -36,6 +36,7 @@ BENCH_MODULES = frozenset(
     }
 )
 NON_TRIAL_COMMANDS = frozenset({"calibrate", "score", "report", "rate", "judge"})  # no trial runs
+TRIAL_COMMANDS = frozenset({"run", "trial", "replay"})
 INTERPRETER = re.compile(r"python[0-9.]*|bash|sh|env")
 HARNESS_SCRIPT_SUFFIXES = ("bench/cli.py", "bench/realism.py", "bench/gate.py")
 
@@ -127,6 +128,14 @@ def _python_target(argv: list[str]) -> tuple[str, str]:
     return "", ""
 
 
+def _is_scoring_only(argv: list[str], module: str) -> bool:
+    """True for `score`, `report`, `rate`, `judge`, `calibrate`: commands that start no trial."""
+    after = argv[argv.index(module) + 1 :] if module in argv else []
+    if TRIAL_COMMANDS & set(after):
+        return False  # `run` anywhere: an option value such as `--out score` cannot hide it
+    return next((a for a in after if not a.startswith("-")), "") in NON_TRIAL_COMMANDS
+
+
 def _classify(pid: str, argv: list[str]) -> Problem | None:
     """The problem a process with this argv represents, if it is another agent or bench run."""
     argv = _unwrap(argv)
@@ -136,7 +145,7 @@ def _classify(pid: str, argv: list[str]) -> Problem | None:
     if not (INTERPRETER.fullmatch(exe)):
         return None
     module, script = _python_target(argv)
-    if module in BENCH_MODULES and not NON_TRIAL_COMMANDS & set(argv):  # these use no GPU
+    if module in BENCH_MODULES and not _is_scoring_only(argv, module):
         return Problem("bench_running", f"pid {pid}: {module} is running")
     name = Path(script).name
     harness_script = script.endswith(HARNESS_SCRIPT_SUFFIXES)

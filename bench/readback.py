@@ -88,7 +88,7 @@ def read_back(sb: sandbox.Spec, base_commit: str) -> tuple[str, str]:
     base = shlex.quote(base_commit)
     script = (
         f"{NEUTRAL}; {FRESH_INDEX}; {GIT} read-tree {base}; "
-        f"{GIT} status --porcelain=v1 -uall; echo '{marker}'; "
+        f"{GIT} status --porcelain=v1 -uall --ignored; echo '{marker}'; "
         f"{GIT} diff {base} --text --no-ext-diff --no-textconv"
     )
     out = _run(sb, script, 120)

@@ -75,6 +75,9 @@ def _holds(final: str, old: str, new: str, rel: str) -> bool:
     return _code_only(old, rel) in code_text and not (new and _code_only(new, rel) in code_text)
 
 
+MAX_PARSE_CHARS = 1_000_000
+
+
 def _original(tree: Path, issue: schema.Issue, rel: str) -> str | None:
     """The file before the issue was planted: the planted text with every edit reversed."""
     path = tree / rel
@@ -103,11 +106,13 @@ def _without_docstrings(tree: ast.AST) -> ast.AST:
 
 def _same_ast(final: str, original: str) -> bool | None:
     """AST equality of two Python texts, ignoring docstrings; None when either does not parse."""
+    if max(len(final), len(original)) > MAX_PARSE_CHARS:
+        return None  # an agent-written file this big is not parsed on the host
     try:
         left = _without_docstrings(ast.parse(final))
         right = _without_docstrings(ast.parse(original))
         return ast.dump(left) == ast.dump(right)
-    except (SyntaxError, ValueError, RecursionError):
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
         return None
 
 

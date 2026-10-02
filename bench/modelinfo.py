@@ -11,14 +11,20 @@ import json
 import subprocess
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 OPENCODE = Path.home() / ".opencode" / "bin" / "opencode"
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # no proxy variables
+
+
+def _open(request: str | urllib.request.Request, timeout: float) -> Any:
+    return _OPENER.open(request, timeout=timeout)
 
 
 def model_digest(model: str, port: int = 11434) -> str:
     """Ollama's digest for `model`, or '' if it cannot be read."""
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/tags", timeout=3) as resp:
+        with _open(f"http://127.0.0.1:{port}/api/tags", 3) as resp:
             for entry in json.load(resp).get("models", []):
                 if entry.get("name") == model or entry.get("model") == model:
                     return str(entry.get("digest", ""))
@@ -36,7 +42,7 @@ def model_parameters(model: str, port: int = 11434) -> str:
         f"http://127.0.0.1:{port}/api/show", body, {"Content-Type": "application/json"}
     )
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with _open(req, 5) as resp:
             return " ".join(str(json.load(resp).get("parameters", "")).split())
     except (OSError, ValueError):
         return ""

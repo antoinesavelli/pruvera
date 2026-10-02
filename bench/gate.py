@@ -297,6 +297,12 @@ def judge(
 ) -> dict[str, Any]:
     """Verdict of record: widened by the candidates already tried, holdout once, then ledgered."""
     entries = ledger.read(ledger_path) if ledger_path else []
+    variant = ledger.variant_of(candidate)
+    vhash = ledger.variant_hash(layout.ROOT / "variants", variant)
+    records = read_jsonl(results) if results.exists() else []
+    tested = {r.get("variant_hash") for r in records if r.get("arm") == "candidate"}
+    if vhash and tested - {None, "", vhash}:
+        raise ledger.LedgerError(f"{variant}: its files changed after these trials ran")
     rows = score_arms(results, baseline, candidate)
     judged = {r["issue"] for r in rows}
     gens = {gen for gen, ids in holdout_issues().items() if judged & ids}
@@ -306,21 +312,20 @@ def judge(
             raise ledger.LedgerError(
                 "a judgement on holdout issues must be ledgered (no --no-ledger)"
             )
-        ledger.check_holdout(entries, candidate, gens)
+        ledger.check_holdout(entries, candidate, gens, vhash)
     family = ledger.family_size(entries, baseline, candidate)
     report = decide(arm_rows(rows, "baseline"), arm_rows(rows, "candidate"), family=family)
     report["set"] = "+".join(
         f"holdout{g if g != '1' else ''}" for g in sorted(gens)
     ) or ledger.set_of(candidate)
     if ledger_path:
-        variant = ledger.variant_of(candidate)
         ledger.record(
             ledger_path,
             {
                 "baseline": baseline,
                 "candidate": candidate,
                 "variant": variant,
-                "variant_hash": ledger.variant_hash(layout.ROOT / "variants", variant),
+                "variant_hash": vhash,
                 "set": report["set"],
                 "holdout_used": used_holdout,
                 "holdout_gens": sorted(gens),

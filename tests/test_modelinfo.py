@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import json
 import subprocess
-import urllib.request
 from pathlib import Path
 
 import pytest
@@ -15,7 +14,7 @@ from bench import modelinfo
 
 def _serve(monkeypatch: pytest.MonkeyPatch, payload: object) -> None:
     body = json.dumps(payload).encode()
-    monkeypatch.setattr(urllib.request, "urlopen", lambda *_a, **_k: io.BytesIO(body))
+    monkeypatch.setattr(modelinfo, "_open", lambda *_a, **_k: io.BytesIO(body))
 
 
 def test_a_models_digest_is_read_from_the_tags_listing_by_name_or_model(
@@ -32,7 +31,7 @@ def test_everything_fails_soft_to_an_empty_string(monkeypatch: pytest.MonkeyPatc
     def down(*_a: object, **_k: object) -> None:
         raise OSError("no ollama")
 
-    monkeypatch.setattr(urllib.request, "urlopen", down)
+    monkeypatch.setattr(modelinfo, "_open", down)
     assert modelinfo.model_digest("m") == "" and modelinfo.model_parameters("m") == ""
     _serve(monkeypatch, "not a dict")
     assert modelinfo.model_digest("m") == ""

@@ -50,7 +50,10 @@ def variant_hash(variants_dir: Path, variant: str) -> str:
     if not variant or not root.is_dir():
         return ""
     digest = hashlib.sha256()
-    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+    paths = sorted(root.rglob("*"))
+    if any(p.is_symlink() for p in paths):
+        raise LedgerError(f"{variant}: a variant may not contain symlinks")
+    for path in (p for p in paths if p.is_file()):
         digest.update(path.relative_to(root).as_posix().encode() + b"\0" + path.read_bytes())
     return digest.hexdigest()[:16]
 
@@ -72,14 +75,17 @@ def used_gens(entry: dict[str, Any]) -> set[str]:
     return set(entry.get("holdout_gens") or (["1"] if entry.get("holdout_used") else []))
 
 
-def check_holdout(entries: list[dict[str, Any]], candidate: str, gens: set[str]) -> None:
+def check_holdout(
+    entries: list[dict[str, Any]], candidate: str, gens: set[str], vhash: str = ""
+) -> None:
     """A variant is judged on each holdout generation once; a changed variant needs a new name."""
     variant = variant_of(candidate)
     for e in entries:
-        if variant_of(e["candidate"]) == variant and used_gens(e) & gens:
+        same = variant_of(e["candidate"]) == variant or (vhash and e.get("variant_hash") == vhash)
+        if same and used_gens(e) & gens:
             raise LedgerError(
                 f"{variant} already used its holdout look ({e['verdict']}, {e['date']}); "
-                "a changed variant needs a new name"
+                "a changed variant needs new text, not just a new name"
             )
 
 
