@@ -4,7 +4,7 @@
 grades every recorded trial against its issue (detector, diff, final text); `report` groups by
 kind, model and issue source with intervals that resample issues, and pass^k. Trials are unseeded,
 so repeats are the control.
-Depends on: bench.{layout,runner,preflight,stats}, bench.issues.{tasks,score,schema,check}.
+Depends on: bench.{layout,runner,preflight,stats,jsonl}, bench.issues.{tasks,score,schema,check}.
 """
 
 from __future__ import annotations
@@ -19,10 +19,14 @@ from typing import Any
 
 from bench import layout, preflight, runner, stats
 from bench.issues import check, schema, score, tasks
+from bench.jsonl import read_jsonl
 
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "results" / "issues"
 SOLVED, HARD = 0.7, 0.3  # difficulty bands on the observed success rate
+MIN_CI_ISSUES = (
+    3  # fewer issues than this have no interval worth printing (it would be [0,0] or [1,1])
+)
 
 
 def _blocked(wait: float, force: bool) -> None:
@@ -237,14 +241,14 @@ def score_records(
 
 def score_file(results: Path, profile: str, out: Path) -> Path:
     """Score every trial in `results`; writes one JSON row per trial to `out`."""
-    records = [json.loads(line) for line in results.read_text().splitlines() if line.strip()]
+    records = read_jsonl(results)
     rows = score_records(records, profile)
     out.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
     return out
 
 
 def load_rows(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return read_jsonl(path)
 
 
 def by_issue(rows: list[dict[str, Any]], key: str = "success") -> dict[str, list[bool]]:
@@ -266,7 +270,7 @@ def _group(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "n": len(rows),
         "issues": len(strict),
         "rate": rate,
-        "ci": [lo, hi],
+        "ci": [lo, hi] if len(strict) >= MIN_CI_ISSUES else None,
         "exact_rate": stats.cluster_rate(exact),
         "loose_rate": stats.cluster_rate(loose),
         "gamed": sum(r.get("outcome") == "gamed" for r in rows),

@@ -3,7 +3,8 @@
 Questions come from the fixture's own knowledge-eval file (regex-graded, no judge model), kept only
 when every required pattern occurs in the declared source files of the fixture. Arms alternate
 question by question. Grading reads the final answer from each trial's transcript artifact.
-Depends on: bench.{runner,layout,preflight,sandbox,stats,transcript}; a built docs index; PyYAML.
+Depends on: bench.{runner,layout,preflight,sandbox,stats,transcript,jsonl}; a built docs index;
+PyYAML.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from typing import Any
 import yaml
 
 from bench import layout, preflight, runner, sandbox, stats
+from bench.jsonl import read_jsonl
 from bench.transcript import answer_kind
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -147,9 +149,8 @@ def grade_rows(results: Path, questions: list[Question]) -> list[dict[str, Any]]
     by_id = {q.id: q for q in questions}
     seen: Counter[tuple[str, str]] = Counter()
     rows = []
-    for line in results.read_text().splitlines():
-        rec = json.loads(line)
-        q = by_id.get(rec.get("label"))
+    for rec in read_jsonl(results):
+        q = by_id.get(str(rec.get("label")))
         if q is None or not rec.get("arm"):
             continue
         answer, tools = read_transcript(Path(rec["artifact"]))

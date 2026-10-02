@@ -4,30 +4,24 @@ Reads, never writes. For each results file it names the fixture builds, model di
 opencode versions its records carry and says which of them exist or match now: a result whose
 build is gone cannot be rescored, one whose model digest changed was produced by a different
 model than `ollama` serves today. Exit status 1 when any record cannot be reproduced.
-Depends on: bench.{layout,modelinfo,runner}; a running Ollama for the model digests (optional).
+Depends on: bench.{layout,modelinfo,runner,jsonl}; a running Ollama for the model digests
+(optional).
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from bench import layout, modelinfo, runner
+from bench.jsonl import read_jsonl
 
 
 def _records(path: Path) -> list[dict[str, Any]]:
-    rows = []
-    for line in path.read_text().splitlines():
-        if line.strip():
-            try:
-                rows.append(json.loads(line))
-            except ValueError:
-                continue
-    return [r for r in rows if "fixture_tree_hash" in r]
+    return [r for r in read_jsonl(path, skip_bad=True) if "fixture_tree_hash" in r]
 
 
 def audit_results(results_dir: Path, version: str = layout.VERSION) -> list[dict[str, Any]]:
@@ -59,6 +53,7 @@ def audit_results(results_dir: Path, version: str = layout.VERSION) -> list[dict
                 "records": len(records),
                 "missing_builds": missing,
                 "model_digest_changed": changed,
+                "model_digest_unchecked": sorted(m for m in digests if not now[m]),
                 "opencode": sorted({r.get("opencode_version", "") for r in records}),
             }
         )
@@ -90,6 +85,10 @@ def main(argv: list[str] | None = None) -> int:
             flags.append(f"builds gone: {r['missing_builds']}")
         if r["model_digest_changed"]:
             flags.append(f"model digest changed: {r['model_digest_changed']}")
+        if r["model_digest_unchecked"]:
+            flags.append(
+                f"model digest UNCHECKED (Ollama unreachable): {r['model_digest_unchecked']}"
+            )
         print(f"{r['file']:50s} {r['records']:4d} records  {'; '.join(flags) or 'reproducible'}")
     for p in builds:
         print(f"BUILD DRIFT {p}")

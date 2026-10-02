@@ -399,3 +399,15 @@ def test_a_variant_profile_inherits_the_proof_of_the_profile_it_was_built_from(
         "v2", tmp_path / "elsewhere" / "tree", {}, profile="holdout+rules-after@hist"
     )
     assert trials.unfixable(variant) == {"x-1"}
+
+
+def test_a_group_of_fewer_than_three_issues_prints_no_interval() -> None:
+    """Regression: by-kind rows with one issue printed meaningless [0, 0] and [1, 1] intervals."""
+    rows = [
+        {"issue": "a", "success": True, "outcome": "fixed"},
+        {"issue": "a", "success": True, "outcome": "fixed"},
+        {"issue": "b", "success": False, "outcome": "missed"},
+    ]
+    assert trials._group(rows)["ci"] is None
+    more = [*rows, {"issue": "c", "success": True, "outcome": "fixed"}]
+    assert len(trials._group(more)["ci"]) == 2
