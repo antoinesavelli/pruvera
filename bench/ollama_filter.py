@@ -46,7 +46,8 @@ MAX_CONNECTIONS = 8  # concurrent requests held in memory at once
 SLOT_WAIT = 10.0  # seconds a connection waits for a free slot before it is told 503
 MAX_NUM_CTX = 131072  # a request may not ask the allowed model for a bigger context than this
 MAX_KEEP_ALIVE_SECONDS = 1800  # nor keep it loaded longer than this
-READ_TIMEOUT = 60.0  # seconds a client may stall while sending a request
+READ_TIMEOUT = 60.0  # seconds a client may stall between two receives
+REQUEST_DEADLINE = 60.0  # seconds a client has in all to send a request, however steadily it drips
 
 
 def allowed(method: str, target: str) -> bool:
@@ -133,8 +134,11 @@ def _stop_ok(doc: dict[str, Any]) -> bool:
 
 def _bounds_ok(source: dict[str, Any]) -> bool:
     ctx, predict = source.get("num_ctx"), source.get("num_predict")
-    return (ctx is None or _int_in(ctx, 1, MAX_NUM_CTX)) and (
-        predict is None or _int_in(predict, -2, MAX_NUM_PREDICT)
+    capped = (source.get(k) for k in ("max_tokens", "max_completion_tokens"))
+    return (
+        (ctx is None or _int_in(ctx, 1, MAX_NUM_CTX))
+        and (predict is None or _int_in(predict, -2, MAX_NUM_PREDICT))
+        and all(n is None or _int_in(n, 1, MAX_NUM_PREDICT) for n in capped)
     )
 
 
@@ -294,10 +298,20 @@ def make_handler(
                 with contextlib.suppress(OSError):
                     self.wfile.write(b"HTTP/1.0 503 Busy\r\nContent-Length: 0\r\n\r\n")
                 return
+            # One timer for the whole receive: `timeout` alone resets on every byte, so a client
+            # that drips one byte a second would keep its slot for hours.
+            self.receiving = threading.Timer(REQUEST_DEADLINE, self._hang_up)
+            self.receiving.daemon = True
+            self.receiving.start()
             try:
                 super().handle()
             finally:
+                self.receiving.cancel()
                 slots.release()
+
+        def _hang_up(self) -> None:
+            with contextlib.suppress(OSError):
+                self.connection.shutdown(socket.SHUT_RDWR)
 
         def _forward(self) -> None:
             try:
@@ -305,6 +319,9 @@ def make_handler(
                 # Read the body before any refusal: closing with unread bytes resets the
                 # connection and the client would see a reset instead of the 403.
                 body = self.rfile.read(length) if length else None
+                self.receiving.cancel()
+                if length and len(body or b"") < length:
+                    return  # hung up on mid-body: nothing to answer
                 body = _vet(self.command, self.path, body, models)
             except _Refusal as refusal:
                 self._refuse(refusal.code, refusal.why)
