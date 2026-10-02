@@ -87,3 +87,20 @@ def test_unpinned_candidate_records_are_flagged_and_fail_only_in_strict_mode(
     assert doctor.main(["--results", str(tmp_path), "--skip-builds"]) == 0
     assert "no variant hash" in capsys.readouterr().out
     assert doctor.main(["--results", str(tmp_path), "--skip-builds", "--strict"]) == 1
+
+
+def test_audit_builds_reports_a_profile_tree_that_drifted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("good", "drifted"):
+        (tmp_path / "profiles" / name).mkdir(parents=True)
+        (tmp_path / "profiles" / name / "MANIFEST.json").write_text("{}")
+    monkeypatch.setattr(layout, "version_dir", lambda _v: tmp_path)
+    monkeypatch.setattr(runner, "load_profile", lambda _v, name: name)
+
+    def check(name: str) -> None:
+        if name == "drifted":
+            raise runner.DriftError("tree hash differs")
+
+    monkeypatch.setattr(runner, "check_fixture", check)
+    assert doctor.audit_builds() == ["drifted: tree hash differs"]
