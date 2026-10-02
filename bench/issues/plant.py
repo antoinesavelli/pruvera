@@ -147,6 +147,8 @@ def variant_config(variant_dir: Path) -> dict[str, dict[str, str]]:
         raise PlantError(f"{path.name}: unknown sections {sorted(set(doc) - VARIANT_SECTIONS)}")
     if set(doc.get("prompt", {})) - PROMPT_KEYS:
         raise PlantError(f"{path.name}: [prompt] takes only {sorted(PROMPT_KEYS)}")
+    if str(doc.get("prompt", {}).get("prefix", "")).lstrip().startswith("-"):
+        raise PlantError(f"{path.name}: a prompt starting with '-' would be read as an option")
     return {k: {str(a): str(b) for a, b in v.items()} for k, v in doc.items()}
 
 

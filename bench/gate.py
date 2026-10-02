@@ -7,7 +7,7 @@ interval above the allowed loss, a big enough design, safety certified, no signi
 Else INCONCLUSIVE. Every verdict is ledgered: candidates already tried widen the intervals
 (Bonferroni) and a candidate is judged on the holdout set once (`bench.ledger`). Scope: the rule
 files a fixture carries, plus a variant's prompt wrapper and per-role models; not skills.
-Depends on: bench.{stats,runner,layout,ledger}, bench.issues.{schema,trials}; built profiles.
+Depends on: bench.{stats,runner,layout,ledger,jsonl}, bench.issues.{schema,trials}; built profiles.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from typing import Any
 
 from bench import layout, ledger, runner, stats
 from bench.issues import schema, trials
+from bench.jsonl import read_jsonl
 
 LEDGER = layout.ROOT / "results" / "gate" / "ledger.jsonl"
 ALLOWED_LOSS = 0.10  # the candidate may lose this much success and still be cleared
@@ -271,7 +272,7 @@ def run_gate(
 
 def score_arms(results: Path, baseline: str, candidate: str) -> list[dict[str, Any]]:
     """Score every trial against its own arm's profile; rows carry their arm."""
-    records = [json.loads(line) for line in results.read_text().splitlines() if line.strip()]
+    records = read_jsonl(results)
     scored: list[dict[str, Any]] = []
     for arm, profile in (("baseline", baseline), ("candidate", candidate)):
         scored += trials.score_records([r for r in records if r.get("arm") == arm], profile)
