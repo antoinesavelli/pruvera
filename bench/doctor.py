@@ -51,6 +51,8 @@ def audit_results(results_dir: Path, version: str = layout.VERSION) -> list[dict
     current: dict[str, str] = {}
     rows = []
     for path in sorted(results_dir.rglob("*.jsonl")):
+        if "archive" in path.relative_to(results_dir).parts:
+            continue  # audited on its own: its builds are gone by definition
         records = _records(path)
         if not records:
             continue
@@ -115,6 +117,12 @@ def _report(rows: list[dict[str, Any]], builds: list[str], builds_checked: bool)
     )
 
 
+def _archived(results_dir: Path) -> list[dict[str, Any]]:
+    """The archive index: files moved out of the active set, each with its reason."""
+    index = results_dir / "archive" / "INDEX.jsonl"
+    return read_jsonl(index) if index.exists() else []
+
+
 def _status(rows: list[dict[str, Any]], builds: list[str], strict: bool) -> int:
     gone = any(r["missing_builds"] for r in rows)
     return 1 if gone or builds or (strict and any(_flags(r) for r in rows)) else 0
@@ -129,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
     rows = audit_results(args.results)
     builds = [] if args.skip_builds else audit_builds()
     _report(rows, builds, not args.skip_builds)
+    archived = _archived(args.results)
+    print(f"archive (not audited): {len(archived)} files, reasons in results/archive/INDEX.jsonl")
     return _status(rows, builds, args.strict)
 
 
