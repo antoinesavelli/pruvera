@@ -15,7 +15,7 @@ to touch anything real. `PLAN.md` is the plan of record and holds the phase stat
 | `variants/` | Delegation-rule variants for the gate (`variants/README.md`; the directories are not committed, they hold fixture text; `variants/shared-tree-rule.diff` is the added text of the one variant judged here). |
 | `results/` | Trial records (`trials.jsonl`), the realism studies, `issues/` campaigns, `gate/` (verdicts, the ledger, calibration; `commit-tool*` and `rules-restructure-hand` are runs by another session on candidates not described in this plan), `rag/` A/B, legacy results and the archive. |
 | `tests/` | The harness's own tests. |
-| `plans/` | Plans and evaluations beyond `PLAN.md`: `REVERTED_FIX_MINER.md`, `SYNTHETIC_DATA_FILL.md`, `RAG_AND_METRICS_EVALUATION.md`, `ROAD_TO_A.md` (what it takes to bring every review grade to A). |
+| `plans/` | Plans and evaluations beyond `PLAN.md`: `REVERTED_FIX_MINER.md`, `SYNTHETIC_DATA_FILL.md`, `RAG_AND_METRICS_EVALUATION.md`, `ROAD_TO_A.md` (what it takes to bring every review grade to A), `ARCHITECTURE_SCORECARD.md` (the architecture graded in 11 dimensions, 2026-10-02). |
 | `spikes/` | One-off measurements behind an evaluation, with their result files. |
 
 Run everything from the repo root. Most modules use only the standard library and run under the system
