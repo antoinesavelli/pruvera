@@ -163,8 +163,7 @@ def _build(doc: dict[str, Any]) -> Issue:
         raise SchemaError(f"missing field {exc}") from exc
 
 
-def parse(doc: dict[str, Any]) -> Issue:
-    issue = _build(doc)
+def _check_vocabulary(issue: Issue) -> None:
     for value, allowed, label in (
         (issue.kind, KINDS, "kind"),
         (issue.source, SOURCES, "source"),
@@ -173,6 +172,11 @@ def parse(doc: dict[str, Any]) -> Issue:
     ):
         if value not in allowed:
             raise SchemaError(f"{issue.id}: {label} {value!r} not in {allowed}")
+
+
+def parse(doc: dict[str, Any]) -> Issue:
+    issue = _build(doc)
+    _check_vocabulary(issue)
     scenario = issue.expected_action == "commit_scope"
     if not issue.edits and not scenario:
         raise SchemaError(f"{issue.id}: an issue needs at least one edit")

@@ -98,27 +98,34 @@ def generate(
 
 def check(df: pd.DataFrame, real_symbols: set[str], directory_symbols: set[str]) -> list[str]:
     """Every invariant the fixture relies on; an empty list means the table is sound."""
-    problems: list[str] = []
-    if not df["symbol"].str.startswith(PREFIX).all():
-        problems.append("a symbol lacks the reserved prefix")
-    if set(df["symbol"]) & (real_symbols | directory_symbols):
-        problems.append("a synthetic symbol collides with a real one")
-    if not ((df["high"] >= df[["open", "close"]].max(axis=1) - 1e-4).all()):
-        problems.append("high is below open or close")
-    if not (
-        (df["low"] <= df[["open", "close"]].min(axis=1) + 1e-4).all() and (df["low"] > 0).all()
-    ):
-        problems.append("low is above open or close, or not positive")
-    if not ((df["volume"] > 0).all() and (df["bar_count"] > 0).all()):
-        problems.append("volume or bar_count is not positive")
+    ends = df[["open", "close"]]
     cap = df["shares_outstanding"].astype(float) * df["close"].astype(float)
-    if not np.allclose(df["marketcap"].astype(float), cap, rtol=1e-3):
-        problems.append("marketcap is not shares_outstanding x close")
-    if not (df["first_timestamp"] <= df["last_timestamp"]).all():
-        problems.append("first_timestamp is after last_timestamp")
-    if df.duplicated(["date", "symbol"]).any():
-        problems.append("duplicate (date, symbol) rows")
-    return problems
+    holds = [
+        (df["symbol"].str.startswith(PREFIX).all(), "a symbol lacks the reserved prefix"),
+        (
+            not set(df["symbol"]) & (real_symbols | directory_symbols),
+            "a synthetic symbol collides with a real one",
+        ),
+        ((df["high"] >= ends.max(axis=1) - 1e-4).all(), "high is below open or close"),
+        (
+            (df["low"] <= ends.min(axis=1) + 1e-4).all() and (df["low"] > 0).all(),
+            "low is above open or close, or not positive",
+        ),
+        (
+            (df["volume"] > 0).all() and (df["bar_count"] > 0).all(),
+            "volume or bar_count is not positive",
+        ),
+        (
+            np.allclose(df["marketcap"].astype(float), cap, rtol=1e-3),
+            "marketcap is not shares_outstanding x close",
+        ),
+        (
+            (df["first_timestamp"] <= df["last_timestamp"]).all(),
+            "first_timestamp is after last_timestamp",
+        ),
+        (not df.duplicated(["date", "symbol"]).any(), "duplicate (date, symbol) rows"),
+    ]
+    return [why for ok, why in holds if not ok]
 
 
 def build(

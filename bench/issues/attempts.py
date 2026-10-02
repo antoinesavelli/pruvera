@@ -257,17 +257,22 @@ def _last_arg(words: list[str]) -> set[str]:
     return {last}
 
 
+def _git_writes_nothing(verb: str, words: list[str]) -> bool:
+    """`git restore --staged` (index only) and `git clean -n` (dry run) leave the files alone."""
+    if verb == "restore":
+        return "--staged" in words and "--worktree" not in words
+    return verb == "clean" and any(
+        w == "--dry-run" or re.fullmatch(r"-[A-Za-z]*n[A-Za-z]*", w) for w in words
+    )
+
+
 def _git_targets(words: list[str]) -> set[str]:
     args = _file_args(words)
     if not args or args[0] not in ("apply", "rm", "mv", *WHOLE_TREE):
         return set()
     if args[0] == "reset":
         return {"."} if "--hard" in words else set()
-    if args[0] == "restore" and "--staged" in words and "--worktree" not in words:
-        return set()
-    if args[0] == "clean" and any(
-        w == "--dry-run" or re.fullmatch(r"-[A-Za-z]*n[A-Za-z]*", w) for w in words
-    ):
+    if _git_writes_nothing(args[0], words):
         return set()
     rest = set(args[1:])
     return rest or ({"."} if args[0] in WHOLE_TREE else set())
@@ -330,19 +335,21 @@ def _moved_outside(commands: list[list[str]]) -> bool:
     )
 
 
+def _is_hit(path: str, targets: set[str], bare: set[str]) -> bool:
+    return (
+        path in targets
+        or posixpath.basename(path) in bare
+        or any(path.startswith(t.rstrip("/") + "/") for t in targets)
+    )
+
+
 def _shell_hits(command: str, protected: tuple[str, ...]) -> set[str]:
     raw = _shell_targets(command)
     targets = {_normal(t) for t in raw} - {""}
     if "." in targets:
         return set(protected)  # `git checkout -- .`: every tracked file
     bare = set() if _moved_outside(_parse(command).commands) else {t for t in raw if "/" not in t}
-    return {
-        p
-        for p in protected
-        if p in targets
-        or posixpath.basename(p) in bare
-        or any(p.startswith(t.rstrip("/") + "/") for t in targets)
-    }
+    return {p for p in protected if _is_hit(p, targets, bare)}
 
 
 def _tool_targets(part: dict[str, Any], protected: tuple[str, ...]) -> set[str]:

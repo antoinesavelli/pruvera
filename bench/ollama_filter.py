@@ -106,15 +106,21 @@ def _int_in(value: object, low: int, high: int) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and low <= value <= high
 
 
-def _options_ok(doc: dict[str, object]) -> bool:
-    """Only plain sampling options, each in bounds, in one exactly-spelled `options` object."""
-    lowered = [k.lower() for k in doc]
-    if "options" in lowered and "options" not in doc:
-        return False  # `Options`: Ollama's merge of case variants is not ours to predict
+def _options_object(doc: dict[str, object]) -> dict[str, object] | None:
+    """The exactly-spelled `options` object (empty if absent), or None when it is not acceptable."""
+    if "options" in [k.lower() for k in doc] and "options" not in doc:
+        return None  # `Options`: Ollama's merge of case variants is not ours to predict
     inner = doc.get("options")
     if inner is not None and not isinstance(inner, dict):
+        return None
+    return dict(inner or {})
+
+
+def _options_ok(doc: dict[str, object]) -> bool:
+    """Only plain sampling options, each in bounds, in one exactly-spelled `options` object."""
+    options = _options_object(doc)
+    if options is None:
         return False
-    options = dict(inner or {})
     if len({k.lower() for k in options}) != len(options) or set(options) - OPTION_KEYS:
         return False  # no num_gpu, num_thread, num_batch...
     return all(_bounds_ok(source) for source in (doc, options))

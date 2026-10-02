@@ -96,19 +96,24 @@ def record(path: Path, entry: dict[str, Any]) -> None:
         fh.write(json.dumps(entry, sort_keys=True) + "\n")
 
 
-def cleared(entries: list[dict[str, Any]], variant: str, current_hash: str) -> str:
-    """'' when the variant has a CLEAR holdout verdict for its current files, else why not."""
+def _holdout_verdicts(
+    entries: list[dict[str, Any]], variant: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """(all entries of the variant, those that used a holdout, the CLEAR ones among them)."""
     mine = [e for e in entries if variant_of(e["candidate"]) == variant]
     holdout = [e for e in mine if e.get("holdout_used")]
-    verdicts = [e for e in holdout if e["verdict"] == "CLEAR"]
+    return mine, holdout, [e for e in holdout if e["verdict"] == "CLEAR"]
+
+
+def cleared(entries: list[dict[str, Any]], variant: str, current_hash: str) -> str:
+    """'' when the variant has a CLEAR holdout verdict for its current files, else why not."""
+    mine, holdout, verdicts = _holdout_verdicts(entries, variant)
+    hashed = any(current_hash and e.get("variant_hash") == current_hash for e in verdicts)
     problems = [
         (not mine, f"{variant} was never judged"),
         (not holdout, f"{variant} has no holdout verdict"),
         (not verdicts, f"{variant}: the holdout verdicts are {[e['verdict'] for e in holdout]}"),
-        (
-            not any(current_hash and e.get("variant_hash") == current_hash for e in verdicts),
-            f"{variant}: its files changed since the CLEAR verdict (or are unhashed)",
-        ),
+        (not hashed, f"{variant}: its files changed since the CLEAR verdict (or are unhashed)"),
         (
             not any(e.get("variant_pinned") for e in verdicts),
             f"{variant}: the CLEAR rests on trials that did not carry the variant hash",

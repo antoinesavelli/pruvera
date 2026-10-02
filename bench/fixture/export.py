@@ -1,6 +1,7 @@
 """Export one pinned commit to a plain directory without touching the source repo's index or tree.
 
-Depends on: git, plus git-crypt when the source repo is encrypted and unlocked (plaintext out).
+Depends on: bench.gitutil, git, plus git-crypt when the source repo is encrypted and unlocked
+(plaintext out).
 """
 
 from __future__ import annotations
@@ -10,6 +11,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from bench import gitutil
+
 CIPHERTEXT_HEADER = b"\x00GITCRYPT\x00"
 
 
@@ -18,14 +21,12 @@ class ExportError(RuntimeError):
 
 
 def _git(repo: Path, args: list[str], env: dict[str, str]) -> bytes:
-    done = subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, env=env, check=False
-    )
-    if done.returncode != 0:
+    try:
+        return gitutil.run(repo, *args, env=env).stdout
+    except subprocess.CalledProcessError as exc:
         raise ExportError(
-            f"git {' '.join(args[:2])} failed: {done.stderr.decode(errors='replace')[:300]}"
-        )
-    return done.stdout
+            f"git {' '.join(args[:2])} failed: {exc.stderr.decode(errors='replace')[:300]}"
+        ) from exc
 
 
 def resolve(repo: Path, rev: str) -> str:
