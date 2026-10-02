@@ -147,12 +147,7 @@ def fixes_in_place(env: check.Env, issues: list[schema.Issue]) -> dict[str, bool
         except (plant.PlantError, OSError):
             results[issue.id] = False  # the planted state this issue claims is not in the tree
             continue
-        if issue.detector == "test":
-            passed = check.run_pytest(env, list(issue.tests), overrides).passed
-        else:
-            args = " ".join(shlex.quote(a) for a in issue.tests)
-            passed = check.run_cmd(env, f"ruff check --ignore-noqa {args}", overrides).passed
-        results[issue.id] = passed
+        results[issue.id] = bool(score.detector_passes(issue, env, overrides))
     return results
 
 

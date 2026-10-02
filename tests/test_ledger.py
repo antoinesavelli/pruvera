@@ -100,7 +100,6 @@ def _stub_scoring(monkeypatch: pytest.MonkeyPatch, issues: dict[str, float] | No
         gate, "score_arms", lambda *_a: rows("baseline", rates) + rows("candidate", rates)
     )
     monkeypatch.setattr(gate, "holdout_issues", lambda: {"1": frozenset({"h1"})})
-    monkeypatch.setattr(ledger, "known_variants", lambda _d: set())
 
 
 def test_judge_widens_by_the_ledger_and_records_the_verdict(
@@ -178,12 +177,15 @@ def test_the_family_counts_every_distinct_variant_on_every_split() -> None:
     assert ledger.family_size(entries, "dev", "dev+a") == 2
 
 
-def _entry(variant: str, verdict: str, vhash: str, holdout: bool = True) -> dict[str, object]:
+def _entry(
+    variant: str, verdict: str, vhash: str, holdout: bool = True, pinned: bool = True
+) -> dict[str, object]:
     return {
         "candidate": f"holdout2+{variant}",
         "variant_hash": vhash,
         "holdout_used": holdout,
         "verdict": verdict,
+        "variant_pinned": pinned,
     }
 
 
@@ -192,6 +194,7 @@ def test_clearance_needs_a_clear_holdout_verdict_for_the_files_as_they_are_now()
         _entry("a", "INCONCLUSIVE", "h1"),
         _entry("b", "CLEAR", "h2"),
         _entry("c", "CLEAR", "h3", False),
+        _entry("d", "CLEAR", "h4", pinned=False),
     ]
     assert "never judged" in ledger.cleared(entries, "zzz", "h")
     assert "holdout verdicts are" in ledger.cleared(entries, "a", "h1")
@@ -199,6 +202,7 @@ def test_clearance_needs_a_clear_holdout_verdict_for_the_files_as_they_are_now()
     assert "changed since" in ledger.cleared(entries, "b", "other")
     assert "changed since" in ledger.cleared(entries, "b", ""), "an unhashed variant is not cleared"
     assert "no holdout verdict" in ledger.cleared(entries, "c", "h3")
+    assert "did not carry the variant hash" in ledger.cleared(entries, "d", "h4")
 
 
 def test_the_clear_command_exits_zero_only_for_a_cleared_variant(
@@ -278,18 +282,6 @@ def test_judge_refuses_trials_whose_variant_files_changed_since_they_ran(
     assert gate.judge(results, "dev", "dev+v", None)["set"]
 
 
-def test_variants_on_disk_widen_the_family_even_without_a_ledger_row(tmp_path: Path) -> None:
-    (tmp_path / "peer" / "files").mkdir(parents=True)
-    (tmp_path / "other").mkdir()
-    (tmp_path / "toml").mkdir()
-    (tmp_path / "toml" / "variant.toml").write_text("[prompt]\nprefix = 'x'\n")
-    known = ledger.known_variants(tmp_path)
-    assert known == {"peer", "toml"}
-    assert ledger.family_size([], "tune", "tune+mine", known) == 3
-    assert ledger.family_size([], "tune", "tune+peer", known) == 2
-    assert ledger.known_variants(tmp_path / "absent") == set()
-
-
 def test_a_verdict_says_whether_every_candidate_trial_carried_the_variant_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -301,3 +293,14 @@ def test_a_verdict_says_whether_every_candidate_trial_carried_the_variant_hash(
     results.write_text(json.dumps({"arm": "candidate"}) + "\n")
     assert gate.judge(results, "dev", "dev+y", tmp_path / "l.jsonl")["variant_pinned"] is False
     assert ledger.read(tmp_path / "l.jsonl")[-1]["variant_pinned"] is False
+
+
+def test_a_malformed_token_regex_is_reported_by_line_without_its_text(tmp_path: Path) -> None:
+    from bench.fixture import scrub
+
+    tokens = tmp_path / "t.txt"
+    tokens.write_text("G | (?P<hunter2 | [X]\n")
+    with pytest.raises(ValueError, match="line 1") as exc:
+        scrub.load_rules(tokens)
+    assert "hunter2" not in str(exc.value) and exc.value.__cause__ is None
+    assert exc.value.__suppress_context__

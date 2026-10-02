@@ -14,7 +14,6 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -65,23 +64,10 @@ def read(path: Path) -> list[dict[str, Any]]:
     return read_jsonl(path)
 
 
-def known_variants(variants_dir: Path) -> set[str]:
-    """Every variant on disk: a peer's trials leave no ledger row, but their text is still a try."""
-    if not variants_dir.is_dir():
-        return set()
-    return {
-        d.name
-        for d in variants_dir.iterdir()
-        if (d / "files").is_dir() or (d / "variant.toml").is_file()
-    }
-
-
-def family_size(
-    entries: list[dict[str, Any]], baseline: str, candidate: str, known: Iterable[str] = ()
-) -> int:
-    """Distinct variants judged or on disk, this one included: every split tests the same claim."""
-    names = {variant_of(e["candidate"]) for e in entries} | set(known)
-    return len((names - {""}) | {variant_of(candidate)})
+def family_size(entries: list[dict[str, Any]], baseline: str, candidate: str) -> int:
+    """Distinct variants judged in the ledger, this one included: every split tests one claim."""
+    names = {variant_of(e["candidate"]) for e in entries} - {""}
+    return len(names | {variant_of(candidate)})
 
 
 def used_gens(entry: dict[str, Any]) -> set[str]:
@@ -122,6 +108,10 @@ def cleared(entries: list[dict[str, Any]], variant: str, current_hash: str) -> s
         (
             not any(current_hash and e.get("variant_hash") == current_hash for e in verdicts),
             f"{variant}: its files changed since the CLEAR verdict (or are unhashed)",
+        ),
+        (
+            not any(e.get("variant_pinned") for e in verdicts),
+            f"{variant}: the CLEAR rests on trials that did not carry the variant hash",
         ),
     ]
     return next((why for failed, why in problems if failed), "")

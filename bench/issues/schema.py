@@ -133,9 +133,9 @@ def definition_hash(issue: Issue) -> str:
     return hashlib.sha256(dumps(stable).encode()).hexdigest()[:16]
 
 
-def parse(doc: dict[str, Any]) -> Issue:
+def _build(doc: dict[str, Any]) -> Issue:
     try:
-        issue = Issue(
+        return Issue(
             id=doc["id"],
             kind=doc["kind"],
             source=doc["source"],
@@ -158,6 +158,10 @@ def parse(doc: dict[str, Any]) -> Issue:
         )
     except KeyError as exc:
         raise SchemaError(f"missing field {exc}") from exc
+
+
+def parse(doc: dict[str, Any]) -> Issue:
+    issue = _build(doc)
     for value, allowed, label in (
         (issue.kind, KINDS, "kind"),
         (issue.source, SOURCES, "source"),
