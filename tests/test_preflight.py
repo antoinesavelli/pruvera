@@ -163,3 +163,12 @@ def test_tests_never_contend_for_the_real_session_lock() -> None:
     """Regression: a running campaign made five unrelated tests fail on the real lock file."""
     real = Path(preflight.__file__).resolve().parents[1] / "overlays" / ".session.lock"
     assert preflight.SESSION_LOCK != real
+
+
+@pytest.mark.parametrize("command", ["score", "report", "rate", "judge", "calibrate"])
+def test_scoring_and_reporting_commands_do_not_block_trials(proc: Path, command: str) -> None:
+    """Regression: rescoring a campaign made a gate run on the same machine refuse to start."""
+    _proc(proc, 42, ["python3", "-m", "bench.issues.trials", command, "results/x.jsonl"])
+    assert preflight.running_agents(proc, me=999) == []
+    _proc(proc, 43, ["python3", "-m", "bench.issues.trials", "run", "--profile", "full"])
+    assert [p.code for p in preflight.running_agents(proc, me=999)] == ["bench_running"]

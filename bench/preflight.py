@@ -35,6 +35,7 @@ BENCH_MODULES = frozenset(
         "bench.gate",
     }
 )
+NON_TRIAL_COMMANDS = frozenset({"calibrate", "score", "report", "rate", "judge"})  # no trial runs
 INTERPRETER = re.compile(r"python[0-9.]*|bash|sh|env")
 HARNESS_SCRIPT_SUFFIXES = ("bench/cli.py", "bench/realism.py", "bench/gate.py")
 
@@ -135,7 +136,7 @@ def _classify(pid: str, argv: list[str]) -> Problem | None:
     if not (INTERPRETER.fullmatch(exe)):
         return None
     module, script = _python_target(argv)
-    if module in BENCH_MODULES and "calibrate" not in argv:  # a pure simulation uses no GPU
+    if module in BENCH_MODULES and not NON_TRIAL_COMMANDS & set(argv):  # these use no GPU
         return Problem("bench_running", f"pid {pid}: {module} is running")
     name = Path(script).name
     harness_script = script.endswith(HARNESS_SCRIPT_SUFFIXES)
