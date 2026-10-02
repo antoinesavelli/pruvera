@@ -16,6 +16,7 @@ import random
 import statistics
 import sys
 from pathlib import Path
+from typing import Any
 
 from bench import layout, preflight, reference, runner
 
@@ -52,24 +53,31 @@ def run(n: int, seed: int) -> None:
             reference.discard(trials / "ref-source")
 
 
-def report() -> None:
+def _load_trials() -> dict[str, list[dict[str, Any]]]:
     rows = [json.loads(line) for line in OUT.read_text().splitlines() if line.strip()]
-    by_side: dict[str, list[dict]] = {"fixture": [], "reference": []}
+    by_side: dict[str, list[dict[str, Any]]] = {"fixture": [], "reference": []}
     for r in rows:
         trace = Path(r["artifact"]) / "ollama_trace.jsonl"
         calls = [json.loads(x) for x in trace.read_text().splitlines()] if trace.exists() else []
         by_side[r["environment"]].append({"secs": r["secs"], "phases": r["phases"], "calls": calls})
-    for side, trials in by_side.items():
-        first = [t["calls"][0] for t in trials if t["calls"]]
-        print(f"\n{side}: {len(trials)} trials")
-        print("  secs", [t["secs"] for t in trials])
-        print("  first-call first-byte s", [c["first_byte_s"] for c in first])
-        print("  system hashes", sorted({c.get("system") for c in first}))
-        print("  tools hashes", sorted({c.get("tools") for c in first}))
-        print("  first-call body_len", sorted({c.get("body_len") for c in first}))
-        later = [c["first_byte_s"] for t in trials for c in t["calls"][1:]]
-        if later:
-            print("  later-call first-byte median", round(statistics.median(later), 2))
+    return by_side
+
+
+def _print_side(side: str, trials: list[dict[str, Any]]) -> None:
+    first = [t["calls"][0] for t in trials if t["calls"]]
+    print(f"\n{side}: {len(trials)} trials")
+    print("  secs", [t["secs"] for t in trials])
+    print("  first-call first-byte s", [c["first_byte_s"] for c in first])
+    for key in ("system", "tools", "body_len"):
+        print(f"  first-call {key}", sorted({str(c.get(key)) for c in first}))
+    later = [c["first_byte_s"] for t in trials for c in t["calls"][1:]]
+    if later:
+        print("  later-call first-byte median", round(statistics.median(later), 2))
+
+
+def report() -> None:
+    for side, trials in _load_trials().items():
+        _print_side(side, trials)
 
 
 def main() -> int:

@@ -4,7 +4,7 @@ Reads, never writes. For each results file it names the fixture builds, model di
 opencode versions its records carry and says which of them exist or match now: a result whose
 build is gone cannot be rescored, one whose model digest changed was produced by a different
 model than `ollama` serves today. Exit status 1 when any record cannot be reproduced.
-Depends on: bench.{layout,runner,sandbox}; a running Ollama for the model digests (optional).
+Depends on: bench.{layout,modelinfo,runner}; a running Ollama for the model digests (optional).
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from bench import layout, runner
+from bench import layout, modelinfo, runner
 
 
 def _records(path: Path) -> list[dict[str, Any]]:
@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"BUILD DRIFT {p}")
     versions = Counter(v for r in rows for v in r["opencode"] if v)
     print(
-        f"opencode versions in records: {dict(versions)}; installed: {runner._opencode_version()}"
+        f"opencode versions in records: {dict(versions)}; installed: {modelinfo.opencode_version()}"
     )
     bad = any(r["missing_builds"] for r in rows) or bool(builds)
     return 1 if bad else 0

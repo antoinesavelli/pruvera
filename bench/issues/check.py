@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import shlex
 import shutil
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -77,6 +78,8 @@ def _run(
     finally:
         sandbox.remove_trial_dirs(work)
         shutil.rmtree(work, ignore_errors=True)
+        if work.exists():
+            print(f"warning: scratch directory not removed: {work}", file=sys.stderr)
 
 
 def run_pytest(
@@ -84,7 +87,12 @@ def run_pytest(
 ) -> Result:
     """`pytest <args>` in the workdir; `overrides` (repo path -> new text) are written first."""
     flags = "-q --tb=line -rfE --no-header -p no:cacheprovider"
-    rc, out = _run(env, f"python -m pytest {flags} " + " ".join(args), overrides, timeout)
+    rc, out = _run(
+        env,
+        f"python -m pytest {flags} " + " ".join(shlex.quote(a) for a in args),
+        overrides,
+        timeout,
+    )
     found = _FAILED.findall(out)
     messages = dict(found)
     types = tuple(_TB_LINE.findall(out))
