@@ -3,7 +3,8 @@
 Reads, never writes. For each results file it names the fixture builds, model digests and
 opencode versions its records carry and says which of them exist or match now: a result whose
 build is gone cannot be rescored, one whose model digest changed was produced by a different
-model than `ollama` serves today. Exit status 1 when any record cannot be reproduced.
+model than `ollama` serves today. Exit status 1 when a build is gone or drifted (`--strict`: any
+flag).
 Depends on: bench.{layout,modelinfo,runner,jsonl}; a running Ollama for the model digests
 (optional).
 """
@@ -60,6 +61,9 @@ def audit_results(results_dir: Path, version: str = layout.VERSION) -> list[dict
                 "records": len(records),
                 "missing_builds": _missing_builds(records, version),
                 "missing_artifacts": _missing_artifacts(records),
+                "unpinned": sum(
+                    1 for r in records if r.get("arm") == "candidate" and not r.get("variant_hash")
+                ),
                 "model_digest_changed": changed,
                 "model_digest_unchecked": unchecked,
                 "opencode": sorted({r.get("opencode_version", "") for r in records}),
@@ -86,6 +90,10 @@ def _flags(row: dict[str, Any]) -> list[str]:
         flags.append(f"builds gone: {row['missing_builds']}")
     if row["missing_artifacts"]:
         flags.append(f"{row['missing_artifacts']} artifact dirs gone (cannot be rescored)")
+    if row["unpinned"]:
+        flags.append(
+            f"{row['unpinned']} candidate records carry no variant hash (edits undetectable)"
+        )
     if row["model_digest_changed"]:
         flags.append(f"model digest changed: {row['model_digest_changed']}")
     if row["model_digest_unchecked"]:
@@ -95,24 +103,33 @@ def _flags(row: dict[str, Any]) -> list[str]:
     return flags
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--results", type=Path, default=layout.ROOT / "results")
-    ap.add_argument("--skip-builds", action="store_true", help="do not re-hash the profile trees")
-    args = ap.parse_args(argv)
-    rows = audit_results(args.results)
-    builds = [] if args.skip_builds else audit_builds()
+def _report(rows: list[dict[str, Any]], builds: list[str], builds_checked: bool) -> None:
+    clean = "reproducible" if builds_checked else "no flags (builds not re-hashed)"
     for r in rows:
-        print(
-            f"{r['file']:50s} {r['records']:4d} records  {'; '.join(_flags(r)) or 'reproducible'}"
-        )
+        print(f"{r['file']:50s} {r['records']:4d} records  {'; '.join(_flags(r)) or clean}")
     for p in builds:
         print(f"BUILD DRIFT {p}")
     versions = Counter(v for r in rows for v in r["opencode"] if v)
     print(
         f"opencode versions in records: {dict(versions)}; installed: {modelinfo.opencode_version()}"
     )
-    return 1 if any(r["missing_builds"] for r in rows) or builds else 0
+
+
+def _status(rows: list[dict[str, Any]], builds: list[str], strict: bool) -> int:
+    gone = any(r["missing_builds"] for r in rows)
+    return 1 if gone or builds or (strict and any(_flags(r) for r in rows)) else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--results", type=Path, default=layout.ROOT / "results")
+    ap.add_argument("--skip-builds", action="store_true", help="do not re-hash the profile trees")
+    ap.add_argument("--strict", action="store_true", help="exit 1 on any flag, not only on drift")
+    args = ap.parse_args(argv)
+    rows = audit_results(args.results)
+    builds = [] if args.skip_builds else audit_builds()
+    _report(rows, builds, not args.skip_builds)
+    return _status(rows, builds, args.strict)
 
 
 if __name__ == "__main__":

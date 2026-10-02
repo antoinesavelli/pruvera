@@ -219,9 +219,10 @@ def _relay(
     began = time.monotonic()
     first = 0.0
     headers = {
-        k: v for k, v in handler.headers.items() if k.lower() not in HOP_BY_HOP | {"content-length"}
+        k: v
+        for k, v in handler.headers.items()
+        if k.lower() not in HOP_BY_HOP | {"content-length", "host"}
     }
-    headers.pop("Host", None)
     if body is not None:
         headers["Content-Length"] = str(len(body))
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=900)
@@ -313,7 +314,7 @@ def make_handler(
             try:
                 began = time.monotonic()
                 status, first = _relay(self, upstream_port, body)
-            except (OSError, http.client.HTTPException):
+            except (OSError, ValueError, http.client.HTTPException):
                 with contextlib.suppress(OSError):
                     self._refuse(502, "upstream unavailable")
                 return

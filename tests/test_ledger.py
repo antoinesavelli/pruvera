@@ -100,6 +100,7 @@ def _stub_scoring(monkeypatch: pytest.MonkeyPatch, issues: dict[str, float] | No
         gate, "score_arms", lambda *_a: rows("baseline", rates) + rows("candidate", rates)
     )
     monkeypatch.setattr(gate, "holdout_issues", lambda: {"1": frozenset({"h1"})})
+    monkeypatch.setattr(ledger, "known_variants", lambda _d: set())
 
 
 def test_judge_widens_by_the_ledger_and_records_the_verdict(
@@ -155,6 +156,16 @@ def test_a_variant_prompt_that_starts_with_a_dash_is_refused(tmp_path: Path) -> 
     (tmp_path / "variant.toml").write_text('[prompt]\nprefix = "--help "\n')
     with pytest.raises(plant.PlantError, match="read as an option"):
         plant.variant_config(tmp_path)
+
+
+def test_a_variant_model_role_no_trial_selects_is_refused(tmp_path: Path) -> None:
+    from bench.issues import plant
+
+    (tmp_path / "variant.toml").write_text('[models]\nverify = "x:1b"\ncoder = "y:2b"\n')
+    with pytest.raises(plant.PlantError, match="verify"):
+        plant.variant_config(tmp_path)
+    (tmp_path / "variant.toml").write_text('[models]\ncoder = "y:2b"\n')
+    assert plant.variant_config(tmp_path) == {"models": {"coder": "y:2b"}}
 
 
 def test_the_family_counts_every_distinct_variant_on_every_split() -> None:
@@ -241,7 +252,13 @@ def test_variant_text_with_a_scrub_token_is_refused_at_build_time(tmp_path: Path
     plant.screen_rule_files({"AGENTS.md": "all clean here\n"}, tokens)
     with pytest.raises(plant.PlantError, match="lines \\[2\\]"):
         plant.screen_rule_files({"AGENTS.md": "ok\nuses secretstrategy\n"}, tokens)
-    plant.screen_rule_files({"AGENTS.md": "uses secretstrategy\n"}, tmp_path / "absent.txt")
+    with pytest.raises(plant.PlantError, match="cannot be screened"):
+        plant.screen_rule_files({"AGENTS.md": "x\n"}, tmp_path / "absent.txt")
+    plant.screen_rule_files({}, tmp_path / "absent.txt")
+    (tmp_path / "bad.txt").write_text("Z | not a rule\n")
+    with pytest.raises(ValueError, match="line 1") as exc:
+        plant.screen_rule_files({"A": "x"}, tmp_path / "bad.txt")
+    assert "not a rule" not in str(exc.value)
 
 
 def test_judge_refuses_trials_whose_variant_files_changed_since_they_ran(
@@ -259,3 +276,28 @@ def test_judge_refuses_trials_whose_variant_files_changed_since_they_ran(
     current = ledger.variant_hash(tmp_path / "variants", "v")
     results.write_text(json.dumps({"arm": "candidate", "variant_hash": current}) + "\n")
     assert gate.judge(results, "dev", "dev+v", None)["set"]
+
+
+def test_variants_on_disk_widen_the_family_even_without_a_ledger_row(tmp_path: Path) -> None:
+    (tmp_path / "peer" / "files").mkdir(parents=True)
+    (tmp_path / "other").mkdir()
+    (tmp_path / "toml").mkdir()
+    (tmp_path / "toml" / "variant.toml").write_text("[prompt]\nprefix = 'x'\n")
+    known = ledger.known_variants(tmp_path)
+    assert known == {"peer", "toml"}
+    assert ledger.family_size([], "tune", "tune+mine", known) == 3
+    assert ledger.family_size([], "tune", "tune+peer", known) == 2
+    assert ledger.known_variants(tmp_path / "absent") == set()
+
+
+def test_a_verdict_says_whether_every_candidate_trial_carried_the_variant_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_scoring(monkeypatch)
+    monkeypatch.setattr(ledger, "variant_hash", lambda _d, v: "abc" if v else "")
+    results = tmp_path / "r.jsonl"
+    results.write_text(json.dumps({"arm": "candidate", "variant_hash": "abc"}) + "\n")
+    assert gate.judge(results, "dev", "dev+x", tmp_path / "l.jsonl")["variant_pinned"] is True
+    results.write_text(json.dumps({"arm": "candidate"}) + "\n")
+    assert gate.judge(results, "dev", "dev+y", tmp_path / "l.jsonl")["variant_pinned"] is False
+    assert ledger.read(tmp_path / "l.jsonl")[-1]["variant_pinned"] is False

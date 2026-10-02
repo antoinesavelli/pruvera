@@ -3,7 +3,8 @@
 Run from the repo root: `PYTHONPATH=. python3 spikes/latency_startup.py`. Each case runs 4 times,
 order flipped per repeat. 2026-09-30: a trivial prompt takes about 9 s to the first event on both
 sides; a prompt that reads the repo (the STATUS question) takes 13.5 s on the fixture, 9 s on the
-real copy. That gap was later shown to be an order artefact (study 4, `PLAN.md` Phase 5); this script is kept as the original probe.
+real copy. That gap was later shown to be an order artefact (study 4, `PLAN.md` Phase 5);
+this script is kept as the original probe.
 Depends on: bench.{sandbox,agentconfig,runner,layout,reference,preflight,transcript}; Ollama.
 """
 

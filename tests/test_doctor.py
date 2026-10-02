@@ -71,3 +71,19 @@ def test_an_unreachable_ollama_is_unchecked_not_a_match(
     assert doctor.main(["--results", str(tmp_path), "--skip-builds"]) == 0
     out = capsys.readouterr().out
     assert "UNCHECKED" in out and "reproducible" not in out
+
+
+def test_unpinned_candidate_records_are_flagged_and_fail_only_in_strict_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(layout, "find_profile_dir", lambda h, v="v2": tmp_path)
+    monkeypatch.setattr(runner, "model_digest", lambda m, port=11434: "d")
+    base = {"fixture_tree_hash": "x" * 64, "model": "m", "model_digest": "d"}
+    _write(
+        tmp_path / "r.jsonl",
+        [{**base, "arm": "baseline"}, {**base, "arm": "candidate"}],
+    )
+    assert doctor.audit_results(tmp_path)[0]["unpinned"] == 1
+    assert doctor.main(["--results", str(tmp_path), "--skip-builds"]) == 0
+    assert "no variant hash" in capsys.readouterr().out
+    assert doctor.main(["--results", str(tmp_path), "--skip-builds", "--strict"]) == 1

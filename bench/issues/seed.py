@@ -487,8 +487,7 @@ def _write_splits(prof: Path, issues: dict[str, Issue]) -> None:
 
 
 def dev_ids(issues: dict[str, Issue], holdouts: list[frozenset[str]]) -> list[str]:
-    """The development issues: those no holdout generation holds out, so developing on them
-    never spends a variant's look at any holdout."""
+    """The issues no holdout generation holds out: developing on them spends no holdout look."""
     return sorted(set(issues) - set().union(*holdouts))
 
 

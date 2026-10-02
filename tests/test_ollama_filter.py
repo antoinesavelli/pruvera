@@ -18,6 +18,7 @@ from bench import ollama_filter
 
 class _Fake(http.server.BaseHTTPRequestHandler):
     seen: list[tuple[str, str]] = []
+    hosts: list[str] = []
 
     def log_message(self, format: str, *args: object) -> None:
         return
@@ -26,6 +27,7 @@ class _Fake(http.server.BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
         _Fake.seen.append((self.command, self.path))
+        _Fake.hosts += self.headers.get_all("Host") or []
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")
         self.end_headers()
@@ -37,6 +39,7 @@ class _Fake(http.server.BaseHTTPRequestHandler):
 @pytest.fixture
 def upstream() -> Iterator[int]:
     _Fake.seen = []
+    _Fake.hosts = []
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Fake)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield server.server_address[1]
@@ -353,3 +356,18 @@ def test_the_body_forwarded_upstream_is_the_one_the_filter_parsed(
         status, data = call(sock, "POST", "/v1/chat/completions", b'{ "model" :  "m" ,"x":[1, 2]}')
     assert status == 200 and data == b'echo:{"model":"m","x":[1,2]}'
     assert ollama_filter.canonical(None) is None and ollama_filter.canonical(b"") == b""
+
+
+def test_a_lower_case_host_header_is_not_forwarded_and_a_non_ascii_path_is_a_clean_502(
+    tmp_path: Path, upstream: int
+) -> None:
+    sock = tmp_path / "f.sock"
+    with ollama_filter.serve(sock, upstream, frozenset({"m"})):
+        for target, expected in (("/api/tags", b"200"), ("/api/tags?q=é", b"502")):
+            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            client.connect(str(sock))
+            client.sendall(f"GET {target} HTTP/1.1\r\nhost: evil.example\r\n\r\n".encode())
+            reply = client.recv(4096)
+            client.close()
+            assert reply.split(b" ", 2)[1] == expected, reply
+    assert _Fake.hosts and all(host.startswith("127.0.0.1") for host in _Fake.hosts)
