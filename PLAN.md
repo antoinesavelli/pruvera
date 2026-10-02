@@ -319,7 +319,7 @@ directory wait until that session is finished and the owner confirms.
    without a decision:** `drafts/`, `results/` and `fixtures/nav/` are the AGENTS.md migration session's own
    working material (drafts edited 2026-09-30 15:56) and exist nowhere else.
 
-**Acceptance so far:** `selftest` passes from the new location (also as a test); one pass of every
+**Acceptance so far:** `selftest` passes from the new location (also as a test, run in a temporary copy so `runs/` is untouched); one pass of every
 legacy role ran end to end from here (research 10/10, verify 3/3, git 5/5 on `gpt-oss:20b`; coder
 2/3 on `devstral-small-2:24b`, its miss being the delete-two-lines fixture, n=1, in line with the
 archive's "gpt-oss and nemotron fail that one, devstral passes" only loosely); the live
