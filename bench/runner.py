@@ -4,13 +4,13 @@ A trial: preflight, base-drift check, fresh overlay dirs, assembled config, opti
 the agent streamed under a wall-clock and a no-event watchdog, then the diff read back from the
 overlay. No scoring: the record holds facts (outcome class, counts, artifacts), never a verdict.
 
-Depends on: bench.{sandbox,preflight,agentconfig,transcript,readback}; git, local Ollama.
+Depends on: bench.{sandbox,preflight,agentconfig,transcript,readback,layout,modelinfo}; git,
+local Ollama.
 """
 
 from __future__ import annotations
 
 import errno
-import functools
 import hashlib
 import json
 import os
@@ -20,7 +20,6 @@ import shutil
 import subprocess
 import threading
 import time
-import urllib.request
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -28,12 +27,16 @@ from pathlib import Path
 from typing import Any
 
 from bench import agentconfig, layout, preflight, sandbox
+from bench.modelinfo import OPENCODE as OPENCODE
+from bench.modelinfo import gpu_residency as gpu_residency
+from bench.modelinfo import model_digest as model_digest
+from bench.modelinfo import model_parameters as model_parameters
+from bench.modelinfo import opencode_version as opencode_version
 from bench.readback import ReadBackError
 from bench.readback import git_state as _git_state
 from bench.readback import read_back as _read_back
 from bench.transcript import Transcript, sanitize_transcript
 
-OPENCODE = Path.home() / ".opencode" / "bin" / "opencode"
 RIPGREP = Path.home() / ".cache" / "opencode" / "bin" / "rg"  # opencode's glob/grep tools need it
 RULE_GLOBS = (
     "AGENTS.md",
@@ -174,14 +177,14 @@ def check_fixture(fx: Fixture) -> None:
         )
     expected_git = fx.manifest.get("git_hash")
     if fx.pins and not expected_git:
-        raise DriftError("the manifest has no .git hash: run bench.fixture.pins")
+        raise DriftError("the manifest has no .git hash: run bench.fixture.pins --write")
     if expected_git and sandbox.git_state_hash(fx.tree) != expected_git:
         raise DriftError("the base's .git (config, hooks, refs or objects) changed")
     for name, path in (("venv", fx.venv), ("data", fx.data)):
         if path is None:
             continue
         if name not in fx.pins:
-            raise DriftError(f"the {name} at {path} has no pin: run bench.fixture.pins")
+            raise DriftError(f"the {name} at {path} has no pin: run bench.fixture.pins --write")
         if _fingerprint(path) != fx.pins[name]:
             raise DriftError(f"the {name} at {path} no longer matches its pinned fingerprint")
 
@@ -223,47 +226,6 @@ def _hook_script(hook: Hook) -> str:
     if hook.kind == "dirty":
         return write
     raise ValueError(f"unknown hook kind: {hook.kind}")
-
-
-def model_digest(model: str, port: int = 11434) -> str:
-    """Ollama's digest for `model`, or '' if it cannot be read."""
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/tags", timeout=3) as resp:
-            for entry in json.load(resp).get("models", []):
-                if entry.get("name") == model or entry.get("model") == model:
-                    return str(entry.get("digest", ""))
-    except (OSError, ValueError):
-        pass
-    return ""
-
-
-def model_parameters(model: str, port: int = 11434) -> str:
-    """Ollama's default sampling and context parameters for `model` (`/api/show`), or ''."""
-    # Trials are unseeded: the model's own defaults (temperature, top_p, num_ctx) are the only
-    # sampling settings there are, so they are part of what a record says about the run.
-    body = json.dumps({"model": model}).encode()
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{port}/api/show", body, {"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return " ".join(str(json.load(resp).get("parameters", "")).split())
-    except (OSError, ValueError):
-        return ""
-
-
-def gpu_residency() -> str:
-    """The PROCESSOR column of `ollama ps` (for example '100% GPU'), or ''."""
-    try:
-        rows = subprocess.run(
-            ["ollama", "ps"], capture_output=True, text=True, timeout=10, check=False
-        ).stdout.splitlines()
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    if len(rows) < 2:
-        return ""
-    parts = rows[1].split(None, 3)
-    return parts[3][:24] if len(parts) > 3 else ""
 
 
 def merge(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
@@ -318,7 +280,10 @@ def _stream(
     def read_err() -> None:
         assert proc.stderr is not None
         kept = 0
-        for line in proc.stderr:
+        while line := proc.stderr.readline(MAX_LINE):
+            if len(line) >= MAX_LINE and not line.endswith("\n"):
+                _skip_line(proc.stderr)
+                line = ""
             if kept < MAX_CAPTURE:
                 err.append(line)
                 kept += len(line)
@@ -524,7 +489,7 @@ def _record(
         "venv_fingerprint": _fingerprint(fx.venv) if fx.venv else "",
         "data_fingerprint": _fingerprint(fx.data) if fx.data else "",
         "rules_hash": rules_hash(fx.tree),
-        "opencode_version": _opencode_version(),
+        "opencode_version": opencode_version(),
         "agent": spec.agent,
         "model": spec.model,
         "model_digest": model_digest(spec.model),
@@ -559,7 +524,7 @@ def _record(
         "gpu": gpu_residency(),
         "preflight_forced": [p.code for p in problems],
         "preflight_after": [p.code for p in after],
-        "detail": run.detail,
+        "detail": run.detail.partition(":")[0] if fx.environment == "reference" else run.detail,
         "artifact": str(adir),
     }
     return record
@@ -626,16 +591,6 @@ def _write_repo_artifacts(adir: Path, run: _Run, redact: bool) -> None:
     (adir / "diff.patch").write_text(run.diff)
     (adir / "git_state.json").write_text(json.dumps(run.git_state, indent=1))
     (adir / "changes.json").write_text(json.dumps(run.changes, indent=1))
-
-
-@functools.cache
-def _opencode_version() -> str:
-    if not OPENCODE.exists():
-        return ""
-    done = subprocess.run(
-        [str(OPENCODE), "--version"], capture_output=True, text=True, timeout=30, check=False
-    )
-    return done.stdout.strip()
 
 
 def reproduce_diff(fx: Fixture, tdir: Path) -> str:

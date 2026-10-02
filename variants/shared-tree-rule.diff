@@ -1,0 +1,17 @@
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -137,0 +138,14 @@
++
++## Shared working tree
++
++**Shared working tree.** Other sessions edit the same repo at once. Run `git status --short` and
++`git log --oneline -10` first; unfamiliar changes are a peer's in-progress work, not yours to clean
++up. Stage explicit paths only (never `git add -A` / `git add .`), read `git diff <file>` in full
++before staging and `git diff --cached` before every commit; a bare `git commit` commits everything
++staged. Found a hunk you didn't write? Stop and find out whose it is.
++
++- **Concurrent sessions share this working tree — commit only the work you did.** Stage by explicit
++  path, never `git add -A` / `git add .`; read `git diff -- <path>` in full before staging and
++  `git diff --cached` before every commit; a hunk you didn't write is a peer's: stop.
++- **Never run a bare `git stash`** (working-tree-wide: it grabs other sessions' WIP). Use
++  `git show HEAD:<path>` into a temp file.

@@ -7,6 +7,7 @@ import http.server
 import json
 import socket
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -267,3 +268,62 @@ def test_trace_records_request_shapes_and_latencies_but_never_text(
     assert lines[0]["system"] == lines[1]["system"] and lines[0]["prefix"] == lines[1]["prefix"]
     assert lines[0]["first_byte_s"] >= 0 and lines[0]["total_s"] >= lines[0]["first_byte_s"]
     assert "secret_strategy" not in trace.read_text()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"model":"m","options":{"num_ctx":999999999},"Options":{"x":1}}',
+        b'{"model":"m","options":{"num_ctx":999999999,"NUM_CTX":4096}}',
+        b'{"model":"m","Options":{"num_ctx":999999999}}',
+        b'{"model":"m","options":{"num_gpu":0}}',
+        b'{"model":"m","options":{"num_thread":1000}}',
+        b'{"model":"m","options":{"num_ctx":true}}',
+        b'{"model":"m","options":{"num_predict":99999999}}',
+        b'{"model":"m","options":[1]}',
+        b'{"model":"m","num_ctx":1,"NUM_CTX":2}',
+    ],
+)
+def test_option_smuggling_by_case_alias_or_unknown_key_is_refused(body: bytes) -> None:
+    """Regression: Ollama merges case variants of `options` by rules the filter cannot see."""
+    assert not ollama_filter.model_allowed(body, frozenset({"m"}))
+
+
+def test_plain_sampling_options_still_pass() -> None:
+    body = b'{"model":"m","options":{"temperature":0.2,"num_ctx":65536,"num_predict":-1,"seed":3}}'
+    assert ollama_filter.model_allowed(body, frozenset({"m"}))
+
+
+def test_connections_beyond_the_thread_cap_get_no_thread(
+    tmp_path: Path, upstream: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ollama_filter, "MAX_THREADS", 2)
+    monkeypatch.setattr(ollama_filter, "READ_TIMEOUT", 3.0)
+    sock = tmp_path / "f.sock"
+    held = []
+    with ollama_filter.serve(sock, upstream, frozenset({"m"})):
+        for _ in range(2):  # two idle connections hold the two threads
+            c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            c.connect(str(sock))
+            held.append(c)
+        time.sleep(0.3)
+        extra = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        extra.connect(str(sock))
+        extra.settimeout(3)
+        assert extra.recv(100).startswith(b"HTTP/1.0 503")
+        extra.close()
+        for c in held:
+            c.close()
+
+
+def test_the_trace_stops_growing_at_its_cap_and_logs_no_query_string(
+    tmp_path: Path, upstream: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ollama_filter, "TRACE_MAX_BYTES", 300)
+    trace = tmp_path / "t.jsonl"
+    sock = tmp_path / "f.sock"
+    with ollama_filter.serve(sock, upstream, frozenset({"m"}), trace):
+        for _ in range(8):
+            call(sock, "GET", "/api/tags?" + "q" * 500)
+    text = trace.read_text()
+    assert len(text) < 700 and "qqqq" not in text

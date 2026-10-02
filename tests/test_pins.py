@@ -111,3 +111,22 @@ def test_a_built_base_stays_writable_because_modes_show_through_the_overlay(
     plant.build_profile(version, "p", [issue])
     built = version / "profiles" / "p" / "tree" / "pkg" / "m.py"
     assert built.stat().st_mode & 0o200, "the owner must be able to write the file"
+
+
+def test_main_without_write_only_reports_drift_and_never_touches_the_pins(
+    layout_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression: the CLI re-blessed whatever was on disk, defeating the drift guard."""
+    version = layout_root / "versions" / "v9"
+    before = (version / "MANIFEST.json").read_text()
+    assert pins.main(["--version", "v9"]) == 1, "nothing is pinned yet: that is drift"
+    assert json.loads(capsys.readouterr().out)["drift"]
+    assert (version / "MANIFEST.json").read_text() == before
+    assert not (version / "PINS.json").exists()
+    assert pins.main(["--version", "v9", "--write"]) == 0
+    assert (version / "PINS.json").exists()
+    assert pins.main(["--version", "v9"]) == 0, "freshly pinned: no drift"
+    assert json.loads(capsys.readouterr().out.splitlines()[-1]) == {"drift": []}
+    (layout_root / "data" / layout.DATA_VERSION / "root" / "f.parquet").write_bytes(b"1234")
+    assert pins.main(["--version", "v9"]) == 1
+    assert "data fingerprint" in capsys.readouterr().out

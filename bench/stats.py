@@ -1,8 +1,9 @@
 """Small, dependency-free statistics for trial results: intervals, pass^k, clustered comparisons.
 
 Trials repeat over a small set of tasks, so the trials of one task are not independent. Every
-comparison here resamples tasks (clusters), never single trials, and every claim carries its
-interval. Randomness uses a seeded local generator, so a report is reproducible.
+comparison here resamples tasks (clusters), never single trials, with each task's own rate drawn
+from its Beta posterior so a task that always passes still carries uncertainty, and every claim
+carries its interval. Randomness uses a seeded local generator, so a report is reproducible.
 Depends on: the standard library.
 """
 
@@ -53,15 +54,17 @@ def bootstrap_diff(
     alpha: float = 0.05,
 ) -> tuple[float, float, float]:
     """(difference b - a in cluster rate, lower, upper (1 - alpha)) resampling the shared tasks."""
-    # Trials within a task are resampled too, so both sources of noise are in the interval.
+    # Tasks are resampled, and each task's rate is drawn from a Beta(k + 1/2, n - k + 1/2)
+    # posterior (Jeffreys) instead of resampling its few trials: a task solved 4 of 4 times in
+    # both arms would otherwise have zero variance and an interval of exactly [0, 0].
     tasks = sorted(set(a) & set(b))
     if not tasks:
         return float("nan"), float("nan"), float("nan")
     rng = random.Random(seed)
 
     def rate(results: Sequence[bool]) -> float:
-        drawn = [results[rng.randrange(len(results))] for _ in results]
-        return sum(drawn) / len(drawn)
+        k, n = sum(results), len(results)
+        return rng.betavariate(k + 0.5, n - k + 0.5)
 
     diffs = []
     for _ in range(draws):

@@ -22,6 +22,7 @@ import time
 from collections.abc import Iterator
 from email.message import Message
 from pathlib import Path
+from typing import Any
 
 ALLOWED: frozenset[tuple[str, str]] = frozenset(
     {
@@ -80,16 +81,50 @@ def model_allowed(body: bytes | None, models: frozenset[str]) -> bool:
     return all(isinstance(v, str) and v in models for v in named) and _resources_ok(doc)
 
 
-def _resources_ok(doc: dict[str, object]) -> bool:
-    """False for a request that sizes the context or the model's residency beyond the caps."""
-    options = {k.lower(): v for k, v in doc.items()}
-    inner = options.get("options")
-    if isinstance(inner, dict):
-        options["num_ctx"] = {k.lower(): v for k, v in inner.items()}.get("num_ctx")
-    ctx = options.get("num_ctx")
-    if ctx is not None and not (isinstance(ctx, int) and 0 < ctx <= MAX_NUM_CTX):
+OPTION_KEYS = frozenset(
+    {
+        "temperature", "top_p", "top_k", "min_p", "seed", "stop", "repeat_penalty",
+        "presence_penalty", "frequency_penalty", "repeat_last_n", "num_predict", "num_ctx",
+        "tfs_z", "typical_p", "mirostat", "mirostat_tau", "mirostat_eta", "penalize_newline",
+    }
+)  # fmt: skip
+MAX_NUM_PREDICT = 131072
+
+
+def _int_in(value: object, low: int, high: int) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and low <= value <= high
+
+
+def _options_ok(doc: dict[str, object]) -> bool:
+    """Only plain sampling options, each in bounds, in one exactly-spelled `options` object."""
+    lowered = [k.lower() for k in doc]
+    if "options" in lowered and "options" not in doc:
+        return False  # `Options`: Ollama's merge of case variants is not ours to predict
+    inner = doc.get("options")
+    if inner is not None and not isinstance(inner, dict):
         return False
-    keep = options.get("keep_alive")
+    options = dict(inner or {})
+    if len({k.lower() for k in options}) != len(options) or set(options) - OPTION_KEYS:
+        return False  # no num_gpu, num_thread, num_batch...
+    return all(_bounds_ok(source) for source in (doc, options))
+
+
+def _bounds_ok(source: dict[str, Any]) -> bool:
+    ctx, predict = source.get("num_ctx"), source.get("num_predict")
+    return (ctx is None or _int_in(ctx, 1, MAX_NUM_CTX)) and (
+        predict is None or _int_in(predict, -2, MAX_NUM_PREDICT)
+    )
+
+
+def _resources_ok(doc: dict[str, object]) -> bool:
+    """False for a request that sizes the context, output or residency out of bounds."""
+    lowered = [k.lower() for k in doc]
+    if len(lowered) != len(set(lowered)):
+        return False  # keys that differ only in case
+    return _options_ok(doc) and _keep_alive_ok(doc.get("keep_alive"))
+
+
+def _keep_alive_ok(keep: object) -> bool:
     if keep is None:
         return True
     if isinstance(keep, bool):
@@ -182,19 +217,25 @@ def _relay(
 _TRACE_LOCK = threading.Lock()
 
 
+TRACE_MAX_BYTES = 5 * 1024 * 1024  # a trial's trace stops growing here
+
+
 def _trace(
     path: Path, target: str, status: int, first: float, total: float, body: bytes | None
 ) -> None:
     line = {
         "t": round(time.time(), 3),
-        "path": target,
+        "path": target.split("?", 1)[0][:80],
         "status": status,
         "first_byte_s": round(first, 3),
         "total_s": round(total, 3),
         **request_shape(body),
     }
-    with _TRACE_LOCK, path.open("a") as fh:
-        fh.write(json.dumps(line) + "\n")
+    with _TRACE_LOCK:
+        if path.exists() and path.stat().st_size > TRACE_MAX_BYTES:
+            return
+        with path.open("a") as fh:
+            fh.write(json.dumps(line) + "\n")
 
 
 def make_handler(
@@ -244,19 +285,43 @@ def make_handler(
             try:
                 began = time.monotonic()
                 status, first = _relay(self, upstream_port, body)
-                if trace is not None:
-                    _trace(trace, self.path, status, first, time.monotonic() - began, body)
             except (OSError, http.client.HTTPException):
                 with contextlib.suppress(OSError):
                     self._refuse(502, "upstream unavailable")
+                return
+            if trace is not None:
+                with contextlib.suppress(OSError):  # a full disk must not fail the request
+                    _trace(trace, self.path, status, first, time.monotonic() - began, body)
 
         do_GET = do_POST = do_HEAD = do_PUT = do_DELETE = do_PATCH = _forward
 
     return Handler
 
 
+MAX_THREADS = 64  # connections served at once; the rest are refused before a thread exists
+
+
 class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._thread_slots = threading.BoundedSemaphore(MAX_THREADS)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        """A connection beyond the thread cap is told 503 and closed: no thread, no memory."""
+        if not self._thread_slots.acquire(blocking=False):
+            with contextlib.suppress(OSError):
+                request.sendall(b"HTTP/1.0 503 Busy\r\nContent-Length: 0\r\n\r\n")
+            self.shutdown_request(request)
+            return
+        super().process_request(request, client_address)
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._thread_slots.release()
 
     def get_request(self) -> tuple[socket.socket, tuple[str, int]]:
         request, _ = super().get_request()

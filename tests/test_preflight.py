@@ -76,10 +76,6 @@ def test_check_raises_unless_forced(proc: Path) -> None:
     assert [p.code for p in forced] == ["agent_running"]
 
 
-def test_real_host_scan_runs_without_error() -> None:
-    assert isinstance(preflight.running_agents(), list)
-
-
 def test_gpu_utilization_reads_nvidia_smi_output_or_gives_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

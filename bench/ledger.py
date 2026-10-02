@@ -1,13 +1,17 @@
 """The gate's ledger: every candidate judged, so multiplicity is counted and the holdout used once.
 
 A rule variant is tuned against known issues, and the more variants are tried, the likelier one
-clears by chance. The ledger records each verdict (append-only JSONL) per baseline and issue set.
-The size of that family widens the gate's intervals (Bonferroni), and a candidate may be judged
-on the holdout set only once. Depends on: the standard library.
+clears by chance. The ledger records each verdict (append-only JSONL). A candidate is its variant
+name, whatever profile it ran on. Its family is the distinct variants judged against the same
+baseline, and the family size widens the gate's intervals (Bonferroni). Any judgement whose
+trials include a holdout issue uses up that variant's one look at the holdout, however the
+profiles were named, and may not be a `--no-ledger` dry look. Rows carry a hash of the variant's
+files, so a verdict can be tied to the text it judged. Depends on: the standard library.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -15,16 +19,38 @@ from typing import Any
 
 HOLDOUT = "holdout"
 TUNE = "tune"
+SETS = (HOLDOUT, TUNE, "holdout2", "tune2")
 
 
 class LedgerError(RuntimeError):
     """The ledger forbids this judgement (the holdout was already used for this candidate)."""
 
 
+def variant_of(profile: str) -> str:
+    """The variant a profile name carries (`holdout+x@hist` gives `x`), or '' for a baseline."""
+    return profile.partition("+")[2].split("@", 1)[0]
+
+
+def base_of(profile: str) -> str:
+    """The profile without its variant or history suffix (`tune+x@hist` gives `tune`)."""
+    return profile.split("+", 1)[0].split("@", 1)[0]
+
+
 def set_of(profile: str) -> str:
-    """`holdout`, `tune` or `full`: the issue set a profile name (`holdout+x`, `tune@hist`) is."""
-    stem = profile.split("+", 1)[0].split("@", 1)[0]
-    return stem if stem in (HOLDOUT, TUNE) else "full"
+    """`holdout`, `tune` or `full`: the issue set a profile name is built from."""
+    stem = base_of(profile)
+    return stem if stem in SETS else "full"
+
+
+def variant_hash(variants_dir: Path, variant: str) -> str:
+    """Hash of a variant's files and `variant.toml` (empty when there is no such variant)."""
+    root = variants_dir / variant
+    if not variant or not root.is_dir():
+        return ""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode() + b"\0" + path.read_bytes())
+    return digest.hexdigest()[:16]
 
 
 def read(path: Path) -> list[dict[str, Any]]:
@@ -33,20 +59,25 @@ def read(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def family_size(
-    entries: list[dict[str, Any]], baseline: str, candidate: str, issue_set: str
-) -> int:
-    """Distinct candidates judged against `baseline` on `issue_set`, this one included."""
-    names = {e["candidate"] for e in entries if e["baseline"] == baseline and e["set"] == issue_set}
-    return len(names | {candidate})
+def family_size(entries: list[dict[str, Any]], baseline: str, candidate: str) -> int:
+    """Distinct variants judged against this baseline's base profile, this one included."""
+    base = base_of(baseline)
+    names = {variant_of(e["candidate"]) for e in entries if base_of(e["baseline"]) == base}
+    return len(names | {variant_of(candidate)})
 
 
-def check_holdout(entries: list[dict[str, Any]], baseline: str, candidate: str) -> None:
-    """A candidate is judged on the holdout once; a changed variant must be a new name."""
+def used_gens(entry: dict[str, Any]) -> set[str]:
+    """The holdout generations an entry used (old entries: `holdout_used` means generation 1)."""
+    return set(entry.get("holdout_gens") or (["1"] if entry.get("holdout_used") else []))
+
+
+def check_holdout(entries: list[dict[str, Any]], candidate: str, gens: set[str]) -> None:
+    """A variant is judged on each holdout generation once; a changed variant needs a new name."""
+    variant = variant_of(candidate)
     for e in entries:
-        if e["set"] == HOLDOUT and e["baseline"] == baseline and e["candidate"] == candidate:
+        if variant_of(e["candidate"]) == variant and used_gens(e) & gens:
             raise LedgerError(
-                f"{candidate} was already judged on the holdout ({e['verdict']}, {e['date']}); "
+                f"{variant} already used its holdout look ({e['verdict']}, {e['date']}); "
                 "a changed variant needs a new name"
             )
 

@@ -5,6 +5,7 @@ working tree is never touched, chunked. Questions: docs/eval/knowledge_questions
 its source files). Retrievers: BM25 (no model) and nomic-embed-text on the local Ollama, brute-force
 cosine in numpy (no vector database). Metric: file-level recall@k and MRR of the first declared
 source. Writes only file names and scores. Run with Paramo's venv python (numpy, pyyaml).
+Depends on: numpy, pyyaml, git, a local Ollama with nomic-embed-text.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import time
 import urllib.request
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import yaml
@@ -78,7 +80,8 @@ def embed(texts: list[str], prefix: str) -> np.ndarray:
         with urllib.request.urlopen(req, timeout=300) as r:
             out += json.load(r)["embeddings"]
     m = np.array(out, dtype=np.float32)
-    return m / np.linalg.norm(m, axis=1, keepdims=True)
+    normalised: np.ndarray = m / np.linalg.norm(m, axis=1, keepdims=True)
+    return normalised
 
 
 def rank_files(chunks: list[tuple[str, str]], scores: np.ndarray) -> list[str]:
@@ -92,6 +95,34 @@ def rank_files(chunks: list[tuple[str, str]], scores: np.ndarray) -> list[str]:
     return seen
 
 
+def z(a: np.ndarray) -> np.ndarray:
+    scaled: np.ndarray = (a - a.mean()) / (a.std() + 1e-9)
+    return scaled
+
+
+def first_hits(
+    chunks: list[tuple[str, str]], qs: list[dict[str, Any]], vecs: np.ndarray, qvecs: np.ndarray
+) -> dict[str, list[int | None]]:
+    """Per retriever, the rank of the first declared source for each question (None: not found)."""
+    results: dict[str, list[int | None]] = {"bm25": [], "embed": [], "hybrid": []}
+    for q, qv in zip(qs, qvecs, strict=True):
+        s_b = bm25(chunks, q["question"])
+        s_e = vecs @ qv
+        for name, s in (("bm25", s_b), ("embed", s_e), ("hybrid", z(s_b) + z(s_e))):
+            ranked = rank_files(chunks, s)
+            hit = [r + 1 for r, f in enumerate(ranked) if f in q.get("sources", [])]
+            results[name].append(hit[0] if hit else None)
+    return results
+
+
+def summarise(firsts: list[int | None]) -> dict[str, float]:
+    n = len(firsts)
+    recall = {
+        f"recall@{k}": round(sum(1 for r in firsts if r and r <= k) / n, 3) for k in (1, 3, 5, 10)
+    }
+    return recall | {"mrr": round(sum(1 / r for r in firsts if r) / n, 3)}
+
+
 def main() -> int:
     qs = yaml.safe_load((REPO / "docs/eval/knowledge_questions.yaml").read_text())
     chunks = corpus()
@@ -99,27 +130,14 @@ def main() -> int:
     vecs = embed([t for _, t in chunks], "search_document: ")
     t_index = time.time() - t0
     qvecs = embed([q["question"] for q in qs], "search_query: ")
-    results = {"bm25": [], "embed": [], "hybrid": []}
-    for q, qv in zip(qs, qvecs, strict=True):
-        s_b = bm25(chunks, q["question"])
-        s_e = vecs @ qv
-        z = lambda a: (a - a.mean()) / (a.std() + 1e-9)  # noqa: E731
-        for name, s in (("bm25", s_b), ("embed", s_e), ("hybrid", z(s_b) + z(s_e))):
-            ranked = rank_files(chunks, s)
-            hit = [r + 1 for r, f in enumerate(ranked) if f in q.get("sources", [])]
-            results[name].append(hit[0] if hit else None)
-    summary = {
+    summary: dict[str, Any] = {
         "questions": len(qs),
         "chunks": len(chunks),
         "files": len({f for f, _ in chunks}),
         "index_seconds": round(t_index, 1),
     }
-    for name, firsts in results.items():
-        n = len(firsts)
-        summary[name] = {
-            f"recall@{k}": round(sum(1 for r in firsts if r and r <= k) / n, 3)
-            for k in (1, 3, 5, 10)
-        } | {"mrr": round(sum(1 / r for r in firsts if r) / n, 3)}
+    for name, firsts in first_hits(chunks, qs, vecs, qvecs).items():
+        summary[name] = summarise(firsts)
     print(json.dumps(summary, indent=1))
     Path(__file__).with_suffix(".result.json").write_text(json.dumps(summary, indent=1) + "\n")
     return 0

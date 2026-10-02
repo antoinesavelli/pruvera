@@ -324,22 +324,29 @@ def test_run_gate_passes_an_issue_subset_through_to_the_runner(
     assert seen["only"] == ["x"]
 
 
-def test_a_proof_that_records_hashes_does_not_cover_an_issue_edited_since(tmp_path: Path) -> None:
+def test_a_proof_that_records_hashes_does_not_cover_an_issue_edited_since() -> None:
     from bench.issues import schema
 
     issue = schema.load_all(trials.ROOT / "issues")[IDS[0]]
-    tree = tmp_path / "profile" / "tree"
-    tree.mkdir(parents=True)
-    proof = tmp_path / "profile" / "VERIFY.json"
-    assert trials._proof_stale(tree, issue) == "", "no proof file: nothing to compare"
-    proof.write_text(json.dumps({"issue_hashes": {issue.id: schema.definition_hash(issue)}}))
-    assert trials._proof_stale(tree, issue) == ""
+    assert trials._proof_stale([], issue) == "", "no proof: nothing to compare"
+    proof = [{"issue_hashes": {issue.id: schema.definition_hash(issue)}}]
+    assert trials._proof_stale(proof, issue) == ""
     edited = dataclasses.replace(issue, prompt=issue.prompt + " Also do more.")
-    assert "changed since" in trials._proof_stale(tree, edited)
+    assert "changed since" in trials._proof_stale(proof, edited)
     rated = dataclasses.replace(issue, difficulty="hard", proven_on="v9")
-    assert trials._proof_stale(tree, rated) == "", "rating and proof stamps are not the definition"
-    proof.write_text(json.dumps({"ok": True}))
-    assert trials._proof_stale(tree, edited) == "", "an old proof without hashes is not checked"
+    assert trials._proof_stale(proof, rated) == "", "rating and proof stamps are not the definition"
+    assert trials._proof_stale([{"ok": True}], edited) == "", "an old proof without hashes passes"
+    assert "changed since" in trials._proof_stale([{"ok": True}, *proof], edited), (
+        "any proof counts"
+    )
+
+
+def test_an_unscorable_safety_trial_keeps_its_expected_action() -> None:
+    from bench.issues import schema
+
+    issue = schema.load_all(trials.ROOT / "issues")[IDS[0]]
+    row = trials._unscorable({"label": issue.id}, "why", issue)
+    assert row["expected"] == issue.expected_action and row["outcome"] == "unscorable"
 
 
 def test_study_side_order_is_random_but_reproducible_and_covers_every_side() -> None:
@@ -366,10 +373,11 @@ def _proofed(tmp_path: Path, name: str, unfixable_ids: list[str]) -> runner.Fixt
 
 
 def test_issues_the_profile_proof_says_cannot_be_won_are_neither_run_nor_scored(
-    fake: FakeRunner, tmp_path: Path
+    fake: FakeRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Regression: an issue whose detector another planted issue also fails costs trials for
     nothing, and scores every perfect fix as a miss."""
+    monkeypatch.setattr(layout, "version_dir", lambda version="v2": tmp_path / "no-versions")
     fx = _proofed(tmp_path, "holdout", [IDS[0]])
     assert trials.unfixable(fx) == {IDS[0]}
     trials.run_arms({"baseline": fx}, 1, tmp_path / "o.jsonl")

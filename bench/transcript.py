@@ -14,6 +14,15 @@ MAX_TEXT = 1_000_000  # characters of accumulated assistant text kept
 MAX_INPUT = 20_000  # characters of one tool call's arguments kept
 
 
+def loads_line(line: str) -> object | None:
+    """`json.loads` that returns None for anything unparsable, including absurdly deep nesting."""
+    try:
+        loaded: object = json.loads(line)
+    except (ValueError, RecursionError):
+        return None
+    return loaded
+
+
 def _num(value: object) -> float:
     return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0.0
 
@@ -45,10 +54,7 @@ class Transcript:
 
     def feed(self, line: str) -> bool:
         """Add one raw stdout line; True if it was a well-formed event."""
-        try:
-            event = json.loads(line)
-        except ValueError:
-            return False
+        event = loads_line(line)
         if not isinstance(event, dict) or "type" not in event:
             return False
         self.events += 1
@@ -112,49 +118,57 @@ def answer_kind(text: str) -> str:
     return "text"
 
 
-OUTPUT_KEEP = 120  # characters of a tool's output kept from a reference trial
-TEXT_KEEP = 300  # and of an assistant message
-INPUT_KEEP = 200  # and of each string in a tool call's arguments
+TEXT_KEEP = 160  # characters of an assistant message kept: what the answer comparison reads
+PATH_KEEP = 80  # of a path-like tool argument
+COMMAND_KEEP = 40  # of a shell command (its first words name the tool use)
+ERROR_KEEP = 60  # of a tool error
 EVENT_FIELDS = ("type", "timestamp")
 PART_FIELDS = ("type", "tool", "reason", "tokens", "cost")
+PATH_ARGS = frozenset({"filePath", "file_path", "path", "pattern", "include", "fileName", "glob"})
 
 
-def _shorten(value: object, keep: int) -> object:
-    if isinstance(value, str):
-        return value[:keep]
-    if isinstance(value, dict):
-        return {str(k)[:keep]: _shorten(v, keep) for k, v in list(value.items())[:50]}
-    if isinstance(value, list):
-        return [_shorten(v, keep) for v in value[:50]]
-    return value
+def _shape(args: object) -> dict[str, object]:
+    """A tool call's arguments as their names and sizes: paths and a short command head only."""
+    if not isinstance(args, dict):
+        return {}
+    shaped: dict[str, object] = {}
+    for key, value in list(args.items())[:20]:
+        text = str(value)
+        if key in PATH_ARGS:
+            shaped[str(key)[:40]] = text[:PATH_KEEP]
+        elif key == "command":
+            shaped["command"] = text[:COMMAND_KEEP]
+        else:
+            shaped[str(key)[:40]] = f"<{len(text)} chars>"
+    return shaped
 
 
 def _sanitize_event(event: dict[str, Any]) -> dict[str, Any]:
     part = _dict(event.get("part"))
     kept_part = {k: part[k] for k in PART_FIELDS if k in part}
     if "text" in part:
-        kept_part["text"] = str(part["text"])[:TEXT_KEEP]
+        kept_part["text"] = str(part["text"])[-TEXT_KEEP:]
     state = _dict(part.get("state"))
     if state:
         kept_part["state"] = {
             "status": state.get("status"),
-            "input": _shorten(state.get("input", {}), INPUT_KEEP),
-            "output": str(state.get("output", ""))[:OUTPUT_KEEP],
-            "error": str(state.get("error", ""))[:OUTPUT_KEEP],
+            "input": _shape(state.get("input")),
+            "output": "not found" if "not found" in str(state.get("output", "")) else "",
+            "error": str(state.get("error", ""))[:ERROR_KEEP],
         }
     return {**{k: event[k] for k in EVENT_FIELDS if k in event}, "part": kept_part}
 
 
 def sanitize_transcript(raw: str) -> str:
-    """A reference transcript cut down to a whitelist of fields, each with a few characters."""
+    """A reference transcript reduced to structure: tools, paths, command heads, outcomes."""
     # The copy ran on real strategy code, so a full transcript is real code. What the comparison
-    # needs is which tools ran, with what input, how they ended, and the short error text; any
-    # field not named here (tool metadata, raw arguments, provider payloads) is dropped.
+    # needs is tool names, paths and command heads, outcomes, and the end of each answer; tool
+    # output becomes a flag and argument values become sizes. Any field not named here (tool
+    # metadata, raw arguments, provider payloads) is dropped.
     kept = []
     for line in raw.splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
+        event = loads_line(line)
+        if event is None:
             kept.append(line[:TEXT_KEEP])  # not an event: keep a short stub, never the body
             continue
         kept.append(json.dumps(_sanitize_event(event) if isinstance(event, dict) else line[:80]))
