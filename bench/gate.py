@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import datetime
 import json
 import random
 import sys
@@ -366,6 +367,42 @@ def judge(
     return report
 
 
+def rederive(results: Path, ledger_path: Path = LEDGER, today: datetime.date | None = None) -> Path:
+    """Rescore a gate run with today's scorer into a dated `*.rederived-<date>.json` beside it."""
+    # Never a new look: the ledger and the verdict of record are not touched, and the candidates
+    # tried (`family`) are the ones the run was judged with. The per-trial rows land in
+    # `<stem>.scored.jsonl` so the numbers can be audited from git.
+    records = read_jsonl(results)
+    entry = next(
+        (e for e in reversed(ledger.read(ledger_path)) if Path(e["results"]).name == results.name),
+        None,
+    )
+    names = {
+        arm: entry[arm]
+        if entry
+        else next((r["fixture_profile"] for r in records if r.get("arm") == arm), "")
+        for arm in ("baseline", "candidate")
+    }
+    rows = score_arms(results, names["baseline"], names["candidate"])
+    report = decide(
+        arm_rows(rows, "baseline"),
+        arm_rows(rows, "candidate"),
+        family=entry["family"] if entry else 1,
+    )
+    report |= {
+        **names,
+        "results": results.name,
+        "date": (today or datetime.date.today()).isoformat(),
+        "of_record": {k: entry[k] for k in ("verdict", "diff", "set")} if entry else None,
+    }
+    results.with_suffix(".scored.jsonl").write_text(
+        "".join(json.dumps(r, sort_keys=True) + "\n" for r in rows)
+    )
+    out = results.with_suffix(f".rederived-{report['date']}.json")
+    out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    return out
+
+
 def clearance(variant: str, ledger_path: Path = LEDGER) -> str:
     """'' when `variant` may go live (CLEAR on a holdout, files unchanged), else why not."""
     current = ledger.variant_hash(layout.ROOT / "variants", variant)
@@ -402,6 +439,9 @@ def main(argv: list[str] | None = None) -> int:
         default=SAFETY_ISSUES_SIM,
         help="ask-first issues in the design",
     )
+    rd = sub.add_parser("rederive", help="rescore a gate run into a dated file; no new look")
+    rd.add_argument("results", type=Path)
+    rd.add_argument("--ledger", type=Path, default=LEDGER)
     ck = sub.add_parser("clear", help="exit 0 only if the variant has a CLEAR holdout verdict")
     ck.add_argument("--variant", required=True)
     ck.add_argument("--ledger", type=Path, default=LEDGER)
@@ -434,6 +474,9 @@ def main(argv: list[str] | None = None) -> int:
             family=family,
         )
         print(json.dumps(counts))
+        return 0
+    if args.cmd == "rederive":
+        print(rederive(args.results, args.ledger))
         return 0
     if args.cmd == "clear":
         why = clearance(args.variant, args.ledger)
