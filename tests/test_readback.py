@@ -84,6 +84,7 @@ def test_git_state_parses_commits_staged_files_and_stashes(
         sep = found.group(0)
         out = (
             f"{sep}aaa\tdocs: note\nREADME.md\n\n{sep}bbb\tmerge\nside.txt\nmain.txt\n"
+            f"{sep}HIDDEN\n{sep}ccc\tsneaky\nb.py\n"
             f"{sep}STAGED\npeer.md\n{sep}STASH\nstash@{{0}}: WIP\n"
         )
         return subprocess.CompletedProcess(cmd, 0, out, "")
@@ -93,6 +94,7 @@ def test_git_state_parses_commits_staged_files_and_stashes(
     assert state["commits"] == [
         {"sha": "aaa", "subject": "docs: note", "files": ["README.md"]},
         {"sha": "bbb", "subject": "merge", "files": ["side.txt", "main.txt"]},
+        {"sha": "ccc", "subject": "sneaky", "files": ["b.py"], "hidden": True},
     ]
     assert state["staged"] == ["peer.md"] and state["stashes"] == ["stash@{0}: WIP"]
 
@@ -125,3 +127,67 @@ def test_a_bound_venv_reads_back_as_one_ignored_line_and_a_hidden_file_still_sho
     status, _ = readback.read_back(_spec(tmp_path), base)
     lines = sorted(status.splitlines())
     assert lines == ["!! .venv/", "!! secret.txt", "?? new.py"]
+
+
+def _git(repo: Path, *args: str) -> str:
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "PATH": "/usr/bin:/bin", "HOME": "/x"}  # fmt: skip
+    done = subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, env=env, capture_output=True, text=True
+    )
+    return done.stdout.strip()
+
+
+def _real_git_state(
+    repo: Path, tmp_path: Path, base: str, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, Any]:
+    def run(_spec: object, cmd: list[str], timeout: float | None = None) -> Any:
+        script = cmd[-1].replace("/tmp/gs.", f"{tmp_path}/gs.").replace(sandbox.WORKDIR, str(repo))
+        return subprocess.run(["sh", "-c", script], capture_output=True, text=True)
+
+    monkeypatch.setattr(sandbox, "run", run)
+    return readback.git_state(_spec(tmp_path), base)
+
+
+@pytest.mark.parametrize("undo", ["reset --mixed", "reset --hard"])
+def test_a_commit_hidden_by_reset_and_a_deleted_reflog_still_shows_as_committed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, undo: str
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "a.py").write_text("a = 1\n")
+    _git(repo, "add", "a.py")
+    _git(repo, "commit", "-qm", "base")
+    base = _git(repo, "rev-parse", "HEAD")
+    assert _real_git_state(repo, tmp_path, base, monkeypatch)["commits"] == []
+
+    (repo / "b.py").write_text("b = 2\n")
+    _git(repo, "add", "b.py")
+    _git(repo, "commit", "-qm", "sneaky")
+    hidden = _git(repo, "rev-parse", "HEAD")
+    _git(repo, *undo.split(), base)
+    (repo / ".git" / "logs").mkdir(exist_ok=True)
+    for log in (repo / ".git" / "logs").rglob("*"):
+        if log.is_file():
+            log.unlink()
+
+    commits = _real_git_state(repo, tmp_path, base, monkeypatch)["commits"]
+    assert commits == [{"sha": hidden, "subject": "sneaky", "files": ["b.py"], "hidden": True}]
+
+
+def test_a_visible_commit_is_listed_once_and_not_marked_hidden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "a.py").write_text("a = 1\n")
+    _git(repo, "add", "a.py")
+    _git(repo, "commit", "-qm", "base")
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / "b.py").write_text("b = 2\n")
+    _git(repo, "add", "b.py")
+    _git(repo, "commit", "-qm", "plain")
+    state = _real_git_state(repo, tmp_path, base, monkeypatch)
+    assert [(c["subject"], c.get("hidden")) for c in state["commits"]] == [("plain", None)]
