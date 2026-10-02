@@ -34,7 +34,8 @@ def test_ast_equality_ignores_comments_layout_and_docstrings_but_not_code() -> N
     assert restore._same_ast(ORIGINAL, ORIGINAL + "# note\n") is True
     assert restore._same_ast(ORIGINAL, ORIGINAL.replace("a + 1", "a  +  1")) is True
     assert restore._same_ast(ORIGINAL, ORIGINAL.replace("a + 1", "a - 1")) is False
-    assert restore._same_ast("def (", ORIGINAL) is None, "a file that does not parse"
+    assert restore._same_ast("def (", ORIGINAL) is False, "a broken final file is not a restoration"
+    assert restore._same_ast(ORIGINAL, "def (") is None, "an unparsable original is undecidable"
 
 
 def test_a_docstring_only_function_body_survives_stripping() -> None:
@@ -51,8 +52,17 @@ def test_the_fragment_fallback_is_used_for_non_python_files_and_missing_trees() 
 
 def test_code_tokens_keep_strings_whole_and_drop_comments() -> None:
     tokens = restore._code_tokens('x = "a b"  # c\ny = 1\n')
-    assert ("a b" in [t[1] for t in tokens] or '"a b"' in [t[1] for t in tokens]) and not any(
-        "# c" in t[1] for t in tokens
-    )
+    texts = [t[1] for t in tokens]
+    assert any(t in ("a b", '"a b"') for t in texts) and not any("# c" in t for t in texts)
     assert restore._contains(tokens, restore._code_tokens("y = 1")) is True
     assert restore._contains(tokens, []) is False
+
+
+def test_a_fixed_file_with_a_syntax_error_appended_is_not_a_restoration(tmp_path: Path) -> None:
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "m.py").write_text("def f():\n    return 2\n")
+    issue = make_issue(detector="review_only", edits=(Edit("m.py", "return 1", "return 2"),))
+    good = "def f():\n    return 1\n"
+    assert restore.restored(issue, {"m.py": good}, tree)
+    assert not restore.restored(issue, {"m.py": good + "\ndef broken(:\n pass\n"}, tree)

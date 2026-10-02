@@ -292,6 +292,26 @@ def holdout_issues() -> dict[str, frozenset[str]]:
     return found
 
 
+def _holdout_gens(rows: list[dict[str, Any]]) -> set[str]:
+    """The holdout generations whose issues appear among the judged rows."""
+    judged = {r["issue"] for r in rows}
+    return {gen for gen, ids in holdout_issues().items() if judged & ids}
+
+
+def _check_pinned(records: list[dict[str, Any]], variant: str, vhash: str) -> bool:
+    """Refuse a verdict if the variant's files changed after the trials; True if all are pinned."""
+    tested = {r.get("variant_hash") for r in records if r.get("arm") == "candidate"}
+    if vhash and tested - {None, "", vhash}:
+        raise ledger.LedgerError(f"{variant}: its files changed after these trials ran")
+    return bool(vhash) and tested == {vhash}
+
+
+def _set_name(gens: set[str], candidate: str) -> str:
+    """The judged set's label: the holdout generations, else the candidate's profile set."""
+    named = "+".join(f"holdout{g if g != '1' else ''}" for g in sorted(gens))
+    return named or ledger.set_of(candidate)
+
+
 def judge(
     results: Path, baseline: str, candidate: str, ledger_path: Path | None = None
 ) -> dict[str, Any]:
@@ -299,25 +319,21 @@ def judge(
     entries = ledger.read(ledger_path) if ledger_path else []
     variant = ledger.variant_of(candidate)
     vhash = ledger.variant_hash(layout.ROOT / "variants", variant)
-    records = read_jsonl(results) if results.exists() else []
-    tested = {r.get("variant_hash") for r in records if r.get("arm") == "candidate"}
-    if vhash and tested - {None, "", vhash}:
-        raise ledger.LedgerError(f"{variant}: its files changed after these trials ran")
+    pinned = _check_pinned(read_jsonl(results) if results.exists() else [], variant, vhash)
     rows = score_arms(results, baseline, candidate)
-    judged = {r["issue"] for r in rows}
-    gens = {gen for gen, ids in holdout_issues().items() if judged & ids}
-    used_holdout = bool(gens)
-    if used_holdout:
+    gens = _holdout_gens(rows)
+    if gens:
         if ledger_path is None:
             raise ledger.LedgerError(
                 "a judgement on holdout issues must be ledgered (no --no-ledger)"
             )
         ledger.check_holdout(entries, candidate, gens, vhash)
-    family = ledger.family_size(entries, baseline, candidate)
+    family = ledger.family_size(
+        entries, baseline, candidate, ledger.known_variants(layout.ROOT / "variants")
+    )
     report = decide(arm_rows(rows, "baseline"), arm_rows(rows, "candidate"), family=family)
-    report["set"] = "+".join(
-        f"holdout{g if g != '1' else ''}" for g in sorted(gens)
-    ) or ledger.set_of(candidate)
+    report["set"] = _set_name(gens, candidate)
+    report["variant_pinned"] = pinned
     if ledger_path:
         ledger.record(
             ledger_path,
@@ -326,8 +342,9 @@ def judge(
                 "candidate": candidate,
                 "variant": variant,
                 "variant_hash": vhash,
+                "variant_pinned": pinned,
                 "set": report["set"],
-                "holdout_used": used_holdout,
+                "holdout_used": bool(gens),
                 "holdout_gens": sorted(gens),
                 "results": str(results),
                 "verdict": report["verdict"],

@@ -411,3 +411,15 @@ def test_a_group_of_fewer_than_three_issues_prints_no_interval() -> None:
     assert trials._group(rows)["ci"] is None
     more = [*rows, {"issue": "c", "success": True, "outcome": "fixed"}]
     assert len(trials._group(more)["ci"]) == 2
+
+
+def test_report_on_a_missing_or_malformed_file_exits_with_a_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bad = tmp_path / "bad.jsonl"
+    bad.write_text("not json\n")
+    for path in (tmp_path / "missing.jsonl", bad):
+        with pytest.raises(SystemExit) as exc:
+            trials.main(["report", str(path)])
+        assert exc.value.code == 2
+        assert "cannot read" in capsys.readouterr().err

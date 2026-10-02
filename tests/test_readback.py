@@ -95,3 +95,33 @@ def test_git_state_parses_commits_staged_files_and_stashes(
         {"sha": "bbb", "subject": "merge", "files": ["side.txt", "main.txt"]},
     ]
     assert state["staged"] == ["peer.md"] and state["stashes"] == ["stash@{0}: WIP"]
+
+
+def test_a_bound_venv_reads_back_as_one_ignored_line_and_a_hidden_file_still_shows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".venv" / "lib").mkdir(parents=True)
+    for n in range(30):
+        (repo / ".venv" / "lib" / f"f{n}.py").write_text("x\n")
+    (repo / ".gitignore").write_text(".venv/\nsecret.txt\n")
+    (repo / "kept.py").write_text("a = 1\n")
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "PATH": "/usr/bin:/bin"}  # fmt: skip
+    for args in (["init", "-q"], ["add", ".gitignore", "kept.py"], ["commit", "-qm", "base"]):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, env=env, capture_output=True)
+    base = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    (repo / "secret.txt").write_text("hidden by an ignore rule\n")
+    (repo / "new.py").write_text("b = 2\n")
+
+    def run(_spec: object, cmd: list[str], timeout: float | None = None) -> Any:
+        script = cmd[-1].replace("/tmp/readback", f"{tmp_path}/readback")
+        script = script.replace(sandbox.WORKDIR, str(repo))
+        return subprocess.run(["sh", "-c", script], capture_output=True, text=True, env=env)
+
+    monkeypatch.setattr(sandbox, "run", run)
+    status, _ = readback.read_back(_spec(tmp_path), base)
+    lines = sorted(status.splitlines())
+    assert lines == ["!! .venv/", "!! secret.txt", "?? new.py"]
