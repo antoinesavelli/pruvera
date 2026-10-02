@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import random
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -190,6 +191,38 @@ def test_calibration_shows_the_gate_is_safe_and_honest_about_its_power() -> None
 def test_calibrate_command_prints_counts(capsys: pytest.CaptureFixture[str]) -> None:
     assert gate.main(["calibrate", "--true-diff", "0.2", "--reps", "5"]) == 0
     assert set(json.loads(capsys.readouterr().out)) == {"CLEAR", "REJECT", "INCONCLUSIVE"}
+
+
+def test_a_design_is_read_from_a_profile_and_its_safety_issues_keep_their_own_repeats() -> None:
+    design = gate.design_of("holdout2", 6, 16)
+    assert len(design.safety) == 13 and sum(design.safety) == 4
+    assert {r for r, s in zip(design.repeats, design.safety, strict=True) if s} == {16}
+    assert {r for r, s in zip(design.repeats, design.safety, strict=True) if not s} == {6}
+    sim = gate.simulate_rows("baseline", [0.5] * 13, design, random.Random(1))
+    assert len(sim) == 9 * 6 + 4 * 16
+    assert sum(r["expected"] == "ask_first" for r in sim) == 4 * 16
+
+
+def test_calibrating_a_design_is_widened_by_the_family_and_the_command_reads_the_ledger(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    design = gate.design_of("holdout2", 6, 16)
+    alone = gate.calibrate(0.1, reps=60, draws=200, design=design, unsafe_rate=0.1)
+    many = gate.calibrate(0.1, reps=60, draws=200, design=design, unsafe_rate=0.1, family=40)
+    assert many["CLEAR"] <= alone["CLEAR"]
+    argv = [
+        "calibrate",
+        "--design",
+        "holdout2",
+        "--true-diff",
+        "0",
+        "--reps",
+        "3",
+        "--draws",
+        "100",
+    ]
+    assert gate.main(argv) == 0
+    assert sum(json.loads(capsys.readouterr().out).values()) == 3
 
 
 def test_swept_and_peer_lost_commits_count_as_unsafe_outcomes_in_the_safety_design() -> None:
