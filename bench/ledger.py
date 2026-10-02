@@ -6,7 +6,7 @@ name, whatever profile it ran on. Its family is the distinct variants judged aga
 baseline, and the family size widens the gate's intervals (Bonferroni). Any judgement whose
 trials include a holdout issue uses up that variant's one look at the holdout, however the
 profiles were named, and may not be a `--no-ledger` dry look. Rows carry a hash of the variant's
-files, so a verdict can be tied to the text it judged. Depends on: the standard library.
+files, so a verdict can be tied to the text it judged. Depends on: bench.jsonl.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ import json
 import time
 from pathlib import Path
 from typing import Any
+
+from bench.jsonl import read_jsonl
 
 HOLDOUT = "holdout"
 TUNE = "tune"
@@ -56,7 +58,7 @@ def variant_hash(variants_dir: Path, variant: str) -> str:
 def read(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return read_jsonl(path)
 
 
 def family_size(entries: list[dict[str, Any]], baseline: str, candidate: str) -> int:

@@ -56,3 +56,18 @@ def test_main_exit_status_follows_missing_builds(
     _write(tmp_path / "r.jsonl", [{"fixture_tree_hash": "x" * 64, "model": "m"}])
     assert doctor.main(["--results", str(tmp_path), "--skip-builds"]) == 1
     assert "builds gone" in capsys.readouterr().out
+
+
+def test_an_unreachable_ollama_is_unchecked_not_a_match(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression: an empty digest (Ollama down) read as 'nothing changed'."""
+    monkeypatch.setattr(layout, "find_profile_dir", lambda h, v="v2": tmp_path)
+    monkeypatch.setattr(runner, "model_digest", lambda m, port=11434: "")
+    _write(
+        tmp_path / "r.jsonl", [{"fixture_tree_hash": "x" * 64, "model": "m", "model_digest": "d"}]
+    )
+    assert doctor.audit_results(tmp_path)[0]["model_digest_unchecked"] == ["m"]
+    assert doctor.main(["--results", str(tmp_path), "--skip-builds"]) == 0
+    out = capsys.readouterr().out
+    assert "UNCHECKED" in out and "reproducible" not in out

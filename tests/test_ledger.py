@@ -147,3 +147,11 @@ def test_judging_trials_that_include_a_holdout_issue_uses_the_holdout_look(
 def test_the_test_suite_cannot_reach_the_real_ledger() -> None:
     real = layout.ROOT / "results" / "gate" / "ledger.jsonl"
     assert gate.LEDGER != real, "conftest must redirect the ledger to a temp file"
+
+
+def test_a_variant_prompt_that_starts_with_a_dash_is_refused(tmp_path: Path) -> None:
+    from bench.issues import plant
+
+    (tmp_path / "variant.toml").write_text('[prompt]\nprefix = "--help "\n')
+    with pytest.raises(plant.PlantError, match="read as an option"):
+        plant.variant_config(tmp_path)
