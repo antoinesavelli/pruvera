@@ -89,6 +89,7 @@ def _run_arms_locked(
                     model=task.model,
                     prompt=task.prompt,
                     label=issue_id,
+                    issue_hash=schema.definition_hash(issues[issue_id]),
                     hooks=tuple(runner.Hook(*h) for h in issues[issue_id].hooks),
                     arm=arm if len(arms) > 1 else "",
                     timeout=600,
@@ -158,13 +159,20 @@ def unfixable(fx: runner.Fixture) -> set[str]:
     return {i for report in proof_reports(fx) for i in report.get(UNWINNABLE_KEY, [])}
 
 
-def _proof_stale(reports: list[dict[str, Any]], issue: schema.Issue) -> str:
-    """Why a recorded proof no longer covers `issue` (empty when it does or records no hashes)."""
-    for report in reports:
-        recorded = report.get("issue_hashes", {}).get(issue.id)
-        if recorded is not None and recorded != schema.definition_hash(issue):
-            return f"{issue.id} changed since this profile was proven"
-    return ""
+def _definition_stale(
+    rec: dict[str, Any], reports: list[dict[str, Any]], issue: schema.Issue
+) -> str:
+    """Why `issue` as defined now is not the one this trial ran (empty when it provably is)."""
+    now = schema.definition_hash(issue)
+    if recorded := rec.get("issue_hash"):
+        return "" if recorded == now else f"{issue.id} changed since this trial ran"
+    # A record from before hashes were stored: the hash its build's proof recorded stands in.
+    proven = [r["issue_hashes"][issue.id] for r in reports if issue.id in r.get("issue_hashes", {})]
+    if not proven:
+        return f"{issue.id}: no definition hash on the record or in its build's proof"
+    return (
+        "" if all(h == now for h in proven) else f"{issue.id} changed since this profile was proven"
+    )
 
 
 def _hooks_stale(rec: dict[str, Any], issue: schema.Issue) -> str:
@@ -211,7 +219,7 @@ def _verdict(rec: dict[str, Any], issues: dict[str, schema.Issue], build: _Build
             raise score.ScoreError(f"the repo state could not be read: {rec.get('detail', '')}")
         if build.env is None:
             raise score.ScoreError("the build this trial ran on no longer exists")
-        if stale := _proof_stale(build.reports, issue) or _hooks_stale(rec, issue):
+        if stale := _definition_stale(rec, build.reports, issue) or _hooks_stale(rec, issue):
             raise score.ScoreError(stale)
         return score.score_record(rec, issues, build.env).as_dict()
     except (score.ScoreError, MemoryError, RecursionError) as exc:
