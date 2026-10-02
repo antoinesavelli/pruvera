@@ -1,6 +1,6 @@
 """Command line for the trial runner: run one trial, check a fixture version, replay a diff.
 
-Depends on: bench.{runner,preflight,layout}; the layout under fixtures/paramo/.
+Depends on: bench.{runner,preflight,layout,reference}; the layout under fixtures/paramo/.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import json
 import sys
 from pathlib import Path
 
-from bench import layout, preflight, runner
+from bench import layout, preflight, reference, runner
 from bench.layout import ROOT
 
 
@@ -75,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.wait:
         preflight.wait_clear(args.wait)
     with preflight.session_lock():
+        reference.sweep(ROOT / "overlays")
         record = runner.run_trial(
             fx,
             spec,

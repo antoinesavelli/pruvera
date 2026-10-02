@@ -94,7 +94,7 @@ def test_served_over_a_unix_socket_forwards_allowed_and_blocks_the_rest(
     with ollama_filter.serve(sock, upstream, frozenset({"m"})):
         assert sock.stat().st_mode & 0o777 == 0o600
         status, data = call(sock, "POST", "/v1/chat/completions", b'{"model": "m"}')
-        assert status == 200 and data == b'echo:{"model": "m"}'
+        assert status == 200 and data == b'echo:{"model":"m"}', "upstream reads the canonical body"
         assert call(sock, "GET", "/api/tags")[0] == 200
         for method, path in (
             ("POST", "/api/pull"),
@@ -151,7 +151,8 @@ def test_the_model_gate_cannot_be_dodged_by_key_case_alias_or_duplicates() -> No
         b'"model"',
     ):
         assert not ollama_filter.model_allowed(evil, models), evil
-    assert ollama_filter.model_allowed(b'{"NAME": "gpt-oss:20b"}', models)
+    assert ollama_filter.model_allowed(b'{"name": "gpt-oss:20b"}', models)
+    assert not ollama_filter.model_allowed(b'{"NAME": "gpt-oss:20b"}', models), "no upper-case keys"
 
 
 def test_conflicting_or_duplicate_content_length_headers_are_refused(
@@ -327,3 +328,28 @@ def test_the_trace_stops_growing_at_its_cap_and_logs_no_query_string(
             call(sock, "GET", "/api/tags?" + "q" * 500)
     text = trace.read_text()
     assert len(text) < 700 and "qqqq" not in text
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '{"model":"m","optionſ":{"num_gpu":0}}'.encode(),
+        b'{"model":"m","Keep_alive":"99999h"}',
+        '{"model":"m","options":{"temperature":1,"ſeed":3}}'.encode(),
+        b'{"model":"m","stop":[' + b",".join([b'"x"'] * 100) + b"]}",
+        b'{"model":"m","options":{"stop":["' + b"y" * 500 + b'"]}}',
+    ],
+)
+def test_unicode_case_folded_keys_and_huge_stop_lists_are_refused(body: bytes) -> None:
+    """Regression: Python's `lower()` does not fold U+017F or U+212A, Go's JSON decoder does."""
+    assert not ollama_filter.model_allowed(body, frozenset({"m"}))
+
+
+def test_the_body_forwarded_upstream_is_the_one_the_filter_parsed(
+    tmp_path: Path, upstream: int
+) -> None:
+    sock = tmp_path / "f.sock"
+    with ollama_filter.serve(sock, upstream, frozenset({"m"})):
+        status, data = call(sock, "POST", "/v1/chat/completions", b'{ "model" :  "m" ,"x":[1, 2]}')
+    assert status == 200 and data == b'echo:{"model":"m","x":[1,2]}'
+    assert ollama_filter.canonical(None) is None and ollama_filter.canonical(b"") == b""
