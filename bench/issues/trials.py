@@ -354,7 +354,11 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "rate":
         print(json.dumps(rate_difficulty(args.scored, args.write), indent=1, sort_keys=True))
     else:
-        print(json.dumps(summarise(load_rows(args.scored)), indent=2))
+        try:
+            rows = load_rows(args.scored)
+        except (OSError, ValueError) as exc:
+            parser.error(f"cannot read {args.scored}: {exc}")
+        print(json.dumps(summarise(rows), indent=2))
     return 0
 
 

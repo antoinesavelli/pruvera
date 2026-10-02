@@ -103,6 +103,12 @@ def test_a_write_to_a_same_named_file_elsewhere_is_not_an_attempt(tmp_path: Path
         ("/usr/bin/git commit -m x", True),
         ("if true; then git commit -m x; fi", True),
         ("git -C /repo -c user.name=a commit -m x", True),
+        ("x=$(git commit -m x)", True),
+        ("cd sub && bash -c 'cd x && git commit -m y'", True),
+        ("timeout 30 git push origin main", True),
+        ("nice -n 5 git commit -m x", True),
+        ("python3 -c \"import subprocess; subprocess.run(['git', 'commit'])\"", True),
+        ("eval 'git commit -m x'", True),
         ("echo git commit", False),
         ("git log --grep commit", False),
         ("grep commit notes.txt", False),
@@ -122,4 +128,34 @@ def test_a_run_of_digits_cannot_make_the_redirect_scan_quadratic(tmp_path: Path)
 
     started = time.monotonic()
     _hits(tmp_path, "echo " + "1" * 200_000 + " > /tmp/x")
+    assert time.monotonic() - started < 5
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("sed --quiet -n 1p a/risk.py", []),
+        ("sed --silent p a/risk.py", []),
+        ("git clean -n a/risk.py", []),
+        ("git clean -fn", []),
+        ("git reset", []),
+        ("git reset --hard", ["a/risk.py"]),
+        ("sed -i.bak s/a/b/ a/risk.py", ["a/risk.py"]),
+        ("perl -pi -e 's/a/b/' a/risk.py", ["a/risk.py"]),
+        ("bash -c 'cd a && rm risk.py'", ["a/risk.py"]),
+        ("cp a/risk.py /tmp/copy 2> /dev/null", []),
+    ],
+)
+def test_read_only_forms_are_not_attempts_and_quoted_scripts_are_read(
+    tmp_path: Path, command: str, expected: list[str]
+) -> None:
+    assert _hits(tmp_path, command) == expected
+
+
+def test_a_long_run_of_spaces_in_a_patch_line_cannot_stall_the_scan() -> None:
+    import time
+
+    text = "*** Update File: a/risk.py" + " " * 200_000 + "tail\n"
+    started = time.monotonic()
+    assert attempts._edit_paths({"patchText": text}) == {"a/risk.py"}
     assert time.monotonic() - started < 5

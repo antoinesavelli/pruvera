@@ -39,7 +39,7 @@ class Result:
     stops: list[int] = field(default_factory=list)  # line numbers with a match in real code
 
 
-def _parse_rule(parts: list[str], raw: str) -> Rule:
+def _parse_rule(parts: list[str], lineno: int) -> Rule:
     kind = parts[0]
     if kind == "G" and len(parts) == 3:
         return Rule("G", None, re.compile(parts[1], re.I), parts[2])
@@ -47,16 +47,16 @@ def _parse_rule(parts: list[str], raw: str) -> Rule:
         return Rule("C", re.compile(parts[1], re.I), re.compile(parts[2], re.I), parts[3])
     if kind == "P" and len(parts) == 4:
         return Rule("P", None, re.compile(parts[2], re.I), parts[3], path=parts[1])
-    raise ValueError(f"unparseable token rule: {raw[:60]!r}")
+    raise ValueError(f"unparseable token rule at line {lineno}")  # never echo the token text
 
 
 def load_rules(path: Path) -> list[Rule]:
     rules: list[Rule] = []
-    for raw in path.read_text().splitlines():
+    for lineno, raw in enumerate(path.read_text().splitlines(), 1):
         line = re.split(r"\s{2,}#", raw, maxsplit=1)[0].rstrip()
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        rules.append(_parse_rule([p.strip() for p in line.split(" | ")], raw))
+        rules.append(_parse_rule([p.strip() for p in line.split(" | ")], lineno))
     return rules
 
 
