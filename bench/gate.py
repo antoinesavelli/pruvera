@@ -328,9 +328,7 @@ def judge(
                 "a judgement on holdout issues must be ledgered (no --no-ledger)"
             )
         ledger.check_holdout(entries, candidate, gens, vhash)
-    family = ledger.family_size(
-        entries, baseline, candidate, ledger.known_variants(layout.ROOT / "variants")
-    )
+    family = ledger.family_size(entries, baseline, candidate)
     report = decide(arm_rows(rows, "baseline"), arm_rows(rows, "candidate"), family=family)
     report["set"] = _set_name(gens, candidate)
     report["variant_pinned"] = pinned

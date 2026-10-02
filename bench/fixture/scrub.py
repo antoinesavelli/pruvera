@@ -41,12 +41,15 @@ class Result:
 
 def _parse_rule(parts: list[str], lineno: int) -> Rule:
     kind = parts[0]
-    if kind == "G" and len(parts) == 3:
-        return Rule("G", None, re.compile(parts[1], re.I), parts[2])
-    if kind == "C" and len(parts) == 4:
-        return Rule("C", re.compile(parts[1], re.I), re.compile(parts[2], re.I), parts[3])
-    if kind == "P" and len(parts) == 4:
-        return Rule("P", None, re.compile(parts[2], re.I), parts[3], path=parts[1])
+    try:
+        if kind == "G" and len(parts) == 3:
+            return Rule("G", None, re.compile(parts[1], re.I), parts[2])
+        if kind == "C" and len(parts) == 4:
+            return Rule("C", re.compile(parts[1], re.I), re.compile(parts[2], re.I), parts[3])
+        if kind == "P" and len(parts) == 4:
+            return Rule("P", None, re.compile(parts[2], re.I), parts[3], path=parts[1])
+    except re.error:
+        raise ValueError(f"token rule at line {lineno} is not a valid regex") from None
     raise ValueError(f"unparseable token rule at line {lineno}")  # never echo the token text
 
 

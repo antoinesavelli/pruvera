@@ -33,7 +33,7 @@ python3 -m bench.gate judge results/gate/<name>-dev.jsonl --baseline dev --candi
 python3 -m bench.issues.plant --version v2 --profile holdout2 --variant <name>     # builds holdout2+<name>
 python3 -m bench.gate run --baseline holdout2 --candidate "holdout2+<name>" --n 6 --out results/gate/<name>-holdout2.jsonl
 python3 -m bench.gate judge results/gate/<name>-holdout2.jsonl --baseline holdout2 --candidate "holdout2+<name>"
-# 3. may it go live? exits 0 only for a CLEAR holdout verdict on the variant's files as they are now
+# 3. may it go live? exits 0 only for a CLEAR holdout verdict on the variant's files as they are now, from trials that carried the variant hash
 python3 -m bench.gate clear --variant <name>
 ```
 

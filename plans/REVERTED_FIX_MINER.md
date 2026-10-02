@@ -1,6 +1,6 @@
 # Reverted-fix miner — plan
 
-**Status 2026-09-30: BUILT (M1-M4); M5 partly (one trial).** Decisions A, B, C were taken at their recommended
+**Status 2026-09-30: BUILT (M1-M4); M5 partly (one trial; the profiles have since run in campaigns, see `PLAN.md` Phase 6).** Decisions A, B, C were taken at their recommended
 values (owner: "proceed"): hashes only, half of `realistic`, assertion failures only. Extends `PLAN.md` Phase 6 (planted issues). Owner
 decisions are marked **[O]**.
 

@@ -65,7 +65,7 @@ def _logical_lines(path: Path) -> int:
 
 
 def test_no_harness_module_is_over_the_500_logical_line_ceiling() -> None:
-    """PLAN section 8 promises modules under 500 functional lines; counted here, not claimed."""
+    """PLAN section 9 promises modules under 500 functional lines; counted here, not claimed."""
     sizes = {p.relative_to(ROOT).as_posix(): _logical_lines(p) for p in MODULES}
     assert {k: v for k, v in sizes.items() if v >= 500} == {}, "split the module"
     assert max(sizes.values()) > 100, "the counter counts something"

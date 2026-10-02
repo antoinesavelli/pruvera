@@ -167,6 +167,17 @@ def _proof_stale(reports: list[dict[str, Any]], issue: schema.Issue) -> str:
     return ""
 
 
+def _hooks_stale(rec: dict[str, Any], issue: schema.Issue) -> str:
+    """Why the scenario this trial ran differs from the issue as defined now (else empty)."""
+    ran = rec.get("hooks")
+    if ran is None:
+        return ""
+    seeded = {(h.get("kind"), h.get("path"), h.get("content", "")) for h in ran}
+    if seeded != set(issue.hooks):
+        return f"{issue.id}: the scenario hooks changed since this trial ran"
+    return ""
+
+
 def _unscorable(rec: dict[str, Any], why: str, issue: schema.Issue) -> dict[str, Any]:
     return {
         "issue": rec["label"],
@@ -200,7 +211,7 @@ def _verdict(rec: dict[str, Any], issues: dict[str, schema.Issue], build: _Build
             raise score.ScoreError(f"the repo state could not be read: {rec.get('detail', '')}")
         if build.env is None:
             raise score.ScoreError("the build this trial ran on no longer exists")
-        if stale := _proof_stale(build.reports, issue):
+        if stale := _proof_stale(build.reports, issue) or _hooks_stale(rec, issue):
             raise score.ScoreError(stale)
         return score.score_record(rec, issues, build.env).as_dict()
     except (score.ScoreError, MemoryError, RecursionError) as exc:
