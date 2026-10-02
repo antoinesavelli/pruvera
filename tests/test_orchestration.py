@@ -98,6 +98,12 @@ def test_run_gate_passes_both_arms_and_the_output_to_the_runner(
     assert seen == {"arms": ["baseline", "candidate"], "n": 3}
 
 
+def _current_hash() -> str:
+    from bench.issues import schema
+
+    return schema.definition_hash(schema.load_all(trials.ROOT / "issues")[IDS[0]])
+
+
 def _scored(record: dict[str, Any]) -> score.IssueScore:
     return score.IssueScore(record["label"], "fix", "fixed", True, collateral=["x.py"])
 
@@ -116,7 +122,14 @@ def test_score_records_builds_one_row_per_scorable_trial_and_reports_unscorable_
         return _scored(rec)
 
     monkeypatch.setattr(score, "score_record", fake_score)
-    base = {"label": IDS[0], "model": "m", "agent": "coder", "outcome": "completed", "secs": 1.0}
+    base = {
+        "label": IDS[0],
+        "issue_hash": _current_hash(),
+        "model": "m",
+        "agent": "coder",
+        "outcome": "completed",
+        "secs": 1.0,
+    }
     records = [
         {**base, "trial_id": "ok", "tool_calls": 3, "arm": "x", "answer_kind": "text"},
         {**base, "trial_id": "bad", "tool_calls": 1},
@@ -299,7 +312,14 @@ def test_records_are_scored_on_the_build_they_ran_on_and_unknown_builds_are_not_
 
     monkeypatch.setattr(check, "Env", fake_env)
     monkeypatch.setattr(score, "score_record", lambda rec, _i, env: _scored(rec))
-    base = {"label": IDS[0], "model": "m", "agent": "coder", "outcome": "completed", "secs": 1.0}
+    base = {
+        "label": IDS[0],
+        "issue_hash": _current_hash(),
+        "model": "m",
+        "agent": "coder",
+        "outcome": "completed",
+        "secs": 1.0,
+    }
     recs = [
         {**base, "trial_id": "a", "tool_calls": 1, "fixture_tree_hash": "new"},
         {**base, "trial_id": "b", "tool_calls": 1, "fixture_tree_hash": "old"},
@@ -324,21 +344,37 @@ def test_run_gate_passes_an_issue_subset_through_to_the_runner(
     assert seen["only"] == ["x"]
 
 
-def test_a_proof_that_records_hashes_does_not_cover_an_issue_edited_since() -> None:
+def test_a_record_is_scored_only_against_the_definition_it_ran() -> None:
     from bench.issues import schema
 
     issue = schema.load_all(trials.ROOT / "issues")[IDS[0]]
-    assert trials._proof_stale([], issue) == "", "no proof: nothing to compare"
-    proof = [{"issue_hashes": {issue.id: schema.definition_hash(issue)}}]
-    assert trials._proof_stale(proof, issue) == ""
+    now = schema.definition_hash(issue)
     edited = dataclasses.replace(issue, prompt=issue.prompt + " Also do more.")
-    assert "changed since" in trials._proof_stale(proof, edited)
-    rated = dataclasses.replace(issue, difficulty="hard", proven_on="v9")
-    assert trials._proof_stale(proof, rated) == "", "rating and proof stamps are not the definition"
-    assert trials._proof_stale([{"ok": True}], edited) == "", "an old proof without hashes passes"
-    assert "changed since" in trials._proof_stale([{"ok": True}, *proof], edited), (
-        "any proof counts"
+    stale = trials._definition_stale
+    assert stale({"issue_hash": now}, [], issue) == ""
+    assert "changed since this trial" in stale({"issue_hash": now}, [], edited)
+    assert stale({"issue_hash": now}, [{"issue_hashes": {issue.id: "other"}}], issue) == "", (
+        "the record's own hash outranks the proof"
     )
+    rated = dataclasses.replace(issue, difficulty="hard", proven_on="v9")
+    assert stale({"issue_hash": now}, [], rated) == "", (
+        "rating and proof stamps are not the definition"
+    )
+
+
+def test_a_record_without_a_hash_falls_back_on_the_proof_and_fails_closed() -> None:
+    from bench.issues import schema
+
+    issue = schema.load_all(trials.ROOT / "issues")[IDS[0]]
+    edited = dataclasses.replace(issue, prompt=issue.prompt + " Also do more.")
+    proof = [{"issue_hashes": {issue.id: schema.definition_hash(issue)}}]
+    assert trials._definition_stale({}, proof, issue) == ""
+    assert "changed since this profile" in trials._definition_stale({}, proof, edited)
+    assert "changed since this profile" in trials._definition_stale(
+        {}, [{"ok": True}, *proof], edited
+    ), "any proof counts"
+    for reports in ([], [{"ok": True}]):
+        assert "no definition hash" in trials._definition_stale({}, reports, issue)
 
 
 def test_an_unscorable_safety_trial_keeps_its_expected_action() -> None:

@@ -102,6 +102,7 @@ class TrialSpec:
     net: sandbox.Net = "ollama"
     keep_overlay: bool = False
     label: str = ""  # a task name, so a study can group trials
+    issue_hash: str = ""  # the issue's definition hash when the trial started; "" when no issue
     arm: str = ""  # an experiment arm, for example "control" or "treatment"
     extra_binds: tuple[tuple[Path, str], ...] = ()  # read-only binds an experiment adds
     inline: dict[str, Any] = field(default_factory=dict)  # merged into the inline config
@@ -476,6 +477,7 @@ def _record(
         "schema": 2,
         "trial_id": spec.trial_id,
         "label": spec.label,
+        "issue_hash": spec.issue_hash,
         "arm": spec.arm,
         "environment": fx.environment,
         "fixture_version": fx.version,

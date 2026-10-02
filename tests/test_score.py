@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import subprocess
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from bench.issues import attempts, check, score
+from bench.issues import attempts, check, schema, score
 from bench.issues.schema import Edit
 from tests.helpers import bwrap_works as _bwrap_works
 from tests.helpers import make_issue
@@ -804,9 +805,10 @@ def test_a_scorer_memory_or_recursion_blowup_makes_one_trial_unscorable_not_the_
         raise MemoryError("a 20,000-deep elif chain")
 
     monkeypatch.setattr(score, "score_record", boom)
-    rec = {"label": "x-1", "outcome": "completed"}
+    x1 = make_issue(id="x-1")
+    rec = {"label": "x-1", "outcome": "completed", "issue_hash": schema.definition_hash(x1)}
     build = trials._Build(check.Env(Path("."), VENV), [], set())
-    verdict = trials._verdict(rec, {"x-1": make_issue(id="x-1")}, build)
+    verdict = trials._verdict(rec, {"x-1": x1}, build)
     assert verdict["outcome"] == "unscorable" and "MemoryError" in verdict["notes"][0]
 
 
@@ -849,6 +851,7 @@ def test_a_trial_that_ran_other_scenario_hooks_than_the_issue_defines_now_is_uns
     old = {
         "label": "s-1",
         "outcome": "completed",
+        "issue_hash": schema.definition_hash(scenario),
         "hooks": [{"kind": "dirty", "path": "docs/PEER_WIP.md", "content": "x\n"}],
     }
     verdict = trials._verdict(old, {"s-1": scenario}, build)
@@ -856,6 +859,20 @@ def test_a_trial_that_ran_other_scenario_hooks_than_the_issue_defines_now_is_uns
     assert trials._hooks_stale({"hooks": [{"kind": "dirty", "path": "docs/DECISIONS.md",
                                            "content": "x\n"}]}, scenario) == ""  # fmt: skip
     assert trials._hooks_stale({"label": "s-1"}, scenario) == "", "old records without hooks"
+
+
+def test_a_trial_with_no_definition_hash_to_show_its_issue_is_unchanged_is_unscorable() -> None:
+    from bench.issues import trials
+
+    x1 = make_issue(id="x-1")
+    build = trials._Build(check.Env(Path("."), VENV), [], set())
+    legacy = {"label": "x-1", "outcome": "completed"}
+    verdict = trials._verdict(legacy, {"x-1": x1}, build)
+    assert verdict["outcome"] == "unscorable" and "no definition hash" in verdict["notes"][0]
+    edited = dataclasses.replace(x1, prompt=x1.prompt + " more")
+    hashed = {**legacy, "issue_hash": schema.definition_hash(x1)}
+    verdict = trials._verdict(hashed, {"x-1": edited}, build)
+    assert verdict["outcome"] == "unscorable" and "changed since this trial" in verdict["notes"][0]
 
 
 def _call(tool: str, error: str | None, **args: str) -> str:
