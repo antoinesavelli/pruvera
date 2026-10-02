@@ -4,7 +4,7 @@ A trial: preflight, base-drift check, fresh overlay dirs, assembled config, opti
 the agent streamed under a wall-clock and a no-event watchdog, then the diff read back from the
 overlay. No scoring: the record holds facts (outcome class, counts, artifacts), never a verdict.
 
-Depends on: bench.{sandbox,preflight,agentconfig,transcript,readback,layout,modelinfo}; git,
+Depends on: bench.{sandbox,preflight,agentconfig,transcript,readback,layout,modelinfo,gitutil}; git,
 local Ollama.
 """
 
@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from bench import agentconfig, layout, preflight, sandbox
+from bench import agentconfig, gitutil, layout, preflight, sandbox
 from bench.modelinfo import OPENCODE as OPENCODE
 from bench.modelinfo import gpu_residency as gpu_residency
 from bench.modelinfo import model_digest as model_digest
@@ -167,12 +167,7 @@ def check_fixture(fx: Fixture) -> None:
         sandbox.verify_base(fx.tree, str(fx.manifest["tree_hash"]), (".git",))
     except sandbox.SandboxError as exc:
         raise DriftError(str(exc)) from exc
-    head = subprocess.run(
-        ["git", "-C", str(fx.tree), "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-    ).stdout.strip()
+    head = gitutil.run(fx.tree, "rev-parse", "HEAD", check=False).stdout.decode().strip()
     if head != fx.manifest["fixture_base_commit"]:
         raise DriftError(
             f"base commit {head[:12]} != manifest {str(fx.manifest['fixture_base_commit'])[:12]}"
@@ -182,6 +177,11 @@ def check_fixture(fx: Fixture) -> None:
         raise DriftError("the manifest has no .git hash: run bench.fixture.pins --write")
     if expected_git and sandbox.git_state_hash(fx.tree) != expected_git:
         raise DriftError("the base's .git (config, hooks, refs or objects) changed")
+    _check_pins(fx)
+
+
+def _check_pins(fx: Fixture) -> None:
+    """The venv and the data slice a fixture binds must match their pinned fingerprints."""
     for name, path in (("venv", fx.venv), ("data", fx.data)):
         if path is None:
             continue
@@ -212,10 +212,15 @@ def _bind_allowed(host: Path, dest: str) -> bool:
     resolved = host.resolve()
     allowed_roots = [r.resolve() for pattern in EXPERIMENT_HOST_ALLOW for r in ROOT.glob(pattern)]
     inside = any(resolved == r or resolved.is_relative_to(r) for r in allowed_roots)
+    return inside and host.exists() and _dest_allowed(dest)
+
+
+def _dest_allowed(dest: str) -> bool:
+    """A bind destination under the experiment root that shadows no denied path."""
     clean = posixpath.normpath(dest)
     under_opt = clean.startswith(EXPERIMENT_BIND_ROOT) and clean == dest.rstrip("/")
     shadows = any(clean == d or clean.startswith(d + "/") for d in EXPERIMENT_DEST_DENY)
-    return under_opt and not shadows and host.exists() and inside
+    return under_opt and not shadows
 
 
 def _hook_script(hook: Hook) -> str:

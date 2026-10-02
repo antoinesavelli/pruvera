@@ -1,7 +1,7 @@
 """Build one version of the paramo fixture from a pinned commit, never from a working tree.
 
 Steps: export, exclude, drop dependent tests, add stubs, redact, verify, base commit, manifest.
-Depends on: bench.fixture.{export,denylist,droptests,scrub,verify}, bench.sandbox (hashes), git.
+Depends on: bench.fixture.{export,denylist,droptests,scrub,verify}, bench.{sandbox,gitutil}, git.
 """
 
 from __future__ import annotations
@@ -11,13 +11,12 @@ import hashlib
 import json
 import os
 import shutil
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from bench import sandbox
+from bench import gitutil, sandbox
 from bench.fixture import denylist, droptests, export, scrub, verify
 
 HERE = Path(__file__).resolve().parents[2] / "fixtures" / "paramo"
@@ -77,17 +76,6 @@ def _scrub_tree(tree: Path, rules: list[scrub.Rule]) -> list[dict[str, object]]:
     return changes
 
 
-def _git(tree: Path, env: dict[str, str], *args: str, stdin: str = "") -> str:
-    done = subprocess.run(
-        ["git", "-C", str(tree), *args],
-        env=env,
-        input=stdin.encode(),
-        check=True,
-        capture_output=True,
-    )
-    return done.stdout.decode().strip()
-
-
 def _git_env(tree: Path, date: str) -> dict[str, str]:
     return {
         "PATH": os.environ.get("PATH", ""),
@@ -123,25 +111,26 @@ def git_base(tree: Path, history: bool = False) -> str:
     # directory (large ones in parts), a day apart, with generic messages: a session then sees a
     # history of realistic depth without any real commit message being copied in.
     env = _git_env(tree, BASE_DATE)
-    _git(tree, env, "init", "-q", "-b", "main")
+    gitutil.text(tree, "init", "-q", "-b", "main", env=env)
     if not history:
-        _git(tree, env, "add", "-A")
-        _git(tree, env, "commit", "-q", "-m", "fixture base")
-        return _git(tree, env, "rev-parse", "HEAD")
-    files = _git(tree, env, "ls-files", "--others", "--exclude-standard", "-z").split("\0")
+        gitutil.text(tree, "add", "-A", env=env)
+        gitutil.text(tree, "commit", "-q", "-m", "fixture base", env=env)
+        return gitutil.text(tree, "rev-parse", "HEAD", env=env)
+    listing = gitutil.text(tree, "ls-files", "--others", "--exclude-standard", "-z", env=env)
+    files = listing.split("\0")
     base = datetime.fromisoformat(BASE_DATE)
     for day, (message, members) in enumerate(history_groups([f for f in files if f])):
         step_env = _git_env(tree, (base + timedelta(days=day)).isoformat())
-        _git(
+        gitutil.text(
             tree,
-            step_env,
             "add",
             "--pathspec-from-file=-",
             "--pathspec-file-nul",
+            env=step_env,
             stdin="\0".join(members),
         )
-        _git(tree, step_env, "commit", "-q", "-m", message)
-    return _git(tree, env, "rev-parse", "HEAD")
+        gitutil.text(tree, "commit", "-q", "-m", message, env=step_env)
+    return gitutil.text(tree, "rev-parse", "HEAD", env=env)
 
 
 @dataclass

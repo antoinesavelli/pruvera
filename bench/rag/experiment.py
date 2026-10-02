@@ -171,6 +171,10 @@ def grade_rows(results: Path, questions: list[Question]) -> list[dict[str, Any]]
     return rows
 
 
+def _total(rows: list[dict[str, Any]], key: str) -> int:
+    return sum(int(r[key]) for r in rows)
+
+
 def _arm_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     clean = [r for r in rows if not r["contaminated"]]
     answered = [r for r in clean if r["answer_kind"] == "text"]
@@ -179,15 +183,15 @@ def _arm_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
         by_rep.setdefault(r["rep"], []).append(r["correct"])
     return {
         "n": len(rows),
-        "correct": sum(r["correct"] for r in rows),
+        "correct": _total(rows, "correct"),
         "clean_n": len(clean),
-        "clean_correct": sum(r["correct"] for r in clean),
-        "clean_ci": list(stats.wilson(sum(r["correct"] for r in clean), len(clean))),
+        "clean_correct": _total(clean, "correct"),
+        "clean_ci": list(stats.wilson(_total(clean, "correct"), len(clean))),
         "answered_n": len(answered),
-        "answered_correct": sum(r["correct"] for r in answered),
+        "answered_correct": _total(answered, "correct"),
         "non_answers": len(clean) - len(answered),
-        "tool_errors": sum(r["tool_errors"] for r in rows),
-        "searches": sum(r["searches"] for r in rows),
+        "tool_errors": _total(rows, "tool_errors"),
+        "searches": _total(rows, "searches"),
         "by_rep": {k: [sum(v), len(v)] for k, v in sorted(by_rep.items())},
     }
 
