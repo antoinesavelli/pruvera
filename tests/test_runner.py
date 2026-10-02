@@ -113,6 +113,13 @@ def test_silent_stall_agent_error_timeout_and_hang(
         )
 
 
+def test_the_record_carries_the_issue_definition_hash_the_trial_started_with(
+    fx: runner.Fixture, tmp_path: Path, cfg: Path
+) -> None:
+    rec, _ = _run(fx, tmp_path, cfg, f"echo '{EVENT}'", issue_hash="abc123")
+    assert rec["issue_hash"] == "abc123"
+
+
 def test_hooks_seed_the_repo_like_a_shared_tree(
     fx: runner.Fixture, tmp_path: Path, cfg: Path
 ) -> None:
