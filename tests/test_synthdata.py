@@ -110,6 +110,54 @@ def test_build_copies_the_base_untouched_and_adds_files_after_it(tmp_path: Path)
     assert (tmp_path / "v_new" / "SYNTH_MANIFEST.json").exists()
 
 
+def _real_root(tmp_path: Path, symbol: str, month: str = "2022-11") -> Path:
+    base = tmp_path / "v_base" / "root"
+    real = base / synthdata.AGG_SUBDIR / month[:4]
+    real.mkdir(parents=True)
+    days = synthdata.trading_days(f"{month}-01", f"{month}-28")
+    rows = synthdata.generate(days, [symbol], 3, _template()).assign(symbol=symbol)
+    rows.to_parquet(real / f"ohlcv_{month}.parquet", index=False)
+    return base
+
+
+def test_check_names_the_remaining_broken_invariants() -> None:
+    days = synthdata.trading_days("2022-12-01", "2022-12-20")
+    good = synthdata.generate(days, synthdata.symbols(2), 1, _template())
+    bad = good.copy()
+    bad.loc[0, "low"] = 0.0
+    assert "low is above" in " ".join(synthdata.check(bad, set(), set()))
+    bad = good.copy()
+    bad.loc[0, "volume"] = 0.0
+    assert "volume or bar_count" in " ".join(synthdata.check(bad, set(), set()))
+    bad = good.copy()
+    bad.loc[0, "first_timestamp"] = bad.loc[0, "last_timestamp"] + pd.Timedelta(seconds=1)
+    assert "first_timestamp" in " ".join(synthdata.check(bad, set(), set()))
+    bad = good.copy()
+    bad["symbol"] = "XYZ"
+    assert "reserved prefix" in " ".join(synthdata.check(bad, set(), set()))
+
+
+def test_a_failed_check_removes_the_half_built_root_and_a_clash_is_refused(tmp_path: Path) -> None:
+    clash = synthdata.symbols(1)[0]
+    base = _real_root(tmp_path, clash)
+    out = tmp_path / "v_new" / "root"
+    with pytest.raises(synthdata.SynthError, match="collides"):
+        synthdata.build(base, out, "2022-12-01", "2022-12-30", 1)
+    assert not out.exists(), "a build that fails its own check leaves nothing behind"
+    other = _real_root(tmp_path / "b", "CPIX", "2022-12")
+    with pytest.raises(synthdata.SynthError, match="would overwrite"):
+        synthdata.build(other, tmp_path / "b" / "new" / "root", "2022-12-01", "2022-12-30", 1)
+
+
+def test_the_command_builds_a_root_and_prints_its_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    base = _real_root(tmp_path, "CPIX")
+    out = tmp_path / "v_new" / "root"
+    assert synthdata.main(["--base", str(base), "--out", str(out), "--symbols", "1"]) == 0
+    assert '"files_written"' in capsys.readouterr().out and out.exists()
+
+
 @pytest.mark.skipif(not VENV_PYTHON.exists(), reason="fixture venv not built")
 def test_the_suite_also_passes_under_the_fixture_venv_python() -> None:
     """A plain-python harness run skips these tests; run them under the interpreter with pandas."""
