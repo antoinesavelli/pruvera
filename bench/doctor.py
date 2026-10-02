@@ -24,36 +24,44 @@ def _records(path: Path) -> list[dict[str, Any]]:
     return [r for r in read_jsonl(path, skip_bad=True) if "fixture_tree_hash" in r]
 
 
+def _missing_builds(records: list[dict[str, Any]], version: str) -> list[str]:
+    hashes = {r["fixture_tree_hash"] for r in records}
+    return sorted(h[:12] for h in hashes if layout.find_profile_dir(h, version) is None)
+
+
+def _missing_artifacts(records: list[dict[str, Any]]) -> int:
+    """Records whose artifact directory (the scorer's input: diff, transcript) is gone."""
+    return sum(1 for r in records if not Path(str(r.get("artifact", ""))).is_dir())
+
+
+def _digests(records: list[dict[str, Any]], current: dict[str, str]) -> tuple[list[str], list[str]]:
+    """(models whose digest differs from Ollama's now, models Ollama could not vouch for)."""
+    seen: dict[str, set[str]] = {}
+    for r in records:
+        seen.setdefault(r["model"], set()).add(r.get("model_digest", ""))
+    for model in seen:
+        current.setdefault(model, runner.model_digest(model))
+    changed = [m for m, ds in seen.items() if current[m] and any(d and d != current[m] for d in ds)]
+    return sorted(changed), sorted(m for m in seen if not current[m])
+
+
 def audit_results(results_dir: Path, version: str = layout.VERSION) -> list[dict[str, Any]]:
-    """One row per results file: records, missing builds, models whose digest changed."""
-    now: dict[str, str] = {}
+    """One row per results file: records, missing builds and artifacts, digests that changed."""
+    current: dict[str, str] = {}
     rows = []
     for path in sorted(results_dir.rglob("*.jsonl")):
         records = _records(path)
         if not records:
             continue
-        missing = sorted(
-            {
-                r["fixture_tree_hash"][:12]
-                for r in records
-                if layout.find_profile_dir(r["fixture_tree_hash"], version) is None
-            }
-        )
-        digests: dict[str, set[str]] = {}
-        for r in records:
-            digests.setdefault(r["model"], set()).add(r.get("model_digest", ""))
-        for model in digests:
-            now.setdefault(model, runner.model_digest(model))
-        changed = sorted(
-            m for m, seen in digests.items() if now[m] and any(d and d != now[m] for d in seen)
-        )
+        changed, unchecked = _digests(records, current)
         rows.append(
             {
                 "file": str(path.relative_to(results_dir)),
                 "records": len(records),
-                "missing_builds": missing,
+                "missing_builds": _missing_builds(records, version),
+                "missing_artifacts": _missing_artifacts(records),
                 "model_digest_changed": changed,
-                "model_digest_unchecked": sorted(m for m in digests if not now[m]),
+                "model_digest_unchecked": unchecked,
                 "opencode": sorted({r.get("opencode_version", "") for r in records}),
             }
         )
@@ -72,6 +80,21 @@ def audit_builds(version: str = layout.VERSION) -> list[str]:
     return problems
 
 
+def _flags(row: dict[str, Any]) -> list[str]:
+    flags = []
+    if row["missing_builds"]:
+        flags.append(f"builds gone: {row['missing_builds']}")
+    if row["missing_artifacts"]:
+        flags.append(f"{row['missing_artifacts']} artifact dirs gone (cannot be rescored)")
+    if row["model_digest_changed"]:
+        flags.append(f"model digest changed: {row['model_digest_changed']}")
+    if row["model_digest_unchecked"]:
+        flags.append(
+            f"model digest UNCHECKED (Ollama unreachable): {row['model_digest_unchecked']}"
+        )
+    return flags
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--results", type=Path, default=layout.ROOT / "results")
@@ -80,24 +103,16 @@ def main(argv: list[str] | None = None) -> int:
     rows = audit_results(args.results)
     builds = [] if args.skip_builds else audit_builds()
     for r in rows:
-        flags = []
-        if r["missing_builds"]:
-            flags.append(f"builds gone: {r['missing_builds']}")
-        if r["model_digest_changed"]:
-            flags.append(f"model digest changed: {r['model_digest_changed']}")
-        if r["model_digest_unchecked"]:
-            flags.append(
-                f"model digest UNCHECKED (Ollama unreachable): {r['model_digest_unchecked']}"
-            )
-        print(f"{r['file']:50s} {r['records']:4d} records  {'; '.join(flags) or 'reproducible'}")
+        print(
+            f"{r['file']:50s} {r['records']:4d} records  {'; '.join(_flags(r)) or 'reproducible'}"
+        )
     for p in builds:
         print(f"BUILD DRIFT {p}")
     versions = Counter(v for r in rows for v in r["opencode"] if v)
     print(
         f"opencode versions in records: {dict(versions)}; installed: {modelinfo.opencode_version()}"
     )
-    bad = any(r["missing_builds"] for r in rows) or bool(builds)
-    return 1 if bad else 0
+    return 1 if any(r["missing_builds"] for r in rows) or builds else 0
 
 
 if __name__ == "__main__":

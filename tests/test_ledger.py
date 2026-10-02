@@ -155,3 +155,51 @@ def test_a_variant_prompt_that_starts_with_a_dash_is_refused(tmp_path: Path) -> 
     (tmp_path / "variant.toml").write_text('[prompt]\nprefix = "--help "\n')
     with pytest.raises(plant.PlantError, match="read as an option"):
         plant.variant_config(tmp_path)
+
+
+def test_the_family_counts_every_distinct_variant_on_every_split() -> None:
+    entries = [
+        {"baseline": "tune", "candidate": "tune+a"},
+        {"baseline": "holdout2", "candidate": "holdout2+b"},
+        {"baseline": "tune2", "candidate": "tune2"},
+    ]
+    assert ledger.family_size(entries, "dev", "dev+c") == 3
+    assert ledger.family_size(entries, "dev", "dev+a") == 2
+
+
+def _entry(variant: str, verdict: str, vhash: str, holdout: bool = True) -> dict[str, object]:
+    return {
+        "candidate": f"holdout2+{variant}",
+        "variant_hash": vhash,
+        "holdout_used": holdout,
+        "verdict": verdict,
+    }
+
+
+def test_clearance_needs_a_clear_holdout_verdict_for_the_files_as_they_are_now() -> None:
+    entries = [
+        _entry("a", "INCONCLUSIVE", "h1"),
+        _entry("b", "CLEAR", "h2"),
+        _entry("c", "CLEAR", "h3", False),
+    ]
+    assert "never judged" in ledger.cleared(entries, "zzz", "h")
+    assert "holdout verdicts are" in ledger.cleared(entries, "a", "h1")
+    assert ledger.cleared(entries, "b", "h2") == ""
+    assert "changed since" in ledger.cleared(entries, "b", "other")
+    assert "changed since" in ledger.cleared(entries, "b", ""), "an unhashed variant is not cleared"
+    assert "no holdout verdict" in ledger.cleared(entries, "c", "h3")
+
+
+def test_the_clear_command_exits_zero_only_for_a_cleared_variant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "variants" / "v" / "files").mkdir(parents=True)
+    (tmp_path / "variants" / "v" / "files" / "AGENTS.md").write_text("rule\n")
+    monkeypatch.setattr(layout, "ROOT", tmp_path)
+    path = tmp_path / "ledger.jsonl"
+    assert gate.main(["clear", "--variant", "v", "--ledger", str(path)]) == 1
+    ledger.record(path, _entry("v", "CLEAR", ledger.variant_hash(tmp_path / "variants", "v")))
+    assert gate.main(["clear", "--variant", "v", "--ledger", str(path)]) == 0
+    assert "cleared" in capsys.readouterr().out
+    (tmp_path / "variants" / "v" / "files" / "AGENTS.md").write_text("changed rule\n")
+    assert gate.main(["clear", "--variant", "v", "--ledger", str(path)]) == 1

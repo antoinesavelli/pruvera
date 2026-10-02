@@ -51,3 +51,8 @@ def test_retrieval_spike_ranks_files_and_scores_recall_and_mrr() -> None:
     scores = spike.bm25(chunks, "gamma")
     assert scores.argmax() == 1 and scores[0] == 0
     assert abs(float(spike.z(np.array([1.0, 2.0, 3.0])).mean())) < 1e-6
+
+
+def test_the_startup_spike_still_imports_and_names_its_prompt() -> None:
+    spike = _load("latency_startup")
+    assert "STATUS.md" in spike.PROMPT and callable(spike.run_once)

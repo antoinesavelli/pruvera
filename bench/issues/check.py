@@ -60,7 +60,7 @@ def _run(
         for i, (rel, text) in enumerate((overrides or {}).items()):
             (work / "ov" / str(i)).write_text(text)
             target = shlex.quote(f"{sandbox.WORKDIR}/{rel}")
-            prep += f"mkdir -p $(dirname {target}) && cp /ov/{i} {target} && "
+            prep += f'mkdir -p "$(dirname {target})" && cp /ov/{i} {target} && '
         spec = sandbox.Spec(
             base=env.tree,
             upper=work / "upper",
