@@ -199,10 +199,40 @@ def test_a_client_that_stalls_mid_request_is_dropped_after_the_read_timeout(
     with ollama_filter.serve(sock, upstream, frozenset({"m"})):
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         client.connect(str(sock))
-        client.sendall(b"POST /v1/chat/completions HTTP/1.1\\r\\nContent-Length: 1000\\r\\n\\r\\n{")
+        client.sendall(b"POST /v1/chat/completions HTTP/1.1\r\nContent-Length: 1000\r\n\r\n{")
         client.settimeout(3)
         assert client.recv(4096) == b"", "the filter hangs up on a stalled sender"
         client.close()
+        assert call(sock, "GET", "/api/tags")[0] == 200, "and keeps serving others"
+
+
+def test_a_slow_drip_client_loses_its_slot_at_the_total_deadline_not_per_receive(
+    tmp_path: Path, upstream: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ollama_filter, "REQUEST_DEADLINE", 0.5)
+    sock = tmp_path / "f.sock"
+    with ollama_filter.serve(sock, upstream, frozenset({"m"})):
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.connect(str(sock))
+        client.settimeout(0.05)
+        head = b"POST /v1/chat/completions HTTP/1.1\r\nContent-Length: 1000\r\n\r\n"
+        began, hung_up = time.monotonic(), False
+        for byte in head + b"x" * 500:  # a byte every 0.1 s, well inside READ_TIMEOUT
+            try:
+                client.sendall(bytes([byte]))
+                if client.recv(1) == b"":
+                    hung_up = True
+                    break
+            except TimeoutError:
+                pass
+            except OSError:
+                hung_up = True
+                break
+            time.sleep(0.1)
+        elapsed = time.monotonic() - began
+        client.close()
+        assert hung_up and elapsed < 3, "the filter hangs up at the deadline, not after the body"
+        assert not _Fake.seen, "a half-sent body is never forwarded"
         assert call(sock, "GET", "/api/tags")[0] == 200, "and keeps serving others"
 
 
@@ -232,6 +262,12 @@ def test_a_unicode_digit_content_length_is_a_clean_400_not_a_crash(
         (b'{"model": "m", "keep_alive": "5m"}', True),
         (b'{"model": "m", "keep_alive": 0}', True),
         (b'{"model": "m", "keep_alive": true}', False),
+        (b'{"model": "m", "max_tokens": 4096}', True),
+        (b'{"model": "m", "max_tokens": 100000000}', False),
+        (b'{"model": "m", "max_completion_tokens": 100000000}', False),
+        (b'{"model": "m", "max_tokens": "lots"}', False),
+        (b'{"model": "m", "max_tokens": true}', False),
+        (b'{"model": "m", "num_predict": 100000000}', False),
     ],
 )
 def test_requests_may_not_resize_the_context_or_pin_the_model(body: bytes, ok: bool) -> None:
