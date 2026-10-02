@@ -81,6 +81,15 @@ def model_allowed(body: bytes | None, models: frozenset[str]) -> bool:
     return all(isinstance(v, str) and v in models for v in named) and _resources_ok(doc)
 
 
+def canonical(body: bytes | None) -> bytes | None:
+    """The vetted body re-serialised: what upstream reads is exactly what the filter parsed."""
+    if not body:
+        return body
+    return json.dumps(
+        json.loads(body, object_pairs_hook=_no_duplicates), separators=(",", ":")
+    ).encode()
+
+
 OPTION_KEYS = frozenset(
     {
         "temperature", "top_p", "top_k", "min_p", "seed", "stop", "repeat_penalty",
@@ -89,6 +98,7 @@ OPTION_KEYS = frozenset(
     }
 )  # fmt: skip
 MAX_NUM_PREDICT = 131072
+MAX_STOP = 16  # stop sequences per request
 
 
 def _int_in(value: object, low: int, high: int) -> bool:
@@ -109,6 +119,18 @@ def _options_ok(doc: dict[str, object]) -> bool:
     return all(_bounds_ok(source) for source in (doc, options))
 
 
+def _stop_ok(doc: dict[str, Any]) -> bool:
+    """`stop` sequences, wherever they sit, are few and short."""
+    inner = doc.get("options")
+    for stop in (doc.get("stop"), inner.get("stop") if isinstance(inner, dict) else None):
+        if stop is None:
+            continue
+        items = stop if isinstance(stop, list) else [stop]
+        if len(items) > MAX_STOP or any(not isinstance(i, str) or len(i) > 200 for i in items):
+            return False
+    return True
+
+
 def _bounds_ok(source: dict[str, Any]) -> bool:
     ctx, predict = source.get("num_ctx"), source.get("num_predict")
     return (ctx is None or _int_in(ctx, 1, MAX_NUM_CTX)) and (
@@ -119,9 +141,10 @@ def _bounds_ok(source: dict[str, Any]) -> bool:
 def _resources_ok(doc: dict[str, object]) -> bool:
     """False for a request that sizes the context, output or residency out of bounds."""
     lowered = [k.lower() for k in doc]
-    if len(lowered) != len(set(lowered)):
-        return False  # keys that differ only in case
-    return _options_ok(doc) and _keep_alive_ok(doc.get("keep_alive"))
+    plain = all(k.isascii() and k == k.lower() for k in doc)
+    if len(lowered) != len(set(lowered)) or not plain:
+        return False  # `Keep_alive` or a Unicode-foldable spelling would dodge the checks below
+    return _options_ok(doc) and _keep_alive_ok(doc.get("keep_alive")) and _stop_ok(doc)
 
 
 def _keep_alive_ok(keep: object) -> bool:
@@ -158,12 +181,13 @@ def _content_length(headers: Message) -> int:
     return int(lengths[0])
 
 
-def _vet(method: str, target: str, body: bytes | None, models: frozenset[str]) -> None:
-    """Refuse a call that is not an allowed inference request for an allowed model."""
+def _vet(method: str, target: str, body: bytes | None, models: frozenset[str]) -> bytes | None:
+    """The canonical body of an allowed inference request for an allowed model, else a refusal."""
     if not allowed(method, target):
         raise _Refusal(403, "blocked by the trial sandbox: inference calls only")
     if not model_allowed(body, models):
         raise _Refusal(403, "blocked by the trial sandbox: this model is not allowed")
+    return canonical(body)
 
 
 def _short(value: object) -> str:
@@ -194,8 +218,12 @@ def _relay(
     """Forward one vetted request to Ollama and stream its response back: (status, first byte s)."""
     began = time.monotonic()
     first = 0.0
-    headers = {k: v for k, v in handler.headers.items() if k.lower() not in HOP_BY_HOP}
+    headers = {
+        k: v for k, v in handler.headers.items() if k.lower() not in HOP_BY_HOP | {"content-length"}
+    }
     headers.pop("Host", None)
+    if body is not None:
+        headers["Content-Length"] = str(len(body))
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=900)
     try:
         conn.request(handler.command, handler.path, body, headers)
@@ -276,7 +304,7 @@ def make_handler(
                 # Read the body before any refusal: closing with unread bytes resets the
                 # connection and the client would see a reset instead of the 403.
                 body = self.rfile.read(length) if length else None
-                _vet(self.command, self.path, body, models)
+                body = _vet(self.command, self.path, body, models)
             except _Refusal as refusal:
                 self._refuse(refusal.code, refusal.why)
                 return
@@ -315,7 +343,11 @@ class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
                 request.sendall(b"HTTP/1.0 503 Busy\r\nContent-Length: 0\r\n\r\n")
             self.shutdown_request(request)
             return
-        super().process_request(request, client_address)
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._thread_slots.release()  # the thread never started: its slot would leak
+            raise
 
     def process_request_thread(self, request: Any, client_address: Any) -> None:
         try:

@@ -172,3 +172,19 @@ def test_scoring_and_reporting_commands_do_not_block_trials(proc: Path, command:
     assert preflight.running_agents(proc, me=999) == []
     _proc(proc, 43, ["python3", "-m", "bench.issues.trials", "run", "--profile", "full"])
     assert [p.code for p in preflight.running_agents(proc, me=999)] == ["bench_running"]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["python3", "-m", "bench.gate", "run", "--out", "report", "--baseline", "a"],
+        ["python3", "-m", "bench.issues.trials", "run", "--only", "rate", "score"],
+        ["python3", "-m", "bench.gate", "--candidate", "judge", "run"],
+    ],
+)
+def test_a_trial_run_cannot_hide_behind_a_scoring_word_in_its_arguments(
+    proc: Path, argv: list[str]
+) -> None:
+    """The subcommand is the first non-option argument after the module, not any argv word."""
+    _proc(proc, 44, argv)
+    assert [p.code for p in preflight.running_agents(proc, me=999)] == ["bench_running"]

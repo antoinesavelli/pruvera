@@ -18,7 +18,7 @@ def read_jsonl(path: Path, skip_bad: bool = False) -> list[dict[str, Any]]:
             continue
         try:
             record = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):
             if skip_bad:
                 continue
             raise
