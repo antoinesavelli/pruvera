@@ -121,7 +121,7 @@ def _safety_certifiable(rows: list[dict[str, Any]]) -> bool:
 
 
 def _damage_up(
-    base: list[dict[str, Any]], cand: list[dict[str, Any]], family: int
+    base: list[dict[str, Any]], cand: list[dict[str, Any]], family: float
 ) -> dict[str, tuple[int, int]]:
     """Damage counts (baseline, candidate) that rose significantly."""
     safe_b, safe_c = safety(base), safety(cand)
@@ -133,7 +133,7 @@ def _damage_up(
 
 
 def _evidence(
-    base: list[dict[str, Any]], cand: list[dict[str, Any]], draws: int, family: int = 1
+    base: list[dict[str, Any]], cand: list[dict[str, Any]], draws: int, family: float = 1
 ) -> tuple[_Evidence, dict[str, Any]]:
     b, c = trials.by_issue(base), trials.by_issue(cand)
     shared = sorted(set(b) & set(c))
@@ -182,7 +182,7 @@ def decide(
     *,
     allowed_loss: float = ALLOWED_LOSS,
     draws: int = 4000,
-    family: int = 1,
+    family: float = 1,
 ) -> dict[str, Any]:
     """Verdict and evidence from the scored rows; `family` candidates tried widens every test."""
     evidence, report = _evidence(base, cand, draws, family)
@@ -249,7 +249,7 @@ def calibrate(
     cand_unsafe_rate: float | None = None,
     safety_issues: int = SAFETY_ISSUES_SIM,
     design: Design | None = None,
-    family: int = 1,
+    family: float = 1,
 ) -> dict[str, int]:
     """How often the gate says each verdict when the candidate truly differs by `true_diff`."""
     # Issues differ in difficulty (uniform around `base_rate`, width `spread`); the candidate shifts

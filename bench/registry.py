@@ -18,7 +18,7 @@ import json
 import re
 import time
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -49,6 +49,9 @@ class Spec:
     repeats: int
     decision_rule: str
     models: dict[str, str]
+    interim: tuple[int, ...] = ()  # repeat counts after which a planned interim look happens
+    underpowered: str = ""  # why a design that cannot decide is run anyway
+    safety_repeats: int = 0  # repeats of each safety issue when larger than `repeats`
 
 
 def results_dir(root: Path = layout.ROOT) -> Path:
@@ -102,6 +105,13 @@ def append(root: Path, event: str, **fields: Any) -> dict[str, Any]:
     return row
 
 
+def _interim(doc: dict[str, Any], stem: str) -> tuple[int, ...]:
+    looks = tuple(doc.get("interim", ()))
+    if not all(isinstance(k, int) and 0 < k < doc["repeats"] for k in looks):
+        raise RegistryError(f"{stem}: interim looks must be repeat counts below `repeats`")
+    return tuple(sorted(set(looks)))
+
+
 def parse_spec(doc: dict[str, Any], stem: str) -> Spec:
     """A spec from its TOML table; the id must be the file's name."""
     missing = [
@@ -122,7 +132,8 @@ def parse_spec(doc: dict[str, Any], stem: str) -> Spec:
     models = {str(k): str(v) for k, v in dict(doc.get("models", {})).items()}
     return Spec(
         doc["id"], doc["question"], doc["kind"], doc["baseline"], str(doc.get("candidate", "")),
-        doc["repeats"], doc["decision_rule"], models,
+        doc["repeats"], doc["decision_rule"], models, _interim(doc, stem),
+        str(doc.get("underpowered", "")), int(doc.get("safety_repeats", 0)),
     )  # fmt: skip
 
 
@@ -167,6 +178,18 @@ def _spent(rows: list[dict[str, Any]], root: Path, variants: Mapping[str, str]) 
     return used
 
 
+def spent_variants(rows: list[dict[str, Any]], root: Path = layout.ROOT) -> dict[str, set[str]]:
+    """For each holdout generation, the variant names that already used its look."""
+    used: dict[str, set[str]] = {}
+    for row in rows:
+        for gen in row.get("holdout_gens", []):
+            used.setdefault(gen, set()).update(row.get("variants", {}))
+    for e in ledger.read(results_dir(root) / "gate" / "ledger.jsonl"):
+        for gen in ledger.used_gens(e):
+            used.setdefault(gen, set()).add(ledger.variant_of(e["candidate"]))
+    return {gen: names - {""} for gen, names in used.items()}
+
+
 def _committed(spec_path: Path, root: Path) -> tuple[str, str]:
     """(sha256, commit) of a spec that is tracked, unmodified and under `experiments/`."""
     rel = spec_path.resolve().relative_to((root / "experiments").resolve())
@@ -199,8 +222,15 @@ def _check_kind(spec: Spec, gens: set[str], dirty: bool) -> None:
         raise RegistryError("a confirmatory study needs a clean bench/ (commit or stash first)")
 
 
-def register(spec_path: Path, root: Path = layout.ROOT) -> dict[str, Any]:
-    """Register a committed spec; spends the holdout looks it touches."""
+def register(
+    spec_path: Path,
+    root: Path = layout.ROOT,
+    extra: Callable[[Spec, set[str]], Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Register a committed spec; spends the holdout looks it touches.
+
+    `extra(spec, gens)` adds fields to the row once every check has passed.
+    """
     spec = parse_spec(tomllib.loads(spec_path.read_text()), spec_path.stem)
     rows = read(root)
     if any(r["event"] == "registered" and r["id"] == spec.id for r in rows):
@@ -220,7 +250,8 @@ def register(spec_path: Path, root: Path = layout.ROOT) -> dict[str, Any]:
         root, "registered", id=spec.id, kind=spec.kind, baseline=spec.baseline,
         candidate=spec.candidate, repeats=spec.repeats, models=spec.models, variants=variants,
         holdout_gens=sorted(gens), spec_sha256=sha, spec_commit=commit, harness_commit=head,
-        harness_dirty=dirty,
+        harness_dirty=dirty, interim=list(spec.interim), underpowered=spec.underpowered,
+        safety_repeats=spec.safety_repeats, **(extra(spec, gens) if extra else {}),
     )  # fmt: skip
 
 
