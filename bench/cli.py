@@ -11,7 +11,6 @@ import sys
 from pathlib import Path
 
 from bench import layout, preflight, reference, runner
-from bench.layout import ROOT
 
 
 def parse_hook(text: str) -> runner.Hook:
@@ -75,13 +74,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.wait:
         preflight.wait_clear(args.wait)
     with preflight.session_lock():
-        reference.sweep(ROOT / "overlays")
+        reference.sweep(layout.OVERLAYS)
         record = runner.run_trial(
             fx,
             spec,
-            ROOT / "artifacts",
-            ROOT / "overlays",
-            ROOT / "results" / "trials.jsonl",
+            layout.ARTIFACTS,
+            layout.OVERLAYS,
+            layout.RESULTS / "trials.jsonl",
             force=args.force,
         )
     print(

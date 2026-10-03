@@ -54,7 +54,7 @@ def _plan_moves(files: list[Path], results: Path, day: str) -> list[tuple[Path, 
 
 
 def archive(
-    files: list[Path], reason: str, results: Path = layout.ROOT / "results", day: str = ""
+    files: list[Path], reason: str, results: Path = layout.RESULTS, day: str = ""
 ) -> list[Path]:
     """Move `files` and their companions under `<results>/archive/<day>/`; returns the new paths."""
     day = day or datetime.date.today().isoformat()
@@ -73,7 +73,7 @@ def archive(
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("files", nargs="+", type=Path)
-    ap.add_argument("--results", type=Path, default=layout.ROOT / "results")
+    ap.add_argument("--results", type=Path, default=layout.RESULTS)
     ap.add_argument("--reason", required=True, help="one line: why this leaves the active set")
     args = ap.parse_args(argv)
     for dst in archive([f.resolve() for f in args.files], args.reason, args.results.resolve()):
