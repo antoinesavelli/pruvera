@@ -22,11 +22,13 @@ from bench.jsonl import read_jsonl
 
 
 def _records(path: Path) -> list[dict[str, Any]]:
-    return [r for r in read_jsonl(path, skip_bad=True) if "fixture_tree_hash" in r]
+    return [
+        r for r in read_jsonl(path, skip_bad=True) if "fixture_tree_hash" in r or "artifact" in r
+    ]
 
 
 def _missing_builds(records: list[dict[str, Any]], version: str) -> list[str]:
-    hashes = {r["fixture_tree_hash"] for r in records}
+    hashes = {r["fixture_tree_hash"] for r in records if "fixture_tree_hash" in r}
     return sorted(h[:12] for h in hashes if layout.find_profile_dir(h, version) is None)
 
 
