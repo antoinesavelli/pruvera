@@ -191,3 +191,25 @@ def test_a_visible_commit_is_listed_once_and_not_marked_hidden(
     _git(repo, "commit", "-qm", "plain")
     state = _real_git_state(repo, tmp_path, base, monkeypatch)
     assert [(c["subject"], c.get("hidden")) for c in state["commits"]] == [("plain", None)]
+
+
+def test_a_peer_stash_is_not_a_hidden_commit_but_a_dropped_one_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "a.py").write_text("a = 1\n")
+    _git(repo, "add", "a.py")
+    _git(repo, "commit", "-qm", "base")
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / "a.py").write_text("a = 1\n# peer\n")
+    _git(repo, "stash", "push", "-q", "-m", "peer wip", "--", "a.py")
+
+    state = _real_git_state(repo, tmp_path, base, monkeypatch)
+    assert state["commits"] == [] and len(state["stashes"]) == 1
+
+    _git(repo, "stash", "drop", "-q")
+    dropped = _real_git_state(repo, tmp_path, base, monkeypatch)
+    assert dropped["stashes"] == []
+    assert any("peer wip" in c["subject"] and c["hidden"] for c in dropped["commits"])

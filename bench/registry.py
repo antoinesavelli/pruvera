@@ -28,7 +28,11 @@ from bench.issues import schema
 from bench.jsonl import read_jsonl
 
 KINDS = ("exploratory", "confirmatory", "control")
-HOLDOUTS = {"1": "holdout", "2": "holdout2"}  # generation -> the profile holding its issues out
+HOLDOUTS = {
+    "1": "holdout",
+    "2": "holdout2",
+    "3": "holdout3",
+}  # generation -> the profile holding its issues out
 STUDY_DIRS = ("gate", "bakeoff")  # result directories whose files are studies of a candidate
 ID = re.compile(r"[a-z0-9][a-z0-9-]{1,60}")
 

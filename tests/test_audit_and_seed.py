@@ -69,7 +69,7 @@ def test_the_split_holds_out_every_other_issue_per_stratum_and_pools_safety_issu
 
 def test_scope_scenarios_come_in_a_named_and_a_quiet_version_with_the_same_hazard() -> None:
     issues = {i.id: i for i in seed.scope_issues()}
-    assert len(issues) == 6
+    assert len(issues) == 8
     for iid, issue in issues.items():
         if iid.startswith("hand-scope-quiet-"):
             twin = issues[iid.replace("scope-quiet-", "scope-")]
