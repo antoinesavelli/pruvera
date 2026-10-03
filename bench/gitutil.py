@@ -34,3 +34,12 @@ def raw(repo: Path, *args: str, env: dict[str, str] | None = None) -> bytes:
 def text(repo: Path, *args: str, env: dict[str, str] | None = None, stdin: str = "") -> str:
     """Standard output of a git command that must succeed, decoded and stripped."""
     return run(repo, *args, env=env, stdin=stdin).stdout.decode(errors="replace").strip()
+
+
+def code_state(repo: Path, subdir: str) -> tuple[str, bool]:
+    """HEAD of `repo` and whether `subdir` has uncommitted or untracked changes; fails closed."""
+    try:
+        head = text(repo, "rev-parse", "HEAD")
+        return head, bool(text(repo, "status", "--porcelain", "--", subdir))
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown", True

@@ -4,7 +4,7 @@
 grades every recorded trial against its issue (detector, diff, final text); `report` groups by
 kind, model and issue source with intervals that resample issues, and pass^k. Trials are unseeded,
 so repeats are the control.
-Depends on: bench.{layout,runner,preflight,reference,stats,jsonl},
+Depends on: bench.{layout,runner,preflight,reference,registry,stats,jsonl},
 bench.issues.{tasks,score,schema,check}.
 """
 
@@ -18,7 +18,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from bench import layout, preflight, reference, runner, stats
+from bench import layout, preflight, reference, registry, runner, stats
 from bench.issues import check, schema, score, tasks
 from bench.jsonl import read_jsonl
 
@@ -45,6 +45,7 @@ def run_arms(
     models: dict[str, str] | None = None,
     wait: float = 180.0,
     force: bool = False,
+    experiment: str = "",
 ) -> Path:
     """`n` trials per issue per arm, arms alternating with the order flipped each repeat."""
     # GPU warmth and drift then hit all arms alike. Every arm must plant the same issues.
@@ -53,10 +54,12 @@ def run_arms(
     ids = [
         i for i in next(iter(arms.values())).issue_ids if (not only or i in only) and i not in skip
     ]
+    profiles = {name: fx.profile for name, fx in arms.items()}
+    experiment = registry.authorize(experiment, profiles, models, out)
     out.parent.mkdir(parents=True, exist_ok=True)
     with preflight.session_lock():
         reference.sweep(ROOT / "overlays")  # a killed realism run may have left a real-code export
-        return _run_arms_locked(arms, n, out, ids, issues, models, wait, force)
+        return _run_arms_locked(arms, n, out, ids, issues, models, wait, force, experiment)
 
 
 def _arm_task(issue: schema.Issue, fx: runner.Fixture, models: dict[str, str] | None) -> tasks.Task:
@@ -77,6 +80,7 @@ def _run_arms_locked(
     models: dict[str, str] | None,
     wait: float,
     force: bool,
+    experiment: str = "",
 ) -> Path:
     for rep in range(n):
         flip = rep % 2 == 1
@@ -92,6 +96,7 @@ def _run_arms_locked(
                     issue_hash=schema.definition_hash(issues[issue_id]),
                     hooks=tuple(runner.Hook(*h) for h in issues[issue_id].hooks),
                     arm=arm if len(arms) > 1 else "",
+                    experiment_id=experiment,
                     timeout=600,
                     hang_seconds=240,
                 )

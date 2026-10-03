@@ -7,6 +7,22 @@ not repeat `plans/ROAD_TO_A.md`. Catalogue growth (A1 to A6) and GPU runs (G1 to
 plan says when they are worth spending. Tags as in ROAD_TO_A: **[C]** code, **[O]** owner decision,
 **[G]** GPU time.
 
+## Progress
+
+| Item | State 2026-10-03 |
+|---|---|
+| S0.1, S0.2 restore the pin and stop it recurring | **Resolved by a peer session in `2b41eff` (2026-10-03 00:53), differently from this plan:** an unpinned install of radon (with mando and colorama) was the cause, the original fingerprint could not be restored byte for byte, so the venv was re-pinned and its directories made read-only; the rule is in `AGENTS.md`. The advice above not to re-pin did not hold. `doctor` shows no build drift. |
+| S0.3 moratorium | Enforced by code: `trials.run_arms` refuses candidate runs without a registration. |
+| R1 spec, R2 registry, R3 enforcement, R4 retro rows | **Done** (`bench/registry.py`, `bench/experiment.py`, `tests/test_registry.py`). 38 study files (943 trials) are recorded as `retro`; 8 variants now count as having spent their generation-2 look. |
+| 6.1 code stamps | Partly: trial records carry `experiment_id`, `harness_commit`, `harness_dirty`; registry rows carry the harness commit; a confirmatory registration or run refuses a dirty `bench/`. **Not yet:** `scorer_commit` on scored rows. |
+
+**Deviations from the text below.** (1) The three legacy ledger rows were not copied into the
+registry: the registry reads `results/gate/ledger.jsonl` for spent looks and counts its `results`
+paths as covered. Folding `gate.judge` into the registry waits until `gate.py`, which a peer session
+was editing, is committed. (2) `registry.holdout_issues` duplicates `gate.holdout_issues` for the
+same reason; `gate` should import it afterwards. (3) `doctor` does not call `registry.audit` yet
+(`python3 -m bench.experiment verify` does).
+
 ## 1. The problem in one paragraph
 
 The environment measures well and decides badly. It has run about 2,050 trials over 16 models, but
@@ -47,6 +63,8 @@ fixing any of the four causes. Expected-loss reporting can be added later as a r
 does not decide anything.
 
 ## 3. Step 0: restore the pins (now, before anything else)
+
+**Superseded: see Progress.** Kept as written, because it records how the drift was diagnosed.
 
 **Found 2026-10-03:** `bench.doctor --strict` reports BUILD DRIFT on all 26 profile builds: the
 fixture venv no longer matches its pinned fingerprint. **Cause:** 26 `__pycache__` files written
