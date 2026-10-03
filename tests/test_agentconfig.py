@@ -20,7 +20,7 @@ OPENCODE = Path.home() / ".opencode" / "bin" / "opencode"
 REAL = {
     "model": "ollama/a",
     "provider": {
-        "ollama": {"options": {"baseURL": "http://localhost:11434/v1"}},
+        "ollama": {"options": {"baseURL": "http://localhost:11434/v1"}, "models": {}},
         "openrouter": {"options": {"apiKey": "{env:K}"}},
     },
     "mcp": {"m": {"type": "local"}},
@@ -54,9 +54,21 @@ def test_assemble_removes_remote_parts_and_records_every_change(tmp_path: Path) 
         "/provider/openrouter",
         "/mcp",
         "/agent/plan/model",
+        "/provider/ollama/models/gpt-oss:20b",
     }
     agentconfig.check_parity(REAL, asm.config, asm.deviations)
     assert REAL["mcp"], "the real config object must not be mutated"
+
+
+def test_assemble_lists_an_unlisted_model_and_leaves_a_listed_one(tmp_path: Path) -> None:
+    real = {**REAL, "provider": {"ollama": {"models": {"a": {"name": "a"}}}}}
+    path = tmp_path / "opencode.json"
+    path.write_text(json.dumps(real))
+    listed = agentconfig.assemble("git", "a", path)
+    assert not any(d.pointer.startswith("/provider/ollama/models") for d in listed.deviations)
+    added = agentconfig.assemble("git", "hf.co/x/y:Q4", path)
+    assert added.config["provider"]["ollama"]["models"]["hf.co/x/y:Q4"] == {"name": "hf.co/x/y:Q4"}
+    agentconfig.check_parity(real, added.config, added.deviations)
 
 
 def test_parity_fails_on_an_unexplained_difference(tmp_path: Path) -> None:
@@ -74,7 +86,11 @@ def test_deviations_toml_matches_the_code(tmp_path: Path) -> None:
     listed = " ".join(d["how"] for d in doc["deviation"])
     asm = agentconfig.assemble("git", "gpt-oss:20b", _write_real(tmp_path))
     for dev in asm.deviations:
-        head = "/agent/<name>/model" if dev.pointer.startswith("/agent/") else dev.pointer
+        head = dev.pointer
+        if head.startswith("/agent/"):
+            head = "/agent/<name>/model"
+        elif head.startswith("/provider/ollama/models/"):
+            head = "/provider/ollama/models/<model>"
         assert head in listed, f"{dev.pointer} is a deviation in code but not in deviations.toml"
 
 
