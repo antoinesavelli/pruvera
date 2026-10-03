@@ -11,6 +11,7 @@ local Ollama.
 from __future__ import annotations
 
 import errno
+import functools
 import hashlib
 import json
 import os
@@ -104,6 +105,7 @@ class TrialSpec:
     label: str = ""  # a task name, so a study can group trials
     issue_hash: str = ""  # the issue's definition hash when the trial started; "" when no issue
     arm: str = ""  # an experiment arm, for example "control" or "treatment"
+    experiment_id: str = ""  # the registered experiment this trial belongs to (bench.registry)
     extra_binds: tuple[tuple[Path, str], ...] = ()  # read-only binds an experiment adds
     inline: dict[str, Any] = field(default_factory=dict)  # merged into the inline config
     trial_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -147,6 +149,13 @@ def rules_hash(tree: Path) -> str:
     for path in sorted(files):
         digest.update(path.relative_to(tree).as_posix().encode() + b"\0" + path.read_bytes())
     return digest.hexdigest()
+
+
+@functools.cache
+def harness_state() -> tuple[str, bool]:
+    """The harness commit and whether `bench/` was dirty, read once when the process first asks."""
+    # Python imported the code at process start, so one reading describes every trial it runs.
+    return gitutil.code_state(ROOT, "bench")
 
 
 ALLOW_UNCAPPED = "AGENT_TESTING_ALLOW_UNCAPPED"
@@ -484,6 +493,9 @@ def _record(
         "label": spec.label,
         "issue_hash": spec.issue_hash,
         "arm": spec.arm,
+        "experiment_id": spec.experiment_id,
+        "harness_commit": harness_state()[0],
+        "harness_dirty": harness_state()[1],
         "environment": fx.environment,
         "fixture_version": fx.version,
         "fixture_profile": fx.profile,

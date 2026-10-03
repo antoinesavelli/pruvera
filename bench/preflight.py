@@ -33,9 +33,24 @@ BENCH_MODULES = frozenset(
         "bench.issues.trials",
         "bench.issues.mine",
         "bench.gate",
+        "bench.experiment",
     }
 )
-NON_TRIAL_COMMANDS = frozenset({"calibrate", "score", "report", "rate", "judge"})  # no trial runs
+NON_TRIAL_COMMANDS = frozenset(
+    {
+        "calibrate",
+        "score",
+        "report",
+        "rate",
+        "judge",
+        "new",
+        "register",
+        "abandon",
+        "retro",
+        "status",
+        "verify",
+    }
+)  # no trial runs
 TRIAL_COMMANDS = frozenset({"run", "trial", "replay"})
 INTERPRETER = re.compile(r"python[0-9.]*|bash|sh|env")
 HARNESS_SCRIPT_SUFFIXES = ("bench/cli.py", "bench/realism.py", "bench/gate.py")

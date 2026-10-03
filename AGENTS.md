@@ -49,6 +49,9 @@ commands for campaigns, scoring, the gate and the tests.
   `a-w`, and note why here.
 - **Changing a fixture's files means a new build and new pins** (`python3 -m bench.fixture.pins --write`; without `--write` it only reports drift);
   a trial refuses a base, venv or data slice that no longer matches.
+- **A candidate run goes through `python3 -m bench.experiment`** (spec in `experiments/`, committed, then `register`, then
+  `run`): `trials.run_arms` refuses a `+variant` profile or a model override without a live registration, and registering
+  spends the holdout look (`plans/DECISION_SIDE_PLAN.md`, `bench/registry.py`). Never edit `results/registry.jsonl` by hand.
 - **Never read or print `dummy.key`** or any credential-shaped file.
 - **A scorer or sandbox change needs a passing self-test first.** The scorers and the escape test
   are what make results trustworthy; do not trust a check's own printed summary, re-verify against
