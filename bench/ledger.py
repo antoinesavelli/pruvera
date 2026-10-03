@@ -21,7 +21,7 @@ from bench.jsonl import read_jsonl
 
 HOLDOUT = "holdout"
 TUNE = "tune"
-SETS = (HOLDOUT, TUNE, "holdout2", "tune2", "dev")
+SETS = (HOLDOUT, TUNE, "holdout2", "tune2", "holdout3", "tune3", "dev", "dev3")
 
 
 class LedgerError(RuntimeError):
