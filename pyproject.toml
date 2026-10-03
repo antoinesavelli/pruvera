@@ -16,6 +16,8 @@ max-complexity = 14  # the owner's hard ceiling is CCN < 15
 [tool.ruff.lint.per-file-ignores]
 # Catalogue data: long prose strings (issue summaries, planted code), not logic.
 "bench/issues/seed.py" = ["E501"]
+"bench/issues/injections.py" = ["E501"]
+"bench/issues/hand_kinds.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
