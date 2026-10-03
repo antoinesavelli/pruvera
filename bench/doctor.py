@@ -133,7 +133,7 @@ def _status(rows: list[dict[str, Any]], builds: list[str], strict: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--results", type=Path, default=layout.ROOT / "results")
+    ap.add_argument("--results", type=Path, default=layout.RESULTS)
     ap.add_argument("--skip-builds", action="store_true", help="do not re-hash the profile trees")
     ap.add_argument("--strict", action="store_true", help="exit 1 on any flag, not only on drift")
     args = ap.parse_args(argv)

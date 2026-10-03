@@ -51,8 +51,13 @@ class Spec:
     models: dict[str, str]
 
 
+def results_dir(root: Path = layout.ROOT) -> Path:
+    """Where results live: the shared state for the real repo, `root/results` for any other."""
+    return layout.RESULTS if root == layout.ROOT else root / "results"
+
+
 def registry_path(root: Path = layout.ROOT) -> Path:
-    return root / "results" / "registry.jsonl"
+    return results_dir(root) / "registry.jsonl"
 
 
 def _digest(row: Mapping[str, Any]) -> str:
@@ -156,7 +161,7 @@ def _spent(rows: list[dict[str, Any]], root: Path, variants: Mapping[str, str]) 
     """Holdout generations already used by these variant texts (by name or by hash)."""
     names, hashes = set(variants), {h for h in variants.values() if h}
     used = _used_by(rows, names, hashes)
-    for e in ledger.read(root / "results" / "gate" / "ledger.jsonl"):
+    for e in ledger.read(results_dir(root) / "gate" / "ledger.jsonl"):
         if ledger.variant_of(e["candidate"]) in names or e.get("variant_hash") in hashes:
             used |= ledger.used_gens(e)
     return used
@@ -253,12 +258,10 @@ def _check_frozen(
 
 
 def _rel(path: Path, root: Path) -> str:
+    """A path relative to the state (or to `root` for any other repo), else as given."""
+    base = (layout.STATE if root == layout.ROOT else root).resolve()
     resolved = path.resolve()
-    return (
-        resolved.relative_to(root.resolve()).as_posix()
-        if resolved.is_relative_to(root.resolve())
-        else str(path)
-    )
+    return resolved.relative_to(base).as_posix() if resolved.is_relative_to(base) else str(path)
 
 
 def authorize(
@@ -303,14 +306,14 @@ def abandon(experiment: str, reason: str, root: Path = layout.ROOT) -> dict[str,
 
 def study_files(root: Path = layout.ROOT) -> list[Path]:
     """The unscored results files of candidate studies."""
-    found = (p for d in STUDY_DIRS for p in sorted((root / "results" / d).glob("*.jsonl")))
+    found = (p for d in STUDY_DIRS for p in sorted((results_dir(root) / d).glob("*.jsonl")))
     return [p for p in found if not p.name.endswith(".scored.jsonl") and p.name != "ledger.jsonl"]
 
 
 def _covered(rows: list[dict[str, Any]], root: Path) -> set[str]:
     out = {str(r.get("out") or r.get("results") or "") for r in rows}
     return out | {
-        str(e.get("results", "")) for e in ledger.read(root / "results" / "gate" / "ledger.jsonl")
+        str(e.get("results", "")) for e in ledger.read(results_dir(root) / "gate" / "ledger.jsonl")
     }
 
 

@@ -19,7 +19,6 @@ from pathlib import Path
 
 from bench import compare, layout, preflight, reference, runner
 
-ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROFILE = "realistic2@hist"  # what `bench.cli` runs by default, plus history
 VERIFY_TAIL = "Final line exactly `VERIFY: PASS` or `VERIFY: FAIL`."
 
@@ -126,7 +125,7 @@ def run_study(n: int, out: Path, wait: float = 120.0, force: bool = False, seed:
             runner.load_profile(layout.VERSION, DEFAULT_PROFILE), environment="default"
         ),
     }
-    artifacts, trials = ROOT / "artifacts", ROOT / "overlays"
+    artifacts, trials = layout.ARTIFACTS, layout.OVERLAYS
     out.parent.mkdir(parents=True, exist_ok=True)
     with preflight.session_lock(), reference.cleanup_on_signals():
         reference.sweep(trials)  # a killed earlier run may have left real code behind
@@ -182,7 +181,7 @@ def _run_study_locked(
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--n", type=int, default=3)
-    ap.add_argument("--out", type=Path, default=ROOT / "results" / "realism" / "study.jsonl")
+    ap.add_argument("--out", type=Path, default=layout.RESULTS / "realism" / "study.jsonl")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--seed", type=int, default=1, help="seed of the per-group side order")
     ap.add_argument("--report", action="store_true", help="only print the comparison of --out")

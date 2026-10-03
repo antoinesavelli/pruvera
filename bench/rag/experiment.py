@@ -24,7 +24,6 @@ from bench import layout, preflight, runner, sandbox, stats
 from bench.jsonl import read_jsonl
 from bench.transcript import answer_kind
 
-ROOT = Path(__file__).resolve().parents[2]
 SERVER = Path(__file__).resolve().parent / "server.py"
 MODEL = "gpt-oss:20b-64k"
 AGENT = "research"
@@ -137,9 +136,7 @@ def run(n: int, out: Path, limit: int, wait: float = 120.0, force: bool = False)
                     if (blocked := preflight.wait_clear(wait)) and not force:
                         raise RuntimeError(f"trials blocked: {[p.code for p in blocked]}")
                     spec = arm_spec(arm, q, index_dir)
-                    runner.run_trial(
-                        fx, spec, ROOT / "artifacts", ROOT / "overlays", out, force=force
-                    )
+                    runner.run_trial(fx, spec, layout.ARTIFACTS, layout.OVERLAYS, out, force=force)
                     print(f"{q.id:30s} {arm:9s} rep {rep + 1}/{n}", flush=True)
     return out
 
@@ -240,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     go = sub.add_parser("run")
     go.add_argument("--n", type=int, default=3)
     go.add_argument("--limit", type=int, default=12)
-    go.add_argument("--out", type=Path, default=ROOT / "results" / "rag" / "ab-1.jsonl")
+    go.add_argument("--out", type=Path, default=layout.RESULTS / "rag" / "ab-1.jsonl")
     go.add_argument("--wait", type=float, default=120.0)
     rep = sub.add_parser("analyse")
     rep.add_argument("results", type=Path)

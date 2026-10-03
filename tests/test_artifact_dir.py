@@ -15,6 +15,7 @@ from bench import compare, doctor, layout
 @pytest.fixture
 def moved_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(layout, "ROOT", tmp_path)
+    monkeypatch.setattr(layout, "STATE", tmp_path)
     (tmp_path / "artifacts" / "abc").mkdir(parents=True)
     return tmp_path
 

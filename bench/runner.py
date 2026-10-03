@@ -4,8 +4,8 @@ A trial: preflight, base-drift check, fresh overlay dirs, assembled config, opti
 the agent streamed under a wall-clock and a no-event watchdog, then the diff read back from the
 overlay. No scoring: the record holds facts (outcome class, counts, artifacts), never a verdict.
 
-Depends on: bench.{sandbox,preflight,agentconfig,transcript,readback,layout,modelinfo,gitutil}; git,
-local Ollama.
+Depends on: bench.{sandbox,preflight,agentconfig,transcript,readback,layout,modelinfo,gitutil},
+bench.bundle; git, local Ollama.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from bench import agentconfig, gitutil, layout, preflight, sandbox
+from bench import agentconfig, bundle, gitutil, layout, preflight, sandbox
 from bench.modelinfo import OPENCODE as OPENCODE
 from bench.modelinfo import gpu_residency as gpu_residency
 from bench.modelinfo import model_digest as model_digest
@@ -106,6 +106,7 @@ class TrialSpec:
     issue_hash: str = ""  # the issue's definition hash when the trial started; "" when no issue
     arm: str = ""  # an experiment arm, for example "control" or "treatment"
     experiment_id: str = ""  # the registered experiment this trial belongs to (bench.registry)
+    repeat: int = 0  # which repeat of its issue and arm this is (1-based; 0 outside a campaign)
     extra_binds: tuple[tuple[Path, str], ...] = ()  # read-only binds an experiment adds
     inline: dict[str, Any] = field(default_factory=dict)  # merged into the inline config
     trial_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -219,7 +220,10 @@ def check_experiment(spec: TrialSpec) -> None:
 
 def _bind_allowed(host: Path, dest: str) -> bool:
     resolved = host.resolve()
-    allowed_roots = [r.resolve() for pattern in EXPERIMENT_HOST_ALLOW for r in ROOT.glob(pattern)]
+    bases = {ROOT, layout.STATE}
+    allowed_roots = [
+        r.resolve() for b in bases for pat in EXPERIMENT_HOST_ALLOW for r in b.glob(pat)
+    ]
     inside = any(resolved == r or resolved.is_relative_to(r) for r in allowed_roots)
     return inside and host.exists() and _dest_allowed(dest)
 
@@ -494,6 +498,7 @@ def _record(
         "issue_hash": spec.issue_hash,
         "arm": spec.arm,
         "experiment_id": spec.experiment_id,
+        "repeat": spec.repeat,
         "harness_commit": harness_state()[0],
         "harness_dirty": harness_state()[1],
         "environment": fx.environment,
@@ -545,6 +550,7 @@ def _record(
         "preflight_after": [p.code for p in after],
         "detail": run.detail.partition(":")[0] if fx.environment == "reference" else run.detail,
         "artifact": str(adir),
+        "artifact_sha256": bundle.digest(adir),
     }
     return record
 
