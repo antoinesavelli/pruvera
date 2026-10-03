@@ -32,7 +32,8 @@ def _missing_builds(records: list[dict[str, Any]], version: str) -> list[str]:
 
 def _missing_artifacts(records: list[dict[str, Any]]) -> int:
     """Records whose artifact directory (the scorer's input: diff, transcript) is gone."""
-    return sum(1 for r in records if not Path(str(r.get("artifact", ""))).is_dir())
+    dirs = (layout.artifact_dir(str(r.get("artifact", ""))) for r in records)
+    return sum(1 for d in dirs if not d.is_dir())
 
 
 def _digests(records: list[dict[str, Any]], current: dict[str, str]) -> tuple[list[str], list[str]]:

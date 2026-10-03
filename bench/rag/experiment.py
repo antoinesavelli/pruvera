@@ -153,7 +153,7 @@ def grade_rows(results: Path, questions: list[Question]) -> list[dict[str, Any]]
         q = by_id.get(str(rec.get("label")))
         if q is None or not rec.get("arm"):
             continue
-        answer, tools = read_transcript(Path(rec["artifact"]))
+        answer, tools = read_transcript(layout.artifact_dir(rec["artifact"]))
         seen[(q.id, rec["arm"])] += 1
         rows.append(
             {
