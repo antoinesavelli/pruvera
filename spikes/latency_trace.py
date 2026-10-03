@@ -21,7 +21,7 @@ from typing import Any
 from bench import layout, preflight, reference, runner
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "results" / "realism" / "latency-trace-1.jsonl"
+OUT = ROOT / "results" / "realism" / "latency-trace-2.jsonl"
 PROMPT = (
     "According to docs/STATUS.md, which strategy is the operative default SOURCE? "
     "Reply with the strategy name only."

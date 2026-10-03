@@ -13,10 +13,10 @@ to touch anything real. `PLAN.md` is the plan of record and holds the phase stat
 | `issues/` | The planted-issue catalogue and profiles (never mounted into a trial). |
 | `legacy_bench/`, `bin/` | The moved 2026-09-23 role benchmark (`legacy_bench/README.md`). |
 | `variants/` | Delegation-rule variants for the gate (`variants/README.md`; the directories are not committed, they hold fixture text; `variants/shared-tree-rule.diff` is the added text of the one variant judged here). |
-| `results/` | Trial records (`trials.jsonl`), the realism studies, `issues/` campaigns, `gate/` (verdicts, the ledger, calibration; `commit-tool*` and `rules-restructure-hand` are runs by another session on candidates not described in this plan), `rag/` A/B, legacy results and the archive. |
+| `results/` | Trial records (`trials.jsonl`), the realism studies, `issues/` campaigns, `gate/` (verdicts, the ledger, calibration; `commit-tool*` and `rules-restructure-hand` are runs by another session on candidates not described in this plan), `bakeoff/` (the other session's model bake-off), `archive/` (moved-aside results with `INDEX.jsonl`), `rag/` A/B, legacy results and the archive. |
 | `tests/` | The harness's own tests. |
-| `plans/` | Plans and evaluations beyond `PLAN.md`: `REVERTED_FIX_MINER.md`, `SYNTHETIC_DATA_FILL.md`, `RAG_AND_METRICS_EVALUATION.md`, `ROAD_TO_A.md` (what it takes to bring every review grade to A), `ARCHITECTURE_SCORECARD.md` (the architecture graded in 11 dimensions, 2026-10-02), `DECISION_SIDE_PLAN.md` (how trials become decisions: registry, design, provenance, front door, enforcement in Paramo). |
-| `spikes/` | One-off measurements behind an evaluation, with their result files. |
+| `plans/` | Plans and evaluations beyond `PLAN.md`: `REVERTED_FIX_MINER.md`, `SYNTHETIC_DATA_FILL.md`, `RAG_AND_METRICS_EVALUATION.md`, `ROAD_TO_A.md` (what it takes to bring every review grade to A), `MODEL_BAKEOFF_COMMIT.md` and `MODEL_BAKEOFF_KINDS.md` (the other session's bake-off designs), `ARCHITECTURE_SCORECARD.md` (the architecture graded in 11 dimensions, 2026-10-02), `DECISION_SIDE_PLAN.md` (how trials become decisions: registry, design, provenance, front door, enforcement in Paramo). |
+| `spikes/` | One-off measurements behind an evaluation, with their result files (latency, retrieval, and the model bake-off, handoff and kinds drivers). |
 
 Run everything from the repo root. Most modules use only the standard library and run under the system
 `python3`; the retrieval index/experiment (numpy, PyYAML) and the synthetic-data builder (numpy, pandas) need the
@@ -44,4 +44,4 @@ Rebuilding them needs the real repo (git-crypt unlocked) at the pinned commit an
 no longer match what Ollama serves, so a claim in `PLAN.md` can be traced to data that still exists. Trials are unseeded
 (repeats are the control); a rebuilt fixture is compared by tree hash, not by byte-for-byte reproduction of the old build.
 
-`bin/ruff` is a link into the fixture venv (local only, absent on a fresh clone until the fixture is built).
+`bin/ruff` is a tracked symlink into the fixture venv: it dangles on a fresh clone until the fixture is built.
