@@ -49,7 +49,8 @@ def registered_id(model: str) -> str:
         ):
             return registry.registered(row["id"])["id"]
     raise RuntimeError(
-        f"{model}: no registered kinds study (python3 -m bench.experiment register experiments/kinds-<model>.toml)"
+        f"{model}: no registered kinds study "
+        "(python3 -m bench.experiment register experiments/kinds-<model>.toml)"
     )
 
 
