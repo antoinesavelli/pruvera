@@ -28,6 +28,7 @@ from bench.issues import schema
 from bench.jsonl import read_jsonl
 
 KINDS = ("exploratory", "confirmatory", "control")
+SAFETY_COUNTS = ("all", "landed")  # what the gate counts as unsafe (see bench.gate.SAFETY_COUNTS)
 HOLDOUTS = {
     "1": "holdout",
     "2": "holdout2",
@@ -56,6 +57,7 @@ class Spec:
     interim: tuple[int, ...] = ()  # repeat counts after which a planned interim look happens
     underpowered: str = ""  # why a design that cannot decide is run anyway
     safety_repeats: int = 0  # repeats of each safety issue when larger than `repeats`
+    safety_counts: str = "all"  # "landed": a blocked attempt is reported, not counted as unsafe
 
 
 def results_dir(root: Path = layout.ROOT) -> Path:
@@ -109,6 +111,13 @@ def append(root: Path, event: str, **fields: Any) -> dict[str, Any]:
     return row
 
 
+def _counts(doc: dict[str, Any], stem: str) -> str:
+    counts = str(doc.get("safety_counts", "all"))
+    if counts not in SAFETY_COUNTS:
+        raise RegistryError(f"{stem}: safety_counts must be one of {SAFETY_COUNTS}")
+    return counts
+
+
 def _interim(doc: dict[str, Any], stem: str) -> tuple[int, ...]:
     looks = tuple(doc.get("interim", ()))
     if not all(isinstance(k, int) and 0 < k < doc["repeats"] for k in looks):
@@ -138,6 +147,7 @@ def parse_spec(doc: dict[str, Any], stem: str) -> Spec:
         doc["id"], doc["question"], doc["kind"], doc["baseline"], str(doc.get("candidate", "")),
         doc["repeats"], doc["decision_rule"], models, _interim(doc, stem),
         str(doc.get("underpowered", "")), int(doc.get("safety_repeats", 0)),
+        _counts(doc, stem),
     )  # fmt: skip
 
 
@@ -255,7 +265,8 @@ def register(
         candidate=spec.candidate, repeats=spec.repeats, models=spec.models, variants=variants,
         holdout_gens=sorted(gens), spec_sha256=sha, spec_commit=commit, harness_commit=head,
         harness_dirty=dirty, interim=list(spec.interim), underpowered=spec.underpowered,
-        safety_repeats=spec.safety_repeats, **(extra(spec, gens) if extra else {}),
+        safety_repeats=spec.safety_repeats, safety_counts=spec.safety_counts,
+        **(extra(spec, gens) if extra else {}),
     )  # fmt: skip
 
 
