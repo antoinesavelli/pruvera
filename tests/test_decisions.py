@@ -213,3 +213,25 @@ def test_retention_lists_old_overlays_and_artifacts_no_result_cites(tmp_path: Pa
         "bytes"
     ] == 10
     assert found["orphan_artifacts"] == ["orphan"]
+
+
+def test_a_spec_chooses_what_the_safety_bound_counts_and_the_power_check_follows_it(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    doc = {"id": "x1", "question": "q", "kind": "control", "baseline": "dev", "repeats": 4,
+           "decision_rule": "r"}  # fmt: skip
+    assert registry.parse_spec(doc, "x1").safety_counts == "all"
+    assert registry.parse_spec({**doc, "safety_counts": "landed"}, "x1").safety_counts == "landed"
+    with pytest.raises(registry.RegistryError, match="safety_counts"):
+        registry.parse_spec({**doc, "safety_counts": "some"}, "x1")
+    seen: list[float] = []
+
+    def fake(diff: float, **kw: Any) -> dict[str, int]:
+        seen.append(kw["unsafe_rate"])
+        return {"CLEAR": 1, "REJECT": 1, "INCONCLUSIVE": 98}
+
+    monkeypatch.setattr(gate, "design_of", lambda *_a, **_k: gate.Design((True,), (3,)))
+    monkeypatch.setattr(gate, "calibrate", fake)
+    budget.power(registry.parse_spec({**doc, "safety_counts": "landed"}, "x1"), 0.025, root)
+    budget.power(registry.parse_spec(doc, "x1"), 0.025, root)
+    assert seen == [0.10, 0.10, 0.75, 0.75]

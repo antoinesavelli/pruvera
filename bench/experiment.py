@@ -33,6 +33,7 @@ repeats = 6
 decision_rule = ""  # the verdict rule and thresholds, fixed before the first trial
 # interim = [2, 4]  # planned interim looks, after these repeat counts (confirmatory)
 # safety_repeats = 12  # repeats of each safety issue when larger than `repeats`
+# safety_counts = "landed"  # "all" (default) also counts a blocked attempt as unsafe
 # underpowered = ""  # the reason, if the registration power check says the design cannot decide
 # [models]  # per-role model overrides for the candidate arm, e.g. git = "granite4.1:8b"
 """
@@ -117,7 +118,10 @@ def interim(experiment_id: str, after: int, root: Path = layout.ROOT) -> dict[st
     if after not in levels or after == row["repeats"]:
         raise registry.RegistryError(f"{experiment_id}: no planned interim look after {after}")
     verdict = gate.decide(
-        _through(base, after), _through(cand, after), family=budget.family_for(levels[after])
+        _through(base, after),
+        _through(cand, after),
+        family=budget.family_for(levels[after]),
+        counts=row.get("safety_counts", "all"),
     )
     stop = verdict["verdict"] == "REJECT"
     return {"after": after, "alpha": levels[after], "decision": "STOP" if stop else "CONTINUE",
@@ -181,7 +185,8 @@ def judge(experiment_id: str, root: Path = layout.ROOT) -> dict[str, Any]:
     row, base, cand = _arms(experiment_id, root)
     final = budget.look_levels(row["repeats"], tuple(row["interim"]), row.get("alpha", 0.05))
     alpha = final[row["repeats"]]
-    verdict = gate.decide(base, cand, family=budget.family_for(alpha))
+    counts = row.get("safety_counts", "all")
+    verdict = gate.decide(base, cand, family=budget.family_for(alpha), counts=counts)
     verdict["alpha_used"] = alpha
     results = _results(experiment_id, root)
     records = [r for r in read_jsonl(results, skip_bad=True) if "trial_id" in r]
@@ -199,6 +204,7 @@ def judge(experiment_id: str, root: Path = layout.ROOT) -> dict[str, Any]:
     registry.append(root, "judged", id=experiment_id, verdict=verdict["verdict"],
                     why=verdict["why"],
                     alpha_used=alpha, diff=verdict["success"]["diff"], scope=_scope(records),
+                    safety_counts=counts,
                     bundle=str(bundle.relative_to(registry.results_dir(root))))  # fmt: skip
     return verdict
 
@@ -226,7 +232,7 @@ def _redecide(row: dict[str, Any], bundle: Path) -> list[str]:
     scored = read_jsonl(bundle / "scored.jsonl")
     verdict = gate.decide(
         gate.arm_rows(scored, "baseline"), gate.arm_rows(scored, "candidate"),
-        family=budget.family_for(row["alpha_used"]),
+        family=budget.family_for(row["alpha_used"]), counts=row.get("safety_counts", "all"),
     )  # fmt: skip
     same = (
         verdict["verdict"] == row["verdict"]
