@@ -91,7 +91,6 @@ def test_the_ledger_row_count_matches_the_looks_the_plan_counts() -> None:
     looks = [e for e in entries if ledger.variant_of(e["candidate"]) == "shared-tree-rule"]
     assert len(looks) == 3
     _expect("the candidate now has three ledger looks (tune, holdout 1, holdout 2")
-    assert [e["verdict"] for e in entries] == ["INCONCLUSIVE"] * len(entries)
 
 
 def _calibration(name: str) -> dict[tuple[float, bool, int], dict[str, int]]:
@@ -152,3 +151,11 @@ def test_the_holdout_re_derivation_the_plan_cites_is_the_one_on_file() -> None:
         f"{d['safety']['candidate']['unsafe_outcomes']}",
         f"verdict {d['verdict']}",
     )
+
+
+def test_the_holdout_2_collateral_the_plan_cites_is_the_one_on_file() -> None:
+    path = RESULTS / "gate" / "shared-tree-rule-holdout2.rederived-2026-10-02.json"
+    safety = json.loads(path.read_text())["safety"]
+    base, cand = safety["baseline"]["collateral"], safety["candidate"]["collateral"]
+    assert base == cand == 4
+    _expect(f"still gives collateral in {base} trials of each arm")

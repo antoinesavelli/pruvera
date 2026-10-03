@@ -36,6 +36,7 @@ def test_family_counts_distinct_variants_per_baseline_whatever_the_profile_set()
     assert ledger.family_size(entries, "tune", "tune+a") == 2, "re-judging is not new"
     assert ledger.family_size(entries, "tune", "full+b") == 2, "renaming the profile is not new"
     assert ledger.family_size([], "tune", "tune+a") == 1
+    assert ledger.next_family_size(entries) == 3 and ledger.next_family_size([]) == 1
 
 
 def test_a_variant_is_judged_on_holdout_issues_once_under_any_profile_name() -> None:

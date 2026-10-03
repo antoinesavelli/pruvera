@@ -41,6 +41,17 @@ def test_files_move_with_their_companions_and_leave_a_reason(tmp_path: Path) -> 
     assert {r["reason"] for r in index} == {"build gone"}
 
 
+def test_a_file_named_with_its_companion_moves_once_and_a_cited_file_stays(tmp_path: Path) -> None:
+    res = _results(tmp_path)
+    both = [res / "gate" / "a.jsonl", res / "gate" / "a.scored.jsonl"]
+    assert len(archive.archive(both, "r", res, day="2026-10-02")) == 3
+    cited = {"candidate": "c", "results": "x/b.jsonl"}
+    (res / "gate" / "ledger.jsonl").write_text(json.dumps(cited) + "\n")
+    with pytest.raises(ValueError, match="cited by a ledger row"):
+        archive.archive([res / "gate" / "b.jsonl"], "r", res)
+    assert (res / "gate" / "b.jsonl").exists()
+
+
 def test_nothing_is_overwritten_and_nothing_moves_twice(tmp_path: Path) -> None:
     res = _results(tmp_path)
     clash = res / "archive" / "2026-10-02" / "gate"

@@ -70,6 +70,11 @@ def family_size(entries: list[dict[str, Any]], baseline: str, candidate: str) ->
     return len(names | {variant_of(candidate)})
 
 
+def next_family_size(entries: list[dict[str, Any]]) -> int:
+    """Candidates tried so far plus one: the family a new judgement would be widened by."""
+    return len({variant_of(e["candidate"]) for e in entries} - {""}) + 1
+
+
 def used_gens(entry: dict[str, Any]) -> set[str]:
     """The holdout generations an entry used (old entries: `holdout_used` means generation 1)."""
     return set(entry.get("holdout_gens") or (["1"] if entry.get("holdout_used") else []))

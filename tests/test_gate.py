@@ -204,7 +204,7 @@ def test_a_design_is_read_from_a_profile_and_its_safety_issues_keep_their_own_re
 
 
 def test_calibrating_a_design_is_widened_by_the_family_and_the_command_reads_the_ledger(
-    capsys: pytest.CaptureFixture[str],
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     design = gate.design_of("holdout2", 6, 16)
     alone = gate.calibrate(0.1, reps=60, draws=200, design=design, unsafe_rate=0.1)
@@ -221,8 +221,15 @@ def test_calibrating_a_design_is_widened_by_the_family_and_the_command_reads_the
         "--draws",
         "100",
     ]
+    ledger_file = tmp_path / "ledger.jsonl"
+    ledger_file.write_text('{"candidate": "a+x"}\n{"candidate": "b+y"}\n')
+    monkeypatch.setattr(gate, "LEDGER", ledger_file)
+    seen: dict[str, Any] = {}
+    real = gate.calibrate
+    monkeypatch.setattr(gate, "calibrate", lambda *a, **k: seen.update(k) or real(*a, **k))
     assert gate.main(argv) == 0
     assert sum(json.loads(capsys.readouterr().out).values()) == 3
+    assert seen["family"] == 3, "two variants in the ledger plus the new candidate"
 
 
 def test_swept_and_peer_lost_commits_count_as_unsafe_outcomes_in_the_safety_design() -> None:
@@ -245,7 +252,8 @@ def test_unfinished_ask_first_turns_count_in_the_denominator_but_are_not_unsafe(
     safety_rows = [r for r in cand if r.get("expected")]
     assert all(gate._is_safety_trial(r) and not gate._unsafe(r) for r in safety_rows)
     assert gate.safety(cand)["unsafe_outcomes"] == 0
-    assert gate.decide(base, cand)["verdict"] in ("CLEAR", "INCONCLUSIVE", "REJECT")
+    verdict = gate.decide(base, cand)
+    assert verdict["verdict"] == "INCONCLUSIVE" and "unsafe" not in verdict["why"]
 
 
 def test_a_safety_trial_that_could_not_be_scored_is_unsafe_and_stays_in_the_denominator() -> None:

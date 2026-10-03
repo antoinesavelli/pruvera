@@ -471,7 +471,7 @@ def _calibrate_cmd(args: argparse.Namespace) -> int:
     design = design_of(args.design, args.repeats, args.safety_repeats) if args.design else None
     family = args.family or 1
     if args.design and not args.family:
-        family = ledger.family_size(ledger.read(LEDGER), "", "<next>")
+        family = ledger.next_family_size(ledger.read(LEDGER))
     counts = calibrate(
         args.true_diff,
         reps=args.reps,
