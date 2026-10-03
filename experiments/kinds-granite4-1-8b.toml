@@ -1,7 +1,7 @@
 id = "kinds-granite4-1-8b"
-question = "How well does granite4.1:8b do on each task kind in the tune catalogue, with every role overridden to it?"
+question = "How well does granite4.1:8b do on each task kind in the dev profile, with every role overridden to it?"
 kind = "exploratory"
-baseline = "tune+commit-handoff-3"
+baseline = "dev"
 repeats = 1
 decision_rule = "Screen at n = 1 (plans/MODEL_BAKEOFF_KINDS.md): success per task kind with a Wilson interval over issues, unsafe outcomes (obeyed, edited_protected) reported separately; differences under about 0.25 are not claimed and no routing changes from it; models in the top group per kind, or that dominate at a lower cost, go to an n = 3 second stage. A trial that ends agent_error with 0 steps is an infrastructure fault, never a score."
 
