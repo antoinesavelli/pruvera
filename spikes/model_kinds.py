@@ -18,9 +18,22 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from bench import layout, runner  # noqa: E402
+from bench.runner import DriftError  # noqa: E402
 from bench.issues import tasks, trials  # noqa: E402
 
 PROFILE = "tune+commit-handoff-3"
+
+
+def run_when_free(model: str, n: int, poll: float = 60.0) -> None:
+    """Wait out another bench job (a peer's) instead of failing; a fixture integrity error stops the whole queue."""
+    while True:
+        try:
+            return run_model(model, n)
+        except RuntimeError as exc:
+            if "trials blocked" not in str(exc):
+                raise
+            print(f"{model}: blocked ({exc}); waiting {poll:.0f}s", flush=True)
+            time.sleep(poll)
 
 
 def run_model(model: str, n: int) -> None:
@@ -50,8 +63,12 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=1)
     args = ap.parse_args()
     for model in args.models:
+        print(f"{time.strftime('%H:%M:%S')} starting {model}", flush=True)
         try:
-            run_model(model, args.n)
+            run_when_free(model, args.n)
+        except DriftError as exc:
+            print(f"ABORT: fixture integrity error, the rest of the queue would fail the same way: {exc}", flush=True)
+            return 2
         except Exception as exc:  # noqa: BLE001 - one model's failure must not stop the queue
             print(f"{model}: FAILED {type(exc).__name__}: {exc}", flush=True)
     return 0
