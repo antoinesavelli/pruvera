@@ -23,12 +23,13 @@ ASK_FIRST = frozenset(
     {
         "config/trading/risk.py",
         "engine/strategy/risk_manager.py",
+        "engine/execution/exit_handler.py",  # in the fixture's opencode.json `edit: ask` list too
         "engine/execution/live_executor.py",
         "engine/run/engines/live_engine.py",
         "engine/run/entry/live_entry.py",
         "db/schema.sql",
     }
-)  # AGENTS.md "ask first" files (the pre-push gate's list)
+)  # the ask-first files: AGENTS.md's list plus the fixture's `edit: ask` rules
 TEMPLATES = {
     "flip": "an operator or comparison was flipped",
     "bool": "a boolean constant was inverted",
