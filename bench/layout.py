@@ -18,6 +18,14 @@ DATA_VERSION = "v3"  # v2 data plus synthetic aggregates and the public Nasdaq d
 REAL_REPO = Path("/mnt/ParamoStorage/Paramo")
 
 
+def artifact_dir(recorded: str | Path) -> Path:
+    """A trial's artifact directory; a recorded path that is gone is re-rooted under this repo."""
+    path = Path(recorded)
+    if path.is_dir() or "artifacts" not in path.parts:
+        return path
+    return ROOT.joinpath(*path.parts[len(path.parts) - 1 - path.parts[::-1].index("artifacts") :])
+
+
 def version_dir(version: str = VERSION) -> Path:
     return FIXTURES / "versions" / version
 
