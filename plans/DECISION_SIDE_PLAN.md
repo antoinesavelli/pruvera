@@ -9,19 +9,32 @@ plan says when they are worth spending. Tags as in ROAD_TO_A: **[C]** code, **[O
 
 ## Progress
 
-| Item | State 2026-10-03 |
-|---|---|
-| S0.1, S0.2 restore the pin and stop it recurring | **Resolved by a peer session in `2b41eff` (2026-10-03 00:53), differently from this plan:** an unpinned install of radon (with mando and colorama) was the cause, the original fingerprint could not be restored byte for byte, so the venv was re-pinned and its directories made read-only; the rule is in `AGENTS.md`. The advice above not to re-pin did not hold. `doctor` shows no build drift. |
-| S0.3 moratorium | Enforced by code: `trials.run_arms` refuses candidate runs without a registration. |
-| R1 spec, R2 registry, R3 enforcement, R4 retro rows | **Done** (`bench/registry.py`, `bench/experiment.py`, `tests/test_registry.py`). 38 study files (943 trials) are recorded as `retro`; 8 variants now count as having spent their generation-2 look. |
-| 6.1 code stamps | Partly: trial records carry `experiment_id`, `harness_commit`, `harness_dirty`; registry rows carry the harness commit; a confirmatory registration or run refuses a dirty `bench/`. **Not yet:** `scorer_commit` on scored rows. |
+**Status 2026-10-03: steps 0 to 4 and 6 are built and tested (735 tests pass); steps 5 and 7 need GPU
+time and catalogue work that no one has approved. Nothing is installed in Paramo.**
 
-**Deviations from the text below.** (1) The three legacy ledger rows were not copied into the
-registry: the registry reads `results/gate/ledger.jsonl` for spent looks and counts its `results`
-paths as covered. Folding `gate.judge` into the registry waits until `gate.py`, which a peer session
-was editing, is committed. (2) `registry.holdout_issues` duplicates `gate.holdout_issues` for the
-same reason; `gate` should import it afterwards. (3) `doctor` does not call `registry.audit` yet
-(`python3 -m bench.experiment verify` does).
+| Item | State |
+|---|---|
+| S0 pins | Resolved by a peer session in `2b41eff` (re-pin plus read-only venv dirs), not by deleting bytecode; the advice above not to re-pin did not hold. S0.3 (moratorium) is enforced by code. |
+| R1 to R4 registry | Done (`bench/registry.py`, `bench/experiment.py`): hash-chained `results/registry.jsonl`; `run_arms` refuses unregistered candidate runs. 51 study files are `retro` rows; 9 variants have spent their generation-2 look and 1 its generation-1 look (counting the legacy ledger). |
+| 5.1 alpha budget | Done (`bench/budget.py`): a new study in a generation touched by k variants gets 0.05 / 2^(k+1). Generation 2 is now at about 0.0001, so nothing can be confirmed on it: **a new generation is needed**. |
+| 5.2 power check | Done at registration (`experiment.register`): a confirmatory design must clear a harmless rule at least 80% of the time (simulated, bimodal issues, unsafe rate 0.75) or carry `underpowered = "<reason>"`, which the report repeats. Sensitivity to a -0.10 loss is reported, not required. |
+| 5.3 interim looks | Done as `experiment interim`: each look takes its increment of an O'Brien-Fleming-type spending function (conservative); STOP only on REJECT. **Not done:** futility stopping. |
+| 5.4 discriminating issues | Not started: needs one baseline campaign per generation (GPU). |
+| 5.5 standing controls | Not started: needs generation 3 and GPU. |
+| 5.6 guardrails | **Partly:** per-hazard outcomes, interval and severity-weighted score are in every report; the verdict still rests on the gate's pooled rule (promote the per-hazard bound once a generation shows its variance). Weights are the OD4 recommendation. |
+| 6.1 stamps | Done: `harness_commit`, `harness_dirty`, `experiment_id`, `repeat` on trial records; `scorer_commit` on scored rows; confirmatory registration and runs refuse a dirty `bench/`. |
+| 6.2 state root | Done: `layout` owns fixtures, artifacts, overlays and results under `STATE` (`AGENT_TESTING_STATE`), so a verdict run can use a clean worktree. `issues/plant.py` and `issues/verify.py` still compute their own root (build-time tools, run from the main checkout). |
+| 6.3 bundles | Done: records carry `artifact_sha256` and scoring refuses a changed bundle. Old records have none and are not checked. |
+| 6.4 verdict bundles | Done: `experiment judge` writes `results/verdicts/<id>/` (spec, scored rows, verdict, `REPORT.md`, manifest with file and artifact hashes); `experiment verify` re-derives the verdict from the stored rows. |
+| 6.5 backup | Owner: `artifacts/` into the Borg run (O3). |
+| 7.1 to 7.4 front door | Done: `new`, `register`, `run` (resumable), `interim`, `judge`, `abandon`, `status`, `retro`, `verify`, `retention` (read-only list). `doctor` does not call the registry audit yet. |
+| 8.1 to 8.4 tiers and enforcement | Mechanism built (`bench/policy.py`, `policy/tiers.toml`, trailer check, verdict scope expiry, decision-row text); the Paramo hook is **drafted, not installed** (`plans/PARAMO_ENFORCEMENT.md`). |
+
+**Deviations from the text below.** (1) The legacy ledger rows were not copied into the registry:
+the registry reads `results/gate/ledger.jsonl` for spent looks and covered files, and `experiment
+judge` does not write the ledger. (2) `registry.holdout_issues` duplicates `gate.holdout_issues`.
+(3) The re-pin cadence (8.4) is a recommendation only. (4) The experiment `run` cannot yet interleave
+a control study inside one confirmatory run; controls are separate registered studies.
 
 ## 1. The problem in one paragraph
 

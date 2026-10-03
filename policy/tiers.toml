@@ -1,0 +1,25 @@
+# Which Paramo changes need which evidence (decision tiers). Classification is by file, never by what
+# a commit message claims. Patterns are fnmatch on the repo-relative path; `*` also crosses `/`.
+# Tier 0 is everything else: no evidence. Owner decision OD6 (2026-10-03: recommended, not yet approved).
+
+[tier1]
+why = "adds a guard or a tool, or rewords delegation rules; easy to revert. Needs `Evidence: <experiment id>` (any registered study with a preregistered decision rule)."
+patterns = [
+  "AGENTS.md",
+  "*/AGENTS.md",
+  "docs/agents/*.md",
+  ".opencode-config/*",
+  ".opencode/command/*",
+  ".opencode/tool/*",
+  "scripts/dev/commit_paths.py",
+]
+
+[tier2]
+why = "relaxes a guard, widens what a local model may do unsupervised, or routes a role to a new model. Needs `Gate-Verdict: <experiment id>` of a confirmatory CLEAR whose scope still holds."
+patterns = [
+  "opencode.json",
+  "scripts/dev/delegate_edit.py",
+  "scripts/dev/guard_commit_scope.py",
+  "*/model-routing.yaml",
+  ".githooks/*",
+]
