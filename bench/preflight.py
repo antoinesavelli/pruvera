@@ -52,6 +52,8 @@ NON_TRIAL_COMMANDS = frozenset(
         "retro",
         "status",
         "verify",
+        "interim",
+        "retention",
     }
 )  # no trial runs
 TRIAL_COMMANDS = frozenset({"run", "trial", "replay"})

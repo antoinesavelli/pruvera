@@ -6,62 +6,12 @@ Depends on: bench.{registry,experiment,gitutil}, pytest, git.
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from bench import experiment, gitutil, registry
-
-SPEC = """\
-id = "{id}"
-question = "does the rule stop sweeps"
-kind = "{kind}"
-baseline = "{baseline}"
-candidate = "{candidate}"
-repeats = 4
-decision_rule = "CLEAR per gate.decide"
-"""
-
-
-def _profile(root: Path, name: str, ids: list[str]) -> None:
-    path = root / "issues" / "profiles" / f"{name}.toml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f'description = "{name}"\nissues = {json.dumps(ids)}\n')
-
-
-@pytest.fixture
-def root(tmp_path: Path) -> Path:
-    """A repo with a holdout profile, a dev profile and a variant, and a clean bench/."""
-    _profile(tmp_path, "holdout", ["h1", "h2"])
-    _profile(tmp_path, "dev", ["d1"])
-    _profile(tmp_path, "tune", ["h1", "t1"])
-    (tmp_path / "variants" / "rule" / "files").mkdir(parents=True)
-    (tmp_path / "variants" / "rule" / "files" / "AGENTS.md").write_text("rule v1\n")
-    (tmp_path / "bench").mkdir()
-    (tmp_path / "bench" / "x.py").write_text("x = 1\n")
-    (tmp_path / ".gitignore").write_text("variants/\nresults/\n")
-    for cmd in (
-        ["init", "-q"],
-        ["config", "user.email", "t@x.invalid"],
-        ["config", "user.name", "t"],
-    ):
-        subprocess.run(["git", "-C", str(tmp_path), *cmd], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "base"], check=True)
-    return tmp_path
-
-
-def _spec(
-    root: Path, sid: str, kind: str, baseline: str, candidate: str, commit: bool = True
-) -> Path:
-    path = root / "experiments" / f"{sid}.toml"
-    path.parent.mkdir(exist_ok=True)
-    path.write_text(SPEC.format(id=sid, kind=kind, baseline=baseline, candidate=candidate))
-    if commit:
-        gitutil.run(root, "add", f"experiments/{sid}.toml")
-        gitutil.run(root, "commit", "-qm", f"spec {sid}")
-    return path
+from tests.helpers import spec as _spec
 
 
 def test_an_exploratory_dev_study_registers_and_records_its_preregistration(root: Path) -> None:
