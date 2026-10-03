@@ -125,7 +125,7 @@ def decision_row(experiment: str, root: Path = layout.ROOT) -> str:
         f"| D-NNN | {judged['date']} | Delegation rule change judged by experiment `{experiment}`: "
         f"{judged['verdict']} (success difference {judged['diff']:+.3f}, "
         f"alpha {judged['alpha_used']:.4f}) "
-        f"| accepted | `agent-testing/results/{judged['bundle']}/REPORT.md` |"
+        f"| accepted | `pruvera/results/{judged['bundle']}/REPORT.md` |"
     )
 
 
