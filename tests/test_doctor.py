@@ -104,3 +104,17 @@ def test_audit_builds_reports_a_profile_tree_that_drifted(
 
     monkeypatch.setattr(runner, "check_fixture", check)
     assert doctor.audit_builds() == ["drifted: tree hash differs"]
+
+
+def test_doctor_fails_on_a_registry_problem_and_names_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(layout, "RESULTS", tmp_path)
+    monkeypatch.setattr(
+        doctor.registry, "audit", lambda: ["results/gate/x.jsonl: a candidate study"]
+    )
+    monkeypatch.setattr(doctor.runner, "model_digest", lambda m, port=11434: "")
+    assert doctor.main(["--results", str(tmp_path), "--skip-builds"]) == 1
+    assert "REGISTRY results/gate/x.jsonl" in capsys.readouterr().out
+    monkeypatch.setattr(doctor.registry, "audit", lambda: [])
+    assert doctor.main(["--results", str(tmp_path), "--skip-builds"]) == 0

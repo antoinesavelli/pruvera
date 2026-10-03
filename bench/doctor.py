@@ -5,7 +5,7 @@ opencode versions its records carry and says which of them exist or match now: a
 build is gone cannot be rescored, one whose model digest changed was produced by a different
 model than `ollama` serves today. Exit status 1 when a build is gone or drifted (`--strict`: any
 flag).
-Depends on: bench.{layout,modelinfo,runner,jsonl}; a running Ollama for the model digests
+Depends on: bench.{layout,modelinfo,registry,runner,jsonl}; a running Ollama for the model digests
 (optional).
 """
 
@@ -17,7 +17,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from bench import layout, modelinfo, runner
+from bench import layout, modelinfo, registry, runner
 from bench.jsonl import read_jsonl
 
 
@@ -126,9 +126,12 @@ def _archived(results_dir: Path) -> list[dict[str, Any]]:
     return read_jsonl(index) if index.exists() else []
 
 
-def _status(rows: list[dict[str, Any]], builds: list[str], strict: bool) -> int:
+def _status(
+    rows: list[dict[str, Any]], builds: list[str], strict: bool, registry_problems: list[str]
+) -> int:
     gone = any(r["missing_builds"] for r in rows)
-    return 1 if gone or builds or (strict and any(_flags(r) for r in rows)) else 0
+    flagged = strict and any(_flags(r) for r in rows)
+    return 1 if gone or builds or flagged or registry_problems else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -142,7 +145,10 @@ def main(argv: list[str] | None = None) -> int:
     _report(rows, builds, not args.skip_builds)
     archived = _archived(args.results)
     print(f"archive (not audited): {len(archived)} files, reasons in results/archive/INDEX.jsonl")
-    return _status(rows, builds, args.strict)
+    problems = registry.audit() if args.results == layout.RESULTS else []
+    for problem in problems:
+        print(f"REGISTRY {problem}")
+    return _status(rows, builds, args.strict, problems)
 
 
 if __name__ == "__main__":

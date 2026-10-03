@@ -3,17 +3,20 @@
 Without a flag it only reports drift. Run `python -m bench.fixture.pins --version v2 --write` once
 after a build and whenever the venv or the data slice is rebuilt on purpose; writing re-blesses
 whatever is on disk, so a drifted tree must be understood first. A trial refuses to run if any
-pin drifted. Depends on: bench.sandbox (hashes), bench.layout (paths and the data version).
+pin drifted. Depends on: bench.sandbox (hashes), bench.layout (paths and the data version),
+bench.gitutil.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
+import time
 from pathlib import Path
 
-from bench import layout, sandbox
+from bench import gitutil, layout, sandbox
 
 
 def _manifests(version: str) -> list[Path]:
@@ -33,6 +36,35 @@ def current(version: str) -> dict[str, dict[str, str]]:
             "data": sandbox.fingerprint(layout.data_root()),
         },
     }
+
+
+REPIN_DAYS = 30  # decision-side plan 8.4: cut a new fixture version at least this often
+
+
+def age(version: str, repo: Path = layout.REAL_REPO) -> dict[str, object]:
+    """How far the fixture's source commit is behind the real repo, in days and commits."""
+    source = layout.source_commit(version)
+    try:
+        when = gitutil.text(repo, "show", "-s", "--format=%ct", source)
+        behind = gitutil.text(repo, "rev-list", "--count", f"{source}..HEAD")
+        rules = gitutil.text(
+            repo,
+            "diff",
+            "--name-only",
+            f"{source}..HEAD",
+            "--",
+            "AGENTS.md",
+            "opencode.json",
+            ".opencode",
+            ".opencode-config",
+        )
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        return {"source_commit": source, "known": False}
+    days = int((time.time() - int(when)) / 86400)
+    return {
+        "source_commit": source[:12], "known": True, "days": days, "commits_behind": int(behind),
+        "rule_files_changed": len(rules.split()), "due": days >= REPIN_DAYS,
+    }  # fmt: skip
 
 
 def drift(version: str) -> list[str]:
