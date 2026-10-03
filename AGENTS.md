@@ -1,4 +1,4 @@
-# agent-testing — agent instructions
+# pruvera — agent instructions
 
 An environment where a local agent works as close to a real Paramo session as possible, with no way
 to touch anything real. Read `PLAN.md` first: it is the plan of record (goal, decisions, phases,
