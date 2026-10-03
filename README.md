@@ -1,4 +1,4 @@
-# agent-testing
+# pruvera
 
 An environment where a local agent works as close to a real Paramo session as possible, with no way
 to touch anything real. `PLAN.md` is the plan of record and holds the phase status.
@@ -24,7 +24,7 @@ Run everything from the repo root. Most modules use only the standard library an
 fixture venv's interpreter `fixtures/paramo/venv/v2/bin/python`, which is also what runs the full test suite:
 
 ```bash
-cd /mnt/ParamoStorage/AIModels/agent-testing
+cd /mnt/ParamoStorage/AIModels/pruvera
 python3 -m bench.cli check                        # fixture pins and preflight
 python3 -m bench.cli trial --agent research --model gpt-oss:20b-64k --prompt "..."
 python3 -m bench.issues.trials run --profile full --n 2 --out results/issues/run.jsonl
