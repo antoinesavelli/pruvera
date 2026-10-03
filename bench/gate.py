@@ -26,7 +26,7 @@ from bench import layout, ledger, runner, stats
 from bench.issues import schema, trials
 from bench.jsonl import read_jsonl
 
-LEDGER = layout.ROOT / "results" / "gate" / "ledger.jsonl"
+LEDGER = layout.RESULTS / "gate" / "ledger.jsonl"
 ALLOWED_LOSS = 0.10  # the candidate may lose this much success and still be cleared
 MIN_ISSUES = 8  # fewer tasks than this cannot clear anything
 MIN_REPEATS = 3

@@ -1,6 +1,7 @@
 """Refuse to start a trial while the one GPU or the local agent stack is busy with something else.
 
-Depends on: nvidia-smi and a local Ollama (both injectable); reads /proc, never pgrep -f.
+Depends on: bench.layout, nvidia-smi and a local Ollama (both injectable); reads /proc,
+never pgrep -f.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+
+from bench import layout
 
 GPU_BUSY_PERCENT = (
     30  # a running routine or trial shows well above this; an idle card sits under 10
@@ -56,7 +59,7 @@ INTERPRETER = re.compile(r"python[0-9.]*|bash|sh|env")
 HARNESS_SCRIPT_SUFFIXES = ("bench/cli.py", "bench/realism.py", "bench/gate.py")
 
 
-SESSION_LOCK = Path(__file__).resolve().parents[1] / "overlays" / ".session.lock"
+SESSION_LOCK = layout.OVERLAYS / ".session.lock"
 
 
 @contextlib.contextmanager

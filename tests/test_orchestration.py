@@ -211,7 +211,8 @@ def test_run_study_alternates_sides_and_always_discards_the_real_code_copy(
 ) -> None:
     events: list[str] = []
     monkeypatch.setattr(runner, "load_profile", lambda _v, _p: mk("fixture"))
-    monkeypatch.setattr(realism, "ROOT", tmp_path)
+    monkeypatch.setattr(layout, "ARTIFACTS", tmp_path / "artifacts")
+    monkeypatch.setattr(layout, "OVERLAYS", tmp_path / "overlays")
     monkeypatch.setattr(reference, "sweep", lambda _d: events.append("sweep"))
     monkeypatch.setattr(reference, "discard", lambda _d: events.append("discard"))
     monkeypatch.setattr(reference, "prepare", lambda *_a: tmp_path / "tree")
