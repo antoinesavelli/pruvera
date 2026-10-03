@@ -1,6 +1,7 @@
 """Command line for the trial runner: run one trial, check a fixture version, replay a diff.
 
-Depends on: bench.{runner,preflight,layout,reference}; the layout under fixtures/paramo/.
+Depends on: bench.{runner,preflight,layout,reference}, bench.fixture.pins; the layout under
+fixtures/paramo/.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import sys
 from pathlib import Path
 
 from bench import layout, preflight, reference, runner
+from bench.fixture import pins
 
 
 def parse_hook(text: str) -> runner.Hook:
@@ -60,7 +62,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "check":
         runner.check_fixture(fx)
         found = preflight.problems()
-        print(json.dumps({"fixture": "ok", "preflight": [p.__dict__ for p in found]}))
+        pin = pins.age(args.version)
+        report = {"fixture": "ok", "pin": pin, "preflight": [p.__dict__ for p in found]}
+        print(json.dumps(report))
+        if pin.get("due"):
+            msg = f"the fixture is {pin['days']} days behind (policy: {pins.REPIN_DAYS})"
+            print(f"warning: {msg}", file=sys.stderr)
         return 0 if not found else 2
     spec = runner.TrialSpec(
         agent=args.agent,

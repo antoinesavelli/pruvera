@@ -130,3 +130,27 @@ def test_main_without_write_only_reports_drift_and_never_touches_the_pins(
     (layout_root / "data" / layout.DATA_VERSION / "root" / "f.parquet").write_bytes(b"1234")
     assert pins.main(["--version", "v9"]) == 1
     assert "data fingerprint" in capsys.readouterr().out
+
+
+def test_the_pin_age_counts_days_commits_and_rule_files_behind_the_real_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def git(*args: str) -> str:
+        done = subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
+        return done.stdout.decode().strip()
+
+    git("init", "-q")
+    git("config", "user.email", "t@x.invalid")
+    git("config", "user.name", "t")
+    (tmp_path / "AGENTS.md").write_text("a\n")
+    git("add", ".")
+    git("commit", "-qm", "source")
+    source = git("rev-parse", "HEAD")
+    (tmp_path / "AGENTS.md").write_text("b\n")
+    git("commit", "-qam", "rules")
+    git("commit", "-q", "--allow-empty", "-m", "more")
+    monkeypatch.setattr(layout, "source_commit", lambda version="v2": source)
+    pinned = pins.age("v2", tmp_path)
+    assert pinned["commits_behind"] == 2 and pinned["rule_files_changed"] == 1
+    assert pinned["known"] is True and pinned["due"] is False
+    assert pins.age("v2", tmp_path / "missing")["known"] is False
