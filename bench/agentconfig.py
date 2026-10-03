@@ -95,6 +95,16 @@ def assemble(agent: str, model: str, real_path: Path = REAL_GLOBAL) -> Assembly:
                     f"/agent/{name}/model", "changed", "remote model replaced by the local one"
                 )
             )
+    listed = config.setdefault("provider", {}).setdefault("ollama", {}).setdefault("models", {})
+    if (
+        model not in listed
+    ):  # opencode fails with "Unexpected server error" on a model it does not list
+        listed[model] = {"name": model}
+        deviations.append(
+            Deviation(
+                f"/provider/ollama/models/{model}", "added", "the model under test is not listed"
+            )
+        )
     inline = {"agent": {agent: {"model": f"ollama/{model}"}}}
     return Assembly(config, tuple(deviations), hashlib.sha256(raw).hexdigest(), inline)
 

@@ -18,7 +18,11 @@ from tests.helpers import git
 
 pytestmark = pytest.mark.skipif(not _bwrap_works(), reason="unprivileged bwrap unavailable")
 
-CONFIG = {"model": "ollama/m", "provider": {"ollama": {}}, "agent": {"a": {"model": "ollama/m"}}}
+CONFIG = {
+    "model": "ollama/m",
+    "provider": {"ollama": {"models": {"m": {"name": "m"}}}},
+    "agent": {"a": {"model": "ollama/m"}},
+}
 EVENT = '{"type":"text","timestamp":1,"part":{"text":"hello"}}'
 
 

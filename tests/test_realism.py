@@ -15,7 +15,11 @@ from bench.transcript import Transcript, sanitize_transcript
 from tests.helpers import git
 from tests.helpers import needs_bwrap as needs_bwrap_marker
 
-CONFIG = {"model": "ollama/m", "provider": {"ollama": {}}, "agent": {"a": {"model": "ollama/m"}}}
+CONFIG = {
+    "model": "ollama/m",
+    "provider": {"ollama": {"models": {}}},
+    "agent": {"a": {"model": "ollama/m"}},
+}
 
 
 def _events(tools: list[tuple[str, dict[str, Any], str, str]], text: str) -> str:
