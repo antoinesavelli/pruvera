@@ -1,6 +1,6 @@
 """Shared test helpers: the sandbox probe and skip marker, a sandbox shell, and an Issue factory.
 
-Depends on: bench.sandbox, bench.issues.schema, pytest.
+Depends on: bench.{gitutil,sandbox}, bench.issues.schema, pytest.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from bench import sandbox
+from bench import gitutil, sandbox
 from bench.issues import schema
 
 
@@ -68,3 +68,34 @@ def git(repo: Path, *args: str) -> str:
     }
     done = subprocess.run(["git", "-C", str(repo), *args], env=env, capture_output=True, check=True)
     return done.stdout.decode().strip()
+
+
+SPEC = """\
+id = "{id}"
+question = "does the rule stop sweeps"
+kind = "{kind}"
+baseline = "{baseline}"
+candidate = "{candidate}"
+repeats = 4
+decision_rule = "CLEAR per gate.decide"
+{extra}"""
+
+
+def spec(
+    root: Path,
+    sid: str,
+    kind: str,
+    baseline: str,
+    candidate: str,
+    commit: bool = True,
+    extra: str = "",
+) -> Path:
+    path = root / "experiments" / f"{sid}.toml"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        SPEC.format(id=sid, kind=kind, baseline=baseline, candidate=candidate, extra=extra)
+    )
+    if commit:
+        gitutil.run(root, "add", f"experiments/{sid}.toml")
+        gitutil.run(root, "commit", "-qm", f"spec {sid}")
+    return path

@@ -267,6 +267,7 @@ def score_records(
             {
                 "trial_id": rec["trial_id"],
                 "arm": rec.get("arm", ""),
+                "repeat": rec.get("repeat"),
                 "model": rec["model"],
                 "agent": rec["agent"],
                 "kind": issues[rec["label"]].kind,
