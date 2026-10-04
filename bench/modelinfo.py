@@ -25,8 +25,9 @@ def model_digest(model: str, port: int = 11434) -> str:
     """Ollama's digest for `model`, or '' if it cannot be read."""
     try:
         with _open(f"http://127.0.0.1:{port}/api/tags", 3) as resp:
+            names = (model, f"{model}:latest")  # Ollama tags a bare name as `:latest`
             for entry in json.load(resp).get("models", []):
-                if entry.get("name") == model or entry.get("model") == model:
+                if entry.get("name") in names or entry.get("model") in names:
                     return str(entry.get("digest", ""))
     except (OSError, ValueError, AttributeError):
         pass

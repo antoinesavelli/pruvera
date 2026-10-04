@@ -145,3 +145,27 @@ def test_opencode_resolves_the_trial_config_as_designed(tmp_path: Path) -> None:
     assert "git agent for Paramo" in resolved["agent"]["git"]["prompt"], "the real prompt loads"
     options = [p.get("options", {}) for p in resolved["provider"].values()]
     assert not any("apiKey" in o for o in options), "no provider may carry an API key"
+
+
+def test_every_provider_but_ollama_is_removed_and_a_literal_credential_is_refused(
+    tmp_path: Path,
+) -> None:
+    real = {
+        "provider": {
+            "ollama": {"options": {"baseURL": "http://localhost:11434/v1"}, "models": {}},
+            "other": {"options": {"apiKey": "sk-literal-value"}},
+        },
+        "agent": {"coder": {"model": "ollama/x"}},
+    }
+    path = tmp_path / "opencode.json"
+    path.write_text(json.dumps(real))
+    asm = agentconfig.assemble("coder", "x", path)
+    assert set(asm.config["provider"]) == {"ollama"}
+    assert any(d.pointer == "/provider/other" and d.action == "removed" for d in asm.deviations)
+    real["provider"]["ollama"]["options"]["apiKey"] = "sk-literal-value"  # type: ignore[index]
+    path.write_text(json.dumps(real))
+    with pytest.raises(agentconfig.ParityError, match="literal credential"):
+        agentconfig.assemble("coder", "x", path)
+    real["provider"]["ollama"]["options"]["apiKey"] = "{env:OLLAMA_KEY}"  # type: ignore[index]
+    path.write_text(json.dumps(real))
+    assert agentconfig.assemble("coder", "x", path)

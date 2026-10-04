@@ -6,6 +6,7 @@ touch real data even if the sandbox failed, because no real path is ever a write
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import re
 import shutil
@@ -484,3 +485,24 @@ def test_fingerprint_is_the_documented_digest_of_paths_sizes_and_modes(tmp_path:
         info = (tmp_path / rel).lstat()
         digest.update(f"{rel}\0{info.st_size}\0{info.st_mode & 0o7777}\n".encode())
     assert sandbox.fingerprint(tmp_path) == digest.hexdigest()
+
+
+def test_the_ollama_bridge_needs_socat_and_a_missing_one_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = shutil.which
+    monkeypatch.setattr(
+        shutil, "which", lambda name, *a, **k: None if name == "socat" else real(name, *a, **k)
+    )
+    for sub in ("base", "upper", "work", "xdg"):
+        (tmp_path / sub).mkdir()
+    spec = sandbox.Spec(
+        base=tmp_path / "base",
+        upper=tmp_path / "upper",
+        work=tmp_path / "work",
+        xdg=tmp_path / "xdg",
+        net="ollama",
+    )
+    with pytest.raises(sandbox.SandboxError, match="socat not found"):
+        sandbox._require_tools(spec)
+    sandbox._require_tools(dataclasses.replace(spec, net="none"))
