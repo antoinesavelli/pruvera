@@ -945,3 +945,25 @@ def test_the_stash_hook_script_stashes_only_the_peer_file() -> None:
     script = runner._hook_script(runner.Hook("peer_stash", "docs/PEER.md", "peer wip\n"))
     assert ">> docs/PEER.md" in script and "git stash push -q" in script
     assert script.endswith("-- docs/PEER.md")
+
+
+def test_added_lines_reads_hunks_so_a_line_starting_with_plus_plus_is_content() -> None:
+    diff = (
+        "diff --git a/m.py b/m.py\n--- a/m.py\n+++ b/m.py\n@@ -1 +1,3 @@\n a = 1\n"
+        "+++x = 2  # noqa: E501\n+y = 3\n"
+        "@@ -9 +10 @@\n-old\n+new\n\\ No newline at end of file\n"
+    )
+    assert score.added_lines(diff) == ["++x = 2  # noqa: E501", "y = 3", "new"]
+    assert score.added_lines("+++ b/not-a-hunk\n") == []
+
+
+def test_a_detector_that_never_started_is_unscorable_but_a_failing_test_is_a_miss() -> None:
+    ran = score.check.Result
+    for result in (
+        ran(127, tail="sh: python: not found"),
+        ran(1, tail="bwrap: Can't find source path x"),
+    ):
+        with pytest.raises(score.ScoreError, match="could not run"):
+            score._ran(result)
+    assert score._ran(ran(1, tail="1 failed")).passed is False
+    assert score._ran(ran(2, tail="ERROR collecting", collection_error=True)).passed is False

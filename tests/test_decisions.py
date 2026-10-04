@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from bench import budget, experiment, gate, registry, report, retention
+from bench import budget, experiment, gate, ledger, registry, report, retention
 from tests.helpers import spec as _spec
 
 WEAK = {"clear_if_harmless": 0.1, "reject_if_loss": 0.05, "alpha": 0.025, "reps": 100}
@@ -104,7 +104,7 @@ def test_a_spec_with_a_bad_interim_look_is_refused() -> None:
 
 
 def _scored(rng: random.Random, rate: float = 0.6) -> list[dict[str, Any]]:
-    design = gate.Design((True,) * 3 + (False,) * 9, (3,) * 12)
+    design = gate.Design((True,) * 3 + (False,) * 9, (4,) * 12)
     rows = []
     for arm in ("baseline", "candidate"):
         seen: dict[str, int] = {}
@@ -122,6 +122,7 @@ def _judged(root: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     results.write_text(json.dumps({**record, "opencode_version": "1.0"}) + "\n")
     scored = _scored(random.Random(3))
     monkeypatch.setattr(gate, "score_arms", lambda *_a, **_k: scored)
+    registry.append(root, "started", id="hold-1", out="results/experiments/hold-1.jsonl")
     return experiment.judge("hold-1", root)
 
 
@@ -235,3 +236,127 @@ def test_a_spec_chooses_what_the_safety_bound_counts_and_the_power_check_follows
     budget.power(registry.parse_spec({**doc, "safety_counts": "landed"}, "x1"), 0.025, root)
     budget.power(registry.parse_spec(doc, "x1"), 0.025, root)
     assert seen == [0.10, 0.10, 0.75, 0.75]
+
+
+def _ready(root: Path, monkeypatch: pytest.MonkeyPatch, extra: str = "") -> None:  # type: ignore[no-untyped-def]
+    _register(root, monkeypatch, STRONG, extra)
+    scored = _scored(random.Random(3))
+    monkeypatch.setattr(gate, "score_arms", lambda *_a, **_k: scored)
+    results = registry.results_dir(root) / "experiments" / "hold-1.jsonl"
+    results.parent.mkdir(parents=True, exist_ok=True)
+    results.write_text(json.dumps({"trial_id": "t1", "model": "m"}) + "\n")
+
+
+def test_judging_refuses_a_study_that_never_ran_or_whose_spec_or_rules_moved(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ready(root, monkeypatch, "interim = [1]\n")
+    with pytest.raises(registry.RegistryError, match="never run"):
+        experiment.judge("hold-1", root)
+    registry.append(root, "started", id="hold-1", out="x")
+    monkeypatch.setattr(gate, "ALLOWED_LOSS", 0.5)
+    with pytest.raises(registry.RegistryError, match="thresholds changed"):
+        experiment.judge("hold-1", root)
+    monkeypatch.undo()
+    spec = root / "experiments" / "hold-1.toml"
+    spec.write_text(spec.read_text() + "# edited\n")
+    with pytest.raises(registry.RegistryError, match="spec changed"):
+        experiment.judge("hold-1", root)
+
+
+def test_judging_refuses_fewer_repeats_than_registered_unless_an_interim_stop_ended_it(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ready(root, monkeypatch, "interim = [1]\n")
+    registry.append(root, "started", id="hold-1", out="x")
+    short = [r for r in _scored(random.Random(3)) if r["repeat"] <= 2]
+    monkeypatch.setattr(gate, "score_arms", lambda *_a, **_k: short)
+    with pytest.raises(registry.RegistryError, match="2 of 4 registered repeats"):
+        experiment.judge("hold-1", root)
+    registry.append(root, "interim", id="hold-1", after=1, alpha=0.001, decision="STOP")
+    assert experiment.judge("hold-1", root)["verdict"]
+
+
+def test_an_interim_look_is_recorded_and_cannot_be_taken_twice(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ready(root, monkeypatch, "interim = [1]\n")
+    first = experiment.interim("hold-1", 1, root)
+    assert [r for r in registry.read(root) if r["event"] == "interim"][0]["decision"] == first[
+        "decision"
+    ]
+    with pytest.raises(registry.RegistryError, match="already taken"):
+        experiment.interim("hold-1", 1, root)
+
+
+def test_a_confirmatory_run_is_exactly_what_was_registered(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _register(root, monkeypatch, STRONG)
+    for kw in ({"n": 2}, {"only": ["x"]}, {"out": root / "o.jsonl"}):
+        with pytest.raises(registry.RegistryError, match="exactly what was registered"):
+            experiment.run("hold-1", root=root, **kw)  # type: ignore[arg-type]
+
+
+def test_a_confirmatory_verdict_also_lands_in_the_ledger_at_the_registry_family(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _judged(root, monkeypatch)
+    entries = ledger.read(registry.results_dir(root) / "gate" / "ledger.jsonl")
+    assert (
+        len(entries) == 1
+        and entries[0]["holdout_gens"] == ["1"]
+        and entries[0]["variant"] == "rule"
+    )
+    judged = [r for r in registry.read(root) if r["event"] == "judged"][0]
+    assert entries[0]["family"] == pytest.approx(budget.family_for(judged["alpha_used"]))
+    assert entries[0]["experiment"] == "hold-1"
+    assert judged_again_is_refused(root)
+
+
+def judged_again_is_refused(root: Path) -> bool:
+    try:
+        experiment.judge("hold-1", root)
+    except registry.RegistryError as exc:
+        return "already judged" in str(exc)
+    return False
+
+
+def test_a_models_only_candidate_spends_its_holdout_look(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(budget, "power", lambda *_a, **_k: STRONG)
+    models = '[models]\ngit = "m:1b"\n'
+    first = experiment.register(
+        _spec(root, "m-1", "confirmatory", "holdout", "", extra=models), root
+    )
+    assert list(first["variants"]) and next(iter(first["variants"])).startswith("models:")
+    with pytest.raises(registry.RegistryError, match="spent"):
+        experiment.register(_spec(root, "m-2", "confirmatory", "holdout", "", extra=models), root)
+    other = '[models]\ngit = "m:2b"\n'
+    assert experiment.register(_spec(root, "m-3", "confirmatory", "holdout", "", extra=other), root)
+
+
+def test_registering_checks_its_preconditions_again_under_the_lock(root: Path) -> None:
+    registry.register(_spec(root, "dev-1", "exploratory", "dev", ""), root)
+    seen: list[int] = []
+
+    def deny(rows: list[dict[str, object]]) -> None:
+        seen.append(len(rows))
+        raise registry.RegistryError("raced")
+
+    with pytest.raises(registry.RegistryError, match="raced"):
+        registry.append(root, "retro", check=deny, n=1)
+    assert seen == [1] and len(registry.read(root)) == 1
+
+
+def test_a_spec_outside_experiments_and_a_bad_new_id_are_refused_by_name(root: Path) -> None:
+    outside = root / "elsewhere.toml"
+    outside.write_text(
+        'id = "elsewhere"\nquestion = "q"\nkind = "exploratory"\nbaseline = "dev"\n'
+        'repeats = 1\ndecision_rule = "r"\n'
+    )
+    with pytest.raises(registry.RegistryError, match="under experiments"):
+        registry.register(outside, root)
+    with pytest.raises(registry.RegistryError, match="lower case"):
+        experiment.new("../x", root)

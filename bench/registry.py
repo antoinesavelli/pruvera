@@ -94,8 +94,17 @@ def verify(rows: list[dict[str, Any]]) -> list[str]:
     return problems
 
 
-def append(root: Path, event: str, **fields: Any) -> dict[str, Any]:
-    """Add one row under a lock, after checking the chain it extends."""
+def append(
+    root: Path,
+    event: str,
+    check: Callable[[list[dict[str, Any]]], None] | None = None,
+    **fields: Any,
+) -> dict[str, Any]:
+    """Add one row under a lock, after checking the chain it extends.
+
+    `check` re-runs a caller's preconditions on the rows read under the lock, so two sessions
+    cannot both pass a check that only one of them should.
+    """
     path = registry_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+") as fh:
@@ -104,6 +113,8 @@ def append(root: Path, event: str, **fields: Any) -> dict[str, Any]:
         rows = [json.loads(line) for line in fh if line.strip()]
         if problems := verify(rows):
             raise RegistryError(f"the registry chain is broken: {problems[0]}")
+        if check:
+            check(rows)
         row: dict[str, Any] = {"event": event, "date": time.strftime("%Y-%m-%d"), **fields}
         row["prev"] = rows[-1]["hash"] if rows else ""
         row["hash"] = _digest(row)
@@ -206,7 +217,10 @@ def spent_variants(rows: list[dict[str, Any]], root: Path = layout.ROOT) -> dict
 
 def _committed(spec_path: Path, root: Path) -> tuple[str, str]:
     """(sha256, commit) of a spec that is tracked, unmodified and under `experiments/`."""
-    rel = spec_path.resolve().relative_to((root / "experiments").resolve())
+    try:
+        rel = spec_path.resolve().relative_to((root / "experiments").resolve())
+    except ValueError as exc:
+        raise RegistryError(f"{spec_path}: a spec must live under experiments/") from exc
     where = f"experiments/{rel.as_posix()}"
     tracked = gitutil.run(root, "ls-files", "--error-unmatch", where, check=False).returncode == 0
     if not tracked or gitutil.text(root, "status", "--porcelain", "--", where):
@@ -217,14 +231,20 @@ def _committed(spec_path: Path, root: Path) -> tuple[str, str]:
     return hashlib.sha256(spec_path.read_bytes()).hexdigest(), commit
 
 
+def models_key(models: Mapping[str, str]) -> str:
+    """The identity of a per-role model override: it spends holdout looks like a variant's files."""
+    digest = hashlib.sha256(json.dumps(sorted(models.items())).encode()).hexdigest()[:16]
+    return f"models:{digest}"
+
+
 def _variants(root: Path, spec: Spec) -> dict[str, str]:
     name = ledger.variant_of(spec.candidate)
-    if not name:
-        return {}
-    vhash = ledger.variant_hash(root / "variants", name)
-    if not vhash:
-        raise RegistryError(f"variant {name!r} has no files under variants/")
-    return {name: vhash}
+    if name:
+        vhash = ledger.variant_hash(root / "variants", name)
+        if not vhash:
+            raise RegistryError(f"variant {name!r} has no files under variants/")
+        return {name: vhash}
+    return {models_key(spec.models): models_key(spec.models)[7:]} if spec.models else {}
 
 
 def _check_kind(spec: Spec, gens: set[str], dirty: bool) -> None:
@@ -246,9 +266,6 @@ def register(
     `extra(spec, gens)` adds fields to the row once every check has passed.
     """
     spec = parse_spec(tomllib.loads(spec_path.read_text()), spec_path.stem)
-    rows = read(root)
-    if any(r["event"] == "registered" and r["id"] == spec.id for r in rows):
-        raise RegistryError(f"{spec.id} is already registered")
     sha, commit = _committed(spec_path, root)
     gens = profile_gens(root, spec.baseline) | (
         profile_gens(root, spec.candidate) if spec.candidate else set()
@@ -256,18 +273,27 @@ def register(
     head, dirty = gitutil.code_state(root, "bench")
     _check_kind(spec, gens, dirty)
     variants = _variants(root, spec)
-    if again := _spent(rows, root, variants) & gens:
-        raise RegistryError(
-            f"{sorted(variants)}: the holdout look for generation(s) {sorted(again)} is spent"
-        )
     return append(
-        root, "registered", id=spec.id, kind=spec.kind, baseline=spec.baseline,
+        root, "registered", check=lambda rows: _recheck(rows, spec, variants, gens, root),
+        id=spec.id, kind=spec.kind, baseline=spec.baseline,
         candidate=spec.candidate, repeats=spec.repeats, models=spec.models, variants=variants,
         holdout_gens=sorted(gens), spec_sha256=sha, spec_commit=commit, harness_commit=head,
         harness_dirty=dirty, interim=list(spec.interim), underpowered=spec.underpowered,
         safety_repeats=spec.safety_repeats, safety_counts=spec.safety_counts,
         **(extra(spec, gens) if extra else {}),
     )  # fmt: skip
+
+
+def _recheck(
+    rows: list[dict[str, Any]], spec: Spec, variants: Mapping[str, str], gens: set[str], root: Path
+) -> None:
+    """The registration preconditions, evaluated on the rows read under the lock."""
+    if any(r["event"] == "registered" and r["id"] == spec.id for r in rows):
+        raise RegistryError(f"{spec.id} is already registered")
+    if again := _spent(rows, root, variants) & gens:
+        raise RegistryError(
+            f"{sorted(variants)}: the holdout look for generation(s) {sorted(again)} is spent"
+        )
 
 
 def _registered(rows: list[dict[str, Any]], experiment: str) -> dict[str, Any]:
@@ -298,12 +324,17 @@ def _check_frozen(
     planned = {p for p in (row["baseline"], row["candidate"]) if p}
     if set(profiles.values()) != planned or dict(models or {}) != row["models"]:
         raise RegistryError(f"{row['id']}: the profiles or models differ from the registered ones")
+    _check_variant_text(row, root)
+
+
+def _check_variant_text(row: dict[str, Any], root: Path) -> None:
+    """A variant's files must be the ones registered (a models-only key has no files)."""
     for name, vhash in row["variants"].items():
-        if ledger.variant_hash(root / "variants", name) != vhash:
+        if not name.startswith("models:") and ledger.variant_hash(root / "variants", name) != vhash:
             raise RegistryError(f"{row['id']}: variant {name!r} changed since it was registered")
 
 
-def _rel(path: Path, root: Path) -> str:
+def rel(path: Path, root: Path) -> str:
     """A path relative to the state (or to `root` for any other repo), else as given."""
     base = (layout.STATE if root == layout.ROOT else root).resolve()
     resolved = path.resolve()
@@ -337,7 +368,7 @@ def authorize(
             root,
             "started",
             id=experiment,
-            out=_rel(out, root),
+            out=rel(out, root),
             harness_commit=head,
             harness_dirty=dirty,
         )
@@ -394,8 +425,8 @@ def retro(root: Path = layout.ROOT) -> list[dict[str, Any]]:
     covered = _covered(read(root), root)
     added: list[dict[str, Any]] = []
     for path in study_files(root):
-        rel = _rel(path, root)
-        fields = None if rel in covered else _study_row(path, rel, held, root)
+        where = rel(path, root)
+        fields = None if where in covered else _study_row(path, where, held, root)
         if fields:
             added.append(append(root, "retro", **fields))
     return added
@@ -406,9 +437,9 @@ def audit(root: Path = layout.ROOT) -> list[str]:
     rows = read(root)
     covered = _covered(rows, root)
     orphans = [
-        f"{_rel(p, root)}: a candidate study with no registry row"
+        f"{rel(p, root)}: a candidate study with no registry row"
         for p in study_files(root)
-        if _rel(p, root) not in covered
+        if rel(p, root) not in covered
         and any("trial_id" in r for r in read_jsonl(p, skip_bad=True))
     ]
     return [*verify(rows), *orphans]

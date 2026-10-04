@@ -124,3 +124,53 @@ def test_chunks_skip_golden_and_non_docs_and_prefix_each_chunk_with_its_path(
     items = rag_index.chunks(tmp_path)
     assert [i["file"] for i in items] == ["docs/a.md"] * 3
     assert all(i["text"].startswith("docs/a.md\n") for i in items)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "search_docs", "arguments": {"query": "kelly", "top_k": "five"}},
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "search_docs", "arguments": {"query": "kelly", "top_k": None}},
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "search_docs", "arguments": ["hi"]},
+        },
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": None},
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "search_docs", "arguments": {"query": 7}},
+        },
+    ],
+)
+def test_a_malformed_call_is_a_bad_call_reply_not_a_crash(
+    index_dir: Path, message: dict[str, Any]
+) -> None:
+    idx = server.Index(index_dir)
+    assert server.handle(idx, message)["error"]["code"] == -32602  # type: ignore[index]
+
+
+def test_odd_but_harmless_requests_get_replies_and_a_bad_line_does_not_end_the_server(
+    index_dir: Path,
+) -> None:
+    idx = server.Index(index_dir)
+    assert server.handle(idx, {"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": None})[
+        "result"
+    ]["protocolVersion"]  # type: ignore[index]
+    assert server.handle(idx, [1, 2, 3])["error"]["code"] == -32600  # type: ignore[index]
+    assert server._reply(idx, "not json")["error"]["code"] == -32700  # type: ignore[index]
+    ok = server._reply(idx, '{"jsonrpc": "2.0", "id": 3, "method": "ping"}')
+    assert ok == {"jsonrpc": "2.0", "id": 3, "result": {}}
