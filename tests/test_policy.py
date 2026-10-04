@@ -127,3 +127,30 @@ def test_the_decision_row_is_text_for_the_owner_to_paste(root: Path) -> None:
     )
     row = policy.decision_row("e1", root)
     assert row.startswith("| D-NNN |") and "CLEAR" in row and "verdicts/e1/REPORT.md" in row
+
+
+def test_the_shipped_table_guards_the_paths_that_widen_what_a_model_may_do_unsupervised() -> None:
+    for path in (
+        ".claude/settings.json", ".claude/settings.local.json", ".claude/hooks/guard.py",
+        ".opencode/agent/coder.md", ".mcp.json", ".githooks/pre-push",
+    ):  # fmt: skip
+        assert policy.classify([path]) == 2, path
+    for path in (".claude/skills/x/SKILL.md", ".claude/commands/review.md", "docs/agents/GIT.md"):
+        assert policy.classify([path]) == 1, path
+
+
+def test_a_merge_commit_is_classified_by_what_it_brought_in(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(policy, "load_tiers", lambda *_a: TIERS)
+    gitutil.run(root, "checkout", "-q", "-b", "side")
+    (root / "AGENTS.md").write_text("rule\n")
+    gitutil.run(root, "add", "AGENTS.md")
+    gitutil.run(root, "commit", "-qm", "rules: tighten\n\nEvidence: e1")
+    gitutil.run(root, "checkout", "-q", "-")
+    base = gitutil.text(root, "rev-parse", "HEAD")
+    gitutil.run(root, "merge", "-q", "--no-ff", "-m", "merge side", "side")
+    found = policy.check_range(root, f"{base}..HEAD", root)
+    assert any("merge" not in f and "tier 1" in f for f in found), found
+    merge_sha = gitutil.text(root, "rev-parse", "HEAD")[:10]
+    assert any(f.startswith(merge_sha) and "tier 1" in f for f in found), found

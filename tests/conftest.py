@@ -24,6 +24,9 @@ NEEDLES = (
     "not built",
     "not present",
     "could not import",
+    "systemd user scope",  # the only test of the cgroup caps
+    "fresh issues exist",
+    "already running under",
 )
 
 
@@ -106,3 +109,13 @@ def root(tmp_path: Path) -> Path:
     subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
     subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "base"], check=True)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _own_check_scratch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Detector runs write scratch overlays: never into the live `overlays/` a campaign uses."""
+    from bench.issues import check
+
+    monkeypatch.setattr(check, "SCRATCH", tmp_path_factory.mktemp("scratch"))

@@ -6,7 +6,7 @@ keeping its path under `results/`, and appends a line per file to `results/archi
 It refuses to overwrite and never touches a ledger row, so a result that a verdict cites is
 moved only by an explicit path. `bench.doctor` audits the active set strictly and lists the
 archive on its own.
-Depends on: bench.{layout,ledger}.
+Depends on: bench.{jsonl,layout,ledger}.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from bench import layout, ledger
+from bench.jsonl import read_jsonl
 
 ARCHIVE = "archive"
 
@@ -34,8 +35,15 @@ def _companions(path: Path) -> list[Path]:
 
 
 def _ledger_files(results: Path) -> set[str]:
-    """File names the gate ledger's rows were judged on."""
-    return {Path(e["results"]).name for e in ledger.read(results / "gate" / "ledger.jsonl")}
+    """File names a gate ledger row or a registry row (`out`, `results`) cites."""
+    names = {Path(e["results"]).name for e in ledger.read(results / "gate" / "ledger.jsonl")}
+    registry_file = results / "registry.jsonl"
+    rows = read_jsonl(registry_file) if registry_file.exists() else []
+    return names | {
+        Path(str(r.get("out") or r.get("results"))).name
+        for r in rows
+        if r.get("out") or r.get("results")
+    }
 
 
 def _plan_moves(files: list[Path], results: Path, day: str) -> list[tuple[Path, Path]]:
@@ -47,7 +55,9 @@ def _plan_moves(files: list[Path], results: Path, day: str) -> list[tuple[Path, 
         if ARCHIVE in src.relative_to(results).parts:
             raise ValueError(f"{src} is already archived")
         if src.name in cited:
-            raise ValueError(f"{src.name} is cited by a ledger row: a verdict's inputs stay active")
+            raise ValueError(
+                f"{src.name} is cited by a ledger or registry row: a verdict's inputs stay active"
+            )
         if dst.exists():
             raise FileExistsError(f"{dst} exists: nothing is overwritten")
     return moves

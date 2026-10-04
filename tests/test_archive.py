@@ -47,7 +47,7 @@ def test_a_file_named_with_its_companion_moves_once_and_a_cited_file_stays(tmp_p
     assert len(archive.archive(both, "r", res, day="2026-10-02")) == 3
     cited = {"candidate": "c", "results": "x/b.jsonl"}
     (res / "gate" / "ledger.jsonl").write_text(json.dumps(cited) + "\n")
-    with pytest.raises(ValueError, match="cited by a ledger row"):
+    with pytest.raises(ValueError, match="cited by a ledger or registry row"):
         archive.archive([res / "gate" / "b.jsonl"], "r", res)
     assert (res / "gate" / "b.jsonl").exists()
 
@@ -85,3 +85,13 @@ def test_the_command_moves_the_named_files(tmp_path: Path) -> None:
     argv = ["--results", str(res), "--reason", "r", str(res / "gate" / "b.jsonl")]
     assert archive.main(argv) == 0
     assert not (res / "gate" / "b.jsonl").exists()
+
+
+def test_a_file_a_registry_row_cites_stays_active_too(tmp_path: Path) -> None:
+    res = _results(tmp_path)
+    (res / "registry.jsonl").write_text(
+        json.dumps({"event": "started", "id": "e1", "out": "results/experiments/b.jsonl"}) + "\n"
+    )
+    with pytest.raises(ValueError, match="registry row"):
+        archive.archive([res / "gate" / "b.jsonl"], "r", res)
+    assert (res / "gate" / "b.jsonl").exists()

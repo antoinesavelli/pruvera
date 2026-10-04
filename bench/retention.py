@@ -17,6 +17,7 @@ from bench import layout
 from bench.jsonl import read_jsonl
 
 STALE_DAYS = 2
+YOUNG_SECONDS = 3600  # longer than any trial's wall-clock limit
 
 
 def _size(path: Path) -> int:
@@ -44,10 +45,16 @@ def stale_overlays(overlays: Path, now: float | None = None) -> list[dict[str, A
     return sorted(found, key=lambda f: -float(f["days"]))
 
 
-def orphan_artifacts(artifacts: Path, results: Path) -> list[str]:
-    """Artifact directories that no results file cites."""
+def orphan_artifacts(artifacts: Path, results: Path, now: float | None = None) -> list[str]:
+    """Artifact directories that no results file cites; a trial still being written (its record
+    is appended last) is not an orphan, so directories younger than `YOUNG_SECONDS` are skipped."""
     cited = cited_trials(results)
-    return sorted(p.name for p in artifacts.iterdir() if p.is_dir() and p.name not in cited)
+    cutoff = (now or time.time()) - YOUNG_SECONDS
+    return sorted(
+        p.name
+        for p in artifacts.iterdir()
+        if p.is_dir() and p.name not in cited and p.stat().st_mtime < cutoff
+    )
 
 
 def report(state: Path = layout.STATE) -> dict[str, Any]:

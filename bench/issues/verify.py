@@ -104,8 +104,9 @@ def _check_survivor(env: check.Env, issue: schema.Issue, planted: dict[str, str]
     tests = _tests_for(env, issue)
     if not tests:
         return []  # no test even imports the module: nothing can catch it
-    if check.run_pytest(env, tests, planted).passed:
-        return []
+    result = check.run_pytest(env, tests, planted)
+    if result.passed or (result.collection_error and not result.failed):
+        return []  # an import error is not a test catching the bug
     return ["a test catches this issue, so it is not a survivor"]
 
 
