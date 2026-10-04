@@ -60,15 +60,25 @@ def sibling_test(module: str) -> str:
     return f"tests/{path.parent}/test_{path.stem}.py"
 
 
+def _options(argv: list[str]) -> tuple[str, list[str], bool]:
+    """(output file name, the module specs, --force)."""
+    force = "--force" in argv
+    argv = [a for a in argv if a != "--force"]
+    if argv[:1] == ["--out"]:
+        return argv[1], argv[2:], force
+    return "_campaign.json", argv, force
+
+
 def main(argv: list[str]) -> int:
     """`campaign.py [--out FILE] module.py[:tests.py] ...`: sample mutants, run their tests."""
     if argv[:1] in (["-h"], ["--help"]):
         print(main.__doc__)
         return 0
     env = check.Env(layout.tree(), layout.venv(), layout.data_root())
-    name = "_campaign.json"
-    if argv[:1] == ["--out"]:
-        name, argv = argv[1], argv[2:]
+    name, argv, force = _options(argv)
+    if (layout.ROOT / "issues" / name).exists() and not force:
+        print(f"issues/{name} exists (the seed reads it): pass --force to overwrite")
+        return 1
     modules = argv or ["utils/price_ticks.py"]
     results = []
     for spec in modules:

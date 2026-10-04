@@ -36,12 +36,14 @@ def repo(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     git(src, "init", "-q", "-b", "main")
     _commit(src, {"pkg/__init__.py": "", "pkg/m.py": BUGGY, "README.md": "x\n"}, "add scale")
     fix = _commit(src, {"pkg/m.py": FIXED, "tests/test_m.py": TEST}, "fix: boundary is inclusive")
-    docs = _commit(src, {"README.md": "y\n"}, "fix typo in readme")  # a fix that touches no source
+    docs = _commit(src, {"README.md": "y\n"}, "fix: typo in readme")  # a fix that touches no source
     big = _commit(
         src, {"pkg/big.py": "\n".join(f"x{i} = {i}" for i in range(50)) + "\n"}, "add big"
     )
     _commit(
-        src, {"pkg/big.py": "\n".join(f"x{i} = {i + 1}" for i in range(50)) + "\n"}, "fix big drift"
+        src,
+        {"pkg/big.py": "\n".join(f"x{i} = {i + 1}" for i in range(50)) + "\n"},
+        "fix: big drift",
     )
     return src, {"fix": fix, "docs": docs, "big": big}
 
@@ -199,3 +201,22 @@ def test_inverse_skips_hunks_that_only_change_comments(tmp_path: Path) -> None:
     (tree / "pkg").mkdir(parents=True)
     (tree / "pkg" / "m.py").write_text("def f():\n    # new note\n    return 1\n")
     assert "only comment or docstring" in str(miner.inverse(sel, diff, tree))
+
+
+def test_only_a_conventional_fix_subject_counts_as_a_fix(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    git(src, "init", "-q", "-b", "main")
+    shas = {
+        message: _commit(src, {"f.txt": message}, message)
+        for message in (
+            "fix: a real fix",
+            "fix(scope): another",
+            "refactor(x): move code; fix-the-cause note",
+            "docs+fix(x): mostly docs",
+            "feat: prefix of fixture",
+            "Fix: capitalised is not conventional",
+        )
+    }
+    found = miner.fix_commits(src, "HEAD")
+    assert found == [shas["fix: a real fix"], shas["fix(scope): another"]]
