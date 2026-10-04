@@ -64,3 +64,13 @@ def test_the_opencode_version_is_empty_without_a_binary(
     monkeypatch.setattr(modelinfo, "OPENCODE", tmp_path / "absent")
     assert modelinfo.opencode_version() == ""
     modelinfo.opencode_version.cache_clear()
+
+
+def test_a_bare_model_name_finds_the_digest_of_its_latest_tag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _serve(
+        monkeypatch,
+        {"models": [{"name": "m:latest", "digest": "dl"}, {"name": "m:7b", "digest": "d7"}]},
+    )
+    assert modelinfo.model_digest("m") == "dl" and modelinfo.model_digest("m:7b") == "d7"
