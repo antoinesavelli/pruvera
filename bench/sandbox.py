@@ -273,8 +273,7 @@ def run(
     spec: Spec, cmd: Sequence[str], timeout: float | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Run one command inside the sandbox; the caller decides what a non-zero exit means."""
-    if shutil.which("bwrap") is None:
-        raise SandboxError("bwrap not found")
+    _require_tools(spec)
     check_layout(spec)
     with contextlib.ExitStack() as stack:
         sock = (
@@ -300,8 +299,7 @@ def run(
 @contextlib.contextmanager
 def popen(spec: Spec, cmd: Sequence[str]) -> Iterator[subprocess.Popen[str]]:
     """Start one command inside the sandbox and stream it; the sandbox dies with the process."""
-    if shutil.which("bwrap") is None:
-        raise SandboxError("bwrap not found")
+    _require_tools(spec)
     check_layout(spec)
     with contextlib.ExitStack() as stack:
         sock = (
@@ -326,6 +324,15 @@ def popen(spec: Spec, cmd: Sequence[str]) -> Iterator[subprocess.Popen[str]]:
             if proc.poll() is None:
                 proc.kill()
             proc.wait(timeout=10)
+
+
+def _require_tools(spec: Spec) -> None:
+    """bwrap always, and socat when the Ollama bridge is wanted: without it the agent would run
+    with no inference endpoint and its record would read as the agent's failure."""
+    if shutil.which("bwrap") is None:
+        raise SandboxError("bwrap not found")
+    if spec.net == "ollama" and shutil.which("socat") is None:
+        raise SandboxError("socat not found: the Ollama bridge cannot start")
 
 
 def check_layout(spec: Spec) -> None:
@@ -444,3 +451,5 @@ def remove_trial_dirs(*dirs: Path) -> None:
                 with contextlib.suppress(OSError):
                     target.chmod(0o700)
         shutil.rmtree(root, ignore_errors=True)
+        if root.exists():
+            print(f"warning: could not fully remove {root}", file=sys.stderr)
