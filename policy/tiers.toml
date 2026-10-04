@@ -12,6 +12,8 @@ patterns = [
   ".opencode/command/*",
   ".opencode/tool/*",
   "scripts/dev/commit_paths.py",
+  ".claude/skills/*",
+  ".claude/commands/*",
 ]
 
 [tier2]
@@ -22,4 +24,9 @@ patterns = [
   "scripts/dev/guard_commit_scope.py",
   "*/model-routing.yaml",
   ".githooks/*",
+  ".claude/settings.json",       # permission allowlists and the hooks that guard commits
+  ".claude/settings.local.json",
+  ".claude/hooks/*",
+  ".opencode/agent/*",          # an agent's tool and permission grants
+  ".mcp.json",                  # a new tool an agent can call
 ]

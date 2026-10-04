@@ -202,8 +202,10 @@ def test_retention_lists_old_overlays_and_artifacts_no_result_cites(tmp_path: Pa
     long_ago = time.time() - 5 * 86400
     os.utime(tmp_path / "overlays" / "old", (long_ago, long_ago))
     os.utime(tmp_path / "overlays" / ".hidden", (long_ago, long_ago))
-    for name in ("cited", "orphan"):
+    for name in ("cited", "orphan", "inflight"):
         (tmp_path / "artifacts" / name).mkdir(parents=True)
+    for name in ("cited", "orphan"):
+        os.utime(tmp_path / "artifacts" / name, (long_ago, long_ago))  # old enough to be judged
     (tmp_path / "results" / "archive").mkdir(parents=True)
     (tmp_path / "results" / "archive" / "r.jsonl").write_text(
         json.dumps({"trial_id": "cited"}) + "\n"
@@ -213,7 +215,7 @@ def test_retention_lists_old_overlays_and_artifacts_no_result_cites(tmp_path: Pa
     assert [o["path"] for o in found["stale_overlays"]] == ["old"] and found["stale_overlays"][0][
         "bytes"
     ] == 10
-    assert found["orphan_artifacts"] == ["orphan"]
+    assert found["orphan_artifacts"] == ["orphan"], "a young directory is a trial in flight"
 
 
 def test_a_spec_chooses_what_the_safety_bound_counts_and_the_power_check_follows_it(

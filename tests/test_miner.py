@@ -164,6 +164,7 @@ def test_evaluate_classifies_a_real_planted_fix(tmp_path: Path) -> None:
     (tree / "pkg" / "m.py").write_text(FIXED)
     (tree / "tests" / "test_m.py").write_text(TEST)
     env = check.Env(tree, FIXTURE_VENV)
+    before = sandbox.tree_hash(tree)
     edits = (schema.Edit("pkg/m.py", "    if x >= 10:", "    if x > 10:"),)
     cand = miner.Candidate("c" * 40, ("pkg/m.py",), ("tests/test_m.py",), edits, 2)
     verdict = miner.evaluate(env, cand)
@@ -176,7 +177,7 @@ def test_evaluate_classifies_a_real_planted_fix(tmp_path: Path) -> None:
     assert miner.evaluate(env, stale).kind == "not_applicable"
     untested = miner.Candidate("e" * 40, ("pkg/m.py",), (), edits, 2)
     assert miner.evaluate(env, untested).kind == "survived"
-    assert sandbox.tree_hash(tree) == sandbox.tree_hash(tree), "the tree must not change"
+    assert sandbox.tree_hash(tree) == before, "the tree must not change"
 
 
 def test_behavioural_ignores_comments_docstrings_and_whitespace_but_sees_code() -> None:
