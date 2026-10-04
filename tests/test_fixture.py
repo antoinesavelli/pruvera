@@ -329,3 +329,21 @@ def test_rewrite_shebangs_and_tree_pth(tmp_path: Path) -> None:
     assert (root / "bin" / "other").read_text() == "#!/usr/bin/env python3\nx = 1\n"
     pth = venv.add_tree_pth(root)
     assert pth.read_text() == f"{sandbox.WORKDIR}\n" and pth.parent.name == "site-packages"
+
+
+def test_a_denylist_stem_excludes_the_directory_it_names_and_everything_under_it() -> None:
+    rule = ["**/*private_strategy*"]
+    inside = [
+        "tests/scripts/analysis/private_strategy/core/__init__.py",
+        "tests/x/private_strategy_old/sub/deep/file.txt",
+        "engine/screener/private_strategy_source.py",
+    ]
+    outside = ["engine/screener/insider_source.py", "docs/secret_notes.md"]
+    assert denylist.excluded([*inside, *outside], rule) == set(inside)
+    assert denylist.excluded(["a/b.key", "a/b.key/c"], ["**/*.key"]) == {"a/b.key", "a/b.key/c"}
+
+
+def test_a_built_version_is_never_rebuilt_in_place(tmp_path: Path) -> None:
+    (tmp_path / "MANIFEST.json").write_text("{}")
+    with pytest.raises(build.BuildError, match="never rebuilt in place"):
+        build.build(tmp_path / "repo", "HEAD", tmp_path)

@@ -153,7 +153,8 @@ def accept(limit: int, verdict: str = "caught_assertion", per_area: int = 3) -> 
         used |= set(cand.sources)
         areas[area] += 1
         issue = miner.to_issue(cand, miner.Verdict(verdict, tuple(r["failed"])))
-        schema.write(ROOT / "issues", issue)
+        if schema.write_new(ROOT / "issues", issue) is None:
+            continue  # already catalogued: keep its measured fields
         written.append(issue.id)
         if len(written) == limit:
             break

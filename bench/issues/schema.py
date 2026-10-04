@@ -211,6 +211,17 @@ def load_profile(path: Path) -> tuple[str, tuple[str, ...]]:
     return str(doc.get("description", "")), tuple(doc["issues"])
 
 
+def write_new(catalogue: Path, issue: Issue) -> Path | None:
+    """Write an issue that is not in the catalogue yet; None (and no write) when it already is.
+
+    The miner and the areas tool use this, so a re-run never resets the measured difficulty,
+    proofs and hand-added fields an existing issue has gathered.
+    """
+    if (catalogue / issue.id / "issue.toml").exists():
+        return None
+    return write(catalogue, issue)
+
+
 def write(catalogue: Path, issue: Issue) -> Path:
     target = catalogue / issue.id / "issue.toml"
     target.parent.mkdir(parents=True, exist_ok=True)
