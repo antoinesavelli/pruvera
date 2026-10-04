@@ -4,7 +4,7 @@
 preregistration; `run` runs exactly what was registered (the only way to run a candidate) and
 writes `results/experiments/<id>.jsonl`; `interim` and `judge` apply the registered alpha share
 and write a verdict bundle (`results/verdicts/<id>/`) with a generated report.
-Depends on: bench.{budget,gate,jsonl,layout,registry,report,retention,runner},
+Depends on: bench.{budget,gate,jsonl,layout,ledger,registry,report,retention,runner},
 bench.issues.trials.
 """
 
@@ -19,7 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from bench import budget, gate, layout, registry, report, retention, runner
+from bench import budget, gate, layout, ledger, registry, report, retention, runner
 from bench.issues import trials
 from bench.jsonl import read_jsonl
 
@@ -41,6 +41,8 @@ decision_rule = ""  # the verdict rule and thresholds, fixed before the first tr
 
 def new(experiment_id: str, root: Path = layout.ROOT) -> Path:
     """Write a spec template; refuses to overwrite one."""
+    if not registry.ID.fullmatch(experiment_id):
+        raise registry.RegistryError(f"{experiment_id!r}: lower case letters, digits and dashes")
     path = root / "experiments" / f"{experiment_id}.toml"
     if path.exists():
         raise registry.RegistryError(f"{path.name} exists")
@@ -60,12 +62,17 @@ def run(
 ) -> Path:
     """Run the registered experiment: both arms, the registered repeats, the registered models."""
     row = registry.registered(experiment_id, root)
+    if row["kind"] == "confirmatory" and (n or only or out):
+        raise registry.RegistryError(
+            f"{experiment_id}: a confirmatory run is exactly what was registered "
+            "(no --n, --only or --out)"
+        )
     arms = {"baseline": runner.load_profile(layout.VERSION, row["baseline"])}
     if row["candidate"]:
         arms["candidate"] = runner.load_profile(layout.VERSION, row["candidate"])
         if arms["baseline"].issue_ids != arms["candidate"].issue_ids:
             raise ValueError("the two profiles plant different issues: the arms are not comparable")
-    target = out or root / "results" / "experiments" / f"{experiment_id}.jsonl"
+    target = out or _results(experiment_id, root)
     return trials.run_arms(
         arms, n or row["repeats"], target, only=only, models=row["models"] or None,
         force=force, experiment=experiment_id,
@@ -73,9 +80,10 @@ def run(
 
 
 def _alpha_fields(spec: registry.Spec, gens: set[str], root: Path) -> dict[str, Any]:
-    """What a confirmatory registration adds: its alpha share, look levels and power check."""
+    """What a registration adds: the gate's thresholds, and for a confirmatory study its alpha
+    share, look levels and power check."""
     if spec.kind != "confirmatory":
-        return {}
+        return {"gate_rules": gate.rules()}
     alpha = budget.alpha_for(registry.read(root), gens, root)
     result = budget.power(spec, alpha, root)
     if not budget.adequate(result) and not spec.underpowered:
@@ -85,7 +93,12 @@ def _alpha_fields(spec: registry.Spec, gens: set[str], root: Path) -> dict[str, 
             'why it is run anyway with underpowered = "<reason>"'
         )
     levels = budget.look_levels(spec.repeats, spec.interim, alpha)
-    return {"alpha": alpha, "power": result, "look_levels": {str(k): v for k, v in levels.items()}}
+    return {
+        "alpha": alpha,
+        "power": result,
+        "look_levels": {str(k): v for k, v in levels.items()},
+        "gate_rules": gate.rules(),
+    }
 
 
 def register(spec_path: Path, root: Path = layout.ROOT) -> dict[str, Any]:
@@ -112,19 +125,30 @@ def _through(rows: list[dict[str, Any]], repeat: int) -> list[dict[str, Any]]:
 
 
 def interim(experiment_id: str, after: int, root: Path = layout.ROOT) -> dict[str, Any]:
-    """A planned interim look: STOP if the success or safety test already rejects, else CONTINUE."""
+    """A planned interim look: STOP if the success or safety test already rejects, else CONTINUE.
+
+    Each look is taken once and recorded, so a STOP cannot be quietly re-rolled.
+    """
     row, base, cand = _arms(experiment_id, root)
     levels = budget.look_levels(row["repeats"], tuple(row["interim"]), row.get("alpha", 0.05))
     if after not in levels or after == row["repeats"]:
         raise registry.RegistryError(f"{experiment_id}: no planned interim look after {after}")
+    if any(
+        r["event"] == "interim" and r["id"] == experiment_id and r["after"] == after
+        for r in registry.read(root)
+    ):
+        raise registry.RegistryError(f"{experiment_id}: the look after {after} was already taken")
     verdict = gate.decide(
         _through(base, after),
         _through(cand, after),
         family=budget.family_for(levels[after]),
         counts=row.get("safety_counts", "all"),
     )
-    stop = verdict["verdict"] == "REJECT"
-    return {"after": after, "alpha": levels[after], "decision": "STOP" if stop else "CONTINUE",
+    decision = "STOP" if verdict["verdict"] == "REJECT" else "CONTINUE"
+    registry.append(
+        root, "interim", id=experiment_id, after=after, alpha=levels[after], decision=decision
+    )
+    return {"after": after, "alpha": levels[after], "decision": decision,
             "why": verdict["why"], "success": verdict["success"]}  # fmt: skip
 
 
@@ -177,21 +201,68 @@ def _write_bundle(
     return Path(out)
 
 
+def _check_judgeable(row: dict[str, Any], rows: list[dict[str, Any]], root: Path) -> None:
+    """Refuse to judge what is not the registered study: spec edited, never run, rules moved."""
+    spec = root / "experiments" / f"{row['id']}.toml"
+    if not spec.exists() or _sha(spec) != row["spec_sha256"]:
+        raise registry.RegistryError(f"{row['id']}: the spec changed since it was registered")
+    if not any(r["event"] == "started" and r["id"] == row["id"] for r in rows):
+        raise registry.RegistryError(f"{row['id']}: registered but never run")
+    if row.get("gate_rules") and row["gate_rules"] != gate.rules():
+        raise registry.RegistryError(
+            f"{row['id']}: the gate's thresholds changed since registration"
+        )
+
+
+def _check_complete(
+    row: dict[str, Any], rows: list[dict[str, Any]], verdict: dict[str, Any]
+) -> None:
+    stopped = any(
+        r["event"] == "interim" and r["id"] == row["id"] and r["decision"] == "STOP" for r in rows
+    )
+    got = min(verdict["repeats"].values())
+    if got < row["repeats"] and not stopped:
+        raise registry.RegistryError(
+            f"{row['id']}: {got} of {row['repeats']} registered repeats are recorded"
+        )
+
+
+def _ledger_row(
+    row: dict[str, Any], verdict: dict[str, Any], alpha: float, results: Path, root: Path
+) -> None:
+    """A confirmatory verdict also goes in the legacy ledger, at the registry's family, so
+    `gate.clear` and `gate.judge` see the look and the widening the registry applied."""
+    key = ledger.variant_of(row["candidate"]) or next(iter(row["variants"]), "")
+    ledger.record(
+        registry.results_dir(root) / "gate" / "ledger.jsonl",
+        {
+            "baseline": row["baseline"], "candidate": row["candidate"], "variant": key,
+            "variant_hash": row["variants"].get(key, ""), "variant_pinned": True,
+            "set": ledger.set_of(row["candidate"]), "holdout_used": True,
+            "holdout_gens": row["holdout_gens"], "results": registry.rel(results, root),
+            "verdict": verdict["verdict"], "diff": verdict["success"]["diff"],
+            "family": budget.family_for(alpha), "experiment": row["id"],
+        },
+    )  # fmt: skip
+
+
 def judge(experiment_id: str, root: Path = layout.ROOT) -> dict[str, Any]:
     """The verdict at the registered alpha, with its bundle and report; records a `judged` row."""
     registry_rows = registry.read(root)
     if any(r["event"] == "judged" and r["id"] == experiment_id for r in registry_rows):
         raise registry.RegistryError(f"{experiment_id}: already judged")
     row, base, cand = _arms(experiment_id, root)
+    _check_judgeable(row, registry_rows, root)
     final = budget.look_levels(row["repeats"], tuple(row["interim"]), row.get("alpha", 0.05))
     alpha = final[row["repeats"]]
     counts = row.get("safety_counts", "all")
     verdict = gate.decide(base, cand, family=budget.family_for(alpha), counts=counts)
+    _check_complete(row, registry_rows, verdict)
     verdict["alpha_used"] = alpha
     results = _results(experiment_id, root)
     records = [r for r in read_jsonl(results, skip_bad=True) if "trial_id" in r]
     text = report.render(
-        row, verdict, report.hazard_table(base, cand), _caveats(row, verdict, records)
+        row, verdict, report.hazard_table(base, cand, counts), _caveats(row, verdict, records)
     )
     bundle = _write_bundle(row, [*base, *cand], verdict, text, root)
     artifacts = {str(r["trial_id"]): r.get("artifact_sha256", "") for r in records}
@@ -201,11 +272,15 @@ def judge(experiment_id: str, root: Path = layout.ROOT) -> dict[str, Any]:
         "artifacts": artifacts,
     }
     (bundle / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True))
-    registry.append(root, "judged", id=experiment_id, verdict=verdict["verdict"],
-                    why=verdict["why"],
-                    alpha_used=alpha, diff=verdict["success"]["diff"], scope=_scope(records),
-                    safety_counts=counts,
-                    bundle=str(bundle.relative_to(registry.results_dir(root))))  # fmt: skip
+    head, dirty = runner.harness_state()
+    registry.append(
+        root, "judged", id=experiment_id, verdict=verdict["verdict"], why=verdict["why"],
+        alpha_used=alpha, diff=verdict["success"]["diff"], scope=_scope(records),
+        safety_counts=counts, harness_commit=head, harness_dirty=dirty,
+        bundle=str(bundle.relative_to(registry.results_dir(root))),
+    )  # fmt: skip
+    if row["kind"] == "confirmatory":
+        _ledger_row(row, verdict, alpha, results, root)
     return verdict
 
 

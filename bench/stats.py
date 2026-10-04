@@ -12,8 +12,10 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Mapping, Sequence
+from statistics import NormalDist
 
 Z95 = 1.959964
+MIN_TAIL_DRAWS = 10  # draws that must lie beyond a quantile for the empirical one to be trusted
 
 
 def wilson(k: int, n: int, z: float = Z95) -> tuple[float, float]:
@@ -75,6 +77,13 @@ def bootstrap_diff(
         )
     diffs.sort()
     point = cluster_rate({t: b[t] for t in tasks}) - cluster_rate({t: a[t] for t in tasks})
+    if alpha * draws / 2 < MIN_TAIL_DRAWS:
+        # Past the resolution of the draws a quantile index is the sample extreme and a smaller
+        # alpha would stop widening: extrapolate with the normal tail of the draws' spread.
+        mean = sum(diffs) / len(diffs)
+        sd = math.sqrt(sum((d - mean) ** 2 for d in diffs) / max(1, len(diffs) - 1))
+        z = NormalDist().inv_cdf(1 - alpha / 2)
+        return point, point - z * sd, point + z * sd
     return point, diffs[int(alpha / 2 * draws)], diffs[int((1 - alpha / 2) * draws) - 1]
 
 
