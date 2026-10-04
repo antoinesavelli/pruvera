@@ -144,8 +144,13 @@ def test_score_records_builds_one_row_per_scorable_trial_and_reports_unscorable_
         },
     ]
     rows = trials.score_records(records, "full")
-    assert [r["trial_id"] for r in rows] == ["ok", "bad", "rb"]
-    assert rows[2]["outcome"] == "unscorable" and "no .git" in rows[2]["notes"][0]
+    assert [r["trial_id"] for r in rows] == ["ok", "bad", "h", "u", "rb"]
+    assert rows[4]["outcome"] == "unscorable" and "no .git" in rows[4]["notes"][0]
+    assert rows[2]["outcome"] == "harness_error" and rows[2]["expected"] and not rows[2]["success"]
+    assert (
+        rows[3]["outcome"] == "unscorable"
+        and "not an issue in the catalogue" in rows[3]["notes"][0]
+    )
     assert rows[0]["success"] is True and rows[0]["arm"] == "x" and rows[0]["kind"]
     assert rows[1]["outcome"] == "unscorable" and "does not apply" in rows[1]["notes"][0]
     assert calls["n"] == 2, "a failed read-back is unscorable and never reaches the scorer"

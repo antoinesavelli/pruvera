@@ -70,3 +70,13 @@ def test_sign_test_is_exact_and_two_sided() -> None:
     assert stats.sign_test(5, 5) == 1.0
     assert stats.sign_test(0, 0) == 1.0
     assert abs(stats.sign_test(9, 1) - 22 / 2**10) < 1e-12
+
+
+def test_a_family_correction_past_the_draws_resolution_still_widens_the_interval() -> None:
+    a = {f"i{k}": [True] * 3 + [False] * 3 for k in range(13)}
+    b = {f"i{k}": [True] * 2 + [False] * 4 for k in range(13)}
+    widths = []
+    for alpha in (0.05, 1e-3, 1e-5, 1e-8):
+        _, lo, hi = stats.bootstrap_diff(a, b, draws=2000, alpha=alpha)
+        widths.append(hi - lo)
+    assert widths == sorted(widths) and len(set(widths)) == 4, widths
