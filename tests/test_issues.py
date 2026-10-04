@@ -358,7 +358,7 @@ def test_a_survivor_in_a_module_with_no_sibling_test_file_is_checked_against_imp
 ) -> None:
     """Regression: a missing sibling test file made pytest exit 4, read as 'a test catches it'."""
     env = _env(tmp_path)
-    (env.tree / "pkg" / "orphan.py").write_text("LIMIT = 1\\n")
+    (env.tree / "pkg" / "orphan.py").write_text("LIMIT = 1\n")
     survivor = _issue(
         id="x-9",
         kind="logic_bug_no_test_catches",
@@ -368,7 +368,7 @@ def test_a_survivor_in_a_module_with_no_sibling_test_file_is_checked_against_imp
     )
     assert verify.verify_issue(env, survivor).ok, "no test imports it, so nothing catches it"
     (env.tree / "tests" / "test_uses_orphan.py").write_text(
-        "from pkg.orphan import LIMIT\\n\\n\\ndef test_limit():\\n    assert LIMIT == 1\\n"
+        "from pkg.orphan import LIMIT\n\n\ndef test_limit():\n    assert LIMIT == 1\n"
     )
     verdict = verify.verify_issue(env, survivor)
     assert not verdict.ok and any("not a survivor" in n for n in verdict.notes)

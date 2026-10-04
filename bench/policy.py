@@ -108,7 +108,11 @@ def check_range(repo: Path, rng: str, root: Path = layout.ROOT) -> list[str]:
     """Problems for every commit in `rng` of the repo whose rules are being changed."""
     problems: list[str] = []
     for sha in gitutil.text(repo, "rev-list", "--reverse", rng).split():
-        files = gitutil.text(repo, "show", "--name-only", "--format=", sha).split("\n")
+        # -m --first-parent: a merge commit lists what it brought in (plain `show` prints nothing)
+        files = gitutil.text(
+            repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "-m", "--first-parent",
+            "--root", sha,
+        ).split("\n")  # fmt: skip
         tier, found = check(
             [f for f in files if f], gitutil.text(repo, "show", "-s", "--format=%B", sha), root
         )
