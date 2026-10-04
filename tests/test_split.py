@@ -33,7 +33,9 @@ def _issues(spec: dict[str, tuple[str, str, str]]) -> dict[str, schema.Issue]:
 def _profiles(tmp_path: Path, tune: list[str], holdout: list[str]) -> Path:
     prof = tmp_path / "profiles"
     prof.mkdir()
-    for name, ids in (("tune", tune), ("holdout", holdout), ("holdout2", []), ("tune2", tune)):
+    for name, ids in (
+        ("tune", tune), ("holdout", holdout), ("holdout2", []), ("tune2", tune), ("dev", []),
+    ):  # fmt: skip
         (prof / f"{name}.toml").write_text(
             f'description = "x"\nissues = {ids!r}\n'.replace("'", '"')
         )

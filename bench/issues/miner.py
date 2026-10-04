@@ -51,10 +51,15 @@ class Verdict:
 
 
 def fix_commits(repo: Path, rev: str) -> list[str]:
-    """Non-merge commits with 'fix' in the message, oldest first."""
+    """Non-merge commits whose subject is a fix (`fix:` or `fix(scope):`), oldest first.
+
+    Not a substring match: "refactor ... fix-the-cause" and "docs+fix" are not fixes, and a
+    catalogue entry labelled "a real fix was reverted" must be one.
+    """
     out = gitutil.raw(
-        repo, "log", "-i", "--grep=fix", "--no-merges", "--format=%H", "--reverse", rev
-    )
+        repo, "log", "--extended-regexp", "--grep=^fix(\\(|:|!)", "--no-merges",
+        "--format=%H", "--reverse", rev,
+    )  # fmt: skip
     return out.decode().split()
 
 

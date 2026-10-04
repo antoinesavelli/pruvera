@@ -189,6 +189,16 @@ def _plant_tree(
     return commit
 
 
+def _claim(out: Path) -> Path:
+    """Create the profile directory atomically: a second builder cannot pass, so it can never
+    clean up (and delete) the first one's half-built tree."""
+    try:
+        out.mkdir(parents=True)
+    except FileExistsError as exc:
+        raise PlantError(f"profile already built or being built: {out}") from exc
+    return out
+
+
 def build_profile(
     version_dir: Path,
     name: str,
@@ -205,9 +215,9 @@ def build_profile(
     base = version_dir / "tree"
     base_manifest = json.loads((version_dir / "MANIFEST.json").read_text())
     before = sandbox.tree_hash(base, (".git",))
-    out = (out_root or version_dir / "profiles") / name
-    if out.exists():
-        raise PlantError(f"profile already built: {out}")
+    if before != base_manifest["tree_hash"]:
+        raise PlantError("the clean base no longer matches its manifest: it drifted, do not plant")
+    out = _claim((out_root or version_dir / "profiles") / name)
     tree = out / "tree"
     try:
         commit = _plant_tree(base, tree, issues, rule_files or {}, history)

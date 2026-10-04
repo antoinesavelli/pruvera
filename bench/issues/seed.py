@@ -561,7 +561,7 @@ def seed(root: Path) -> list[Issue]:
         f"issues = {json.dumps(names)}\n"
     )
     by_kind: dict[str, list[str]] = {}
-    for issue in issues:
+    for issue in schema.load_all(root / "issues").values():  # mined and mutated issues too
         by_kind.setdefault(issue.kind, []).append(issue.id)
     for kind, ids in sorted(by_kind.items()):
         name = "kind-" + kind.replace("_", "-")

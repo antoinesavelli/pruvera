@@ -175,6 +175,10 @@ def build(
     allow_path: Path = HERE / "scrub_allow.local.txt",
     drop_path: Path | None = HERE / "drop_tests.txt",
 ) -> BuildResult:
+    if (out / "MANIFEST.json").exists():
+        raise BuildError(
+            f"{out} is a built version: fixtures are versioned, never rebuilt in place"
+        )
     commit = export.resolve(repo, rev)
     tree = out / "tree"
     paths = export.export_commit(repo, commit, tree)

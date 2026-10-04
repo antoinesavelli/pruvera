@@ -22,7 +22,11 @@ def load_rules(path: Path) -> list[str]:
 
 
 def glob_to_regex(pattern: str) -> re.Pattern[str]:
-    """`**` crosses directories (a leading `**/` also matches none), `*` and `?` stay inside one."""
+    """`**` crosses directories (a leading `**/` also matches none), `*` and `?` stay inside one.
+
+    A match on a directory covers everything beneath it, as in `.gitignore`: `**/*name*` must
+    exclude `tests/x/name/sub/__init__.py` too, not only paths whose last segment names it.
+    """
     out = ""
     i = 0
     while i < len(pattern):
@@ -41,7 +45,7 @@ def glob_to_regex(pattern: str) -> re.Pattern[str]:
         else:
             out += re.escape(pattern[i])
             i += 1
-    return re.compile(out + r"\Z")
+    return re.compile(out + r"(?:/.*)?\Z")
 
 
 def excluded(paths: Iterable[str], rules: list[str]) -> set[str]:

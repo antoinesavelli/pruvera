@@ -61,6 +61,7 @@ def test_the_seed_command_writes_only_when_asked(
 def test_the_areas_command_prints_and_optionally_writes_the_accepted_issues(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    (tmp_path / "opencode.json").write_text('{"permission": {"edit": {"*": "allow"}}}')
     (tmp_path / "pkg").mkdir()
     (tmp_path / "pkg/m.py").write_text("def f(x):\n    if x > 5:\n        return 1\n    return 0\n")
     mutant = {"line": 2, "col": 9, "old": ">", "new": ">=", "operator": "flip", "killed": True}
