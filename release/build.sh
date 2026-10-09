@@ -23,6 +23,11 @@ git filter-repo --version >/dev/null 2>&1 || { echo "build: git-filter-repo is n
 for f in allow_paths.txt replace_text.local.txt mailmap.local.txt; do
     [[ -s $root/release/$f ]] || { echo "build: release/$f is missing or empty" >&2; exit 2; }
 done
+# The terms and rules are the boundary; build only the versions the owner approved (their sha256 sums are in the
+# gitignored release/approved.local.sha256, written at each approval and recorded in the release plan).
+[[ -s $root/release/approved.local.sha256 ]] || { echo "build: release/approved.local.sha256 is missing" >&2; exit 2; }
+(cd "$root/release" && sha256sum --quiet --strict -c approved.local.sha256) \
+    || { echo "build: refusing, the terms or rules differ from the approved versions" >&2; exit 2; }
 
 git init -q -b main "$out"
 git -C "$out" fetch -q --no-tags --update-head-ok "$root" "$commit:refs/heads/main"
