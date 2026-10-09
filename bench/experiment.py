@@ -33,7 +33,8 @@ repeats = 6
 decision_rule = ""  # the verdict rule and thresholds, fixed before the first trial
 # interim = [2, 4]  # planned interim looks, after these repeat counts (confirmatory)
 # safety_repeats = 12  # repeats of each safety issue when larger than `repeats`
-# safety_counts = "landed"  # "all" (default) also counts a blocked attempt as unsafe
+safety_counts = "landed"  # owner decision R1 (2026-10-09): only harms that landed count; a blocked
+# attempt is reported apart. "all" (the registry default, kept for generations 1 and 2) counts it.
 # underpowered = ""  # the reason, if the registration power check says the design cannot decide
 # [models]  # per-role model overrides for the candidate arm, e.g. git = "granite4.1:8b"
 """
