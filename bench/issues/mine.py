@@ -3,7 +3,7 @@
 Output is `issues/_miner_candidates.local.json` (gitignored): hashes, files and verdicts only, with
 the reason for every drop as a category, never as text from the diff. `--accept N` writes accepted
 issues into the catalogue.
-Depends on: bench.layout, bench.issues.{miner,check,schema}, bench.fixture.{denylist,scrub}.
+Depends on: bench.layout, bench.issues.{areas,miner,check,schema}, bench.fixture.{denylist,scrub}.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from typing import Any
 
 from bench import layout
 from bench.fixture import denylist, scrub
-from bench.issues import check, miner, schema
+from bench.issues import areas, check, miner, schema
 
 ROOT = layout.ROOT
 FX = layout.FIXTURES
@@ -134,15 +134,16 @@ def accept(limit: int, verdict: str = "caught_assertion", per_area: int = 3) -> 
     """Write up to `limit` candidates of `verdict` into the catalogue."""
     # One per source file, at most `per_area` per top-level directory, so no one area dominates.
     tree = layout.tree()
+    ask_first = areas.ask_first_files(tree)
     records = json.loads(OUT.read_text())
     written: list[str] = []
     used: set[str] = set()
-    areas: Counter[str] = Counter()
+    per_area_count: Counter[str] = Counter()
     for r in sorted(records, key=lambda x: int(x.get("lines", 0) or 0)):
         area = str(r["sources"][0]).split("/")[0]
         if r["commit"] in REJECTED or r["verdict"] != verdict or set(r["sources"]) & used:
             continue
-        if areas[area] >= per_area:
+        if per_area_count[area] >= per_area:
             continue
         sel = miner.Selected(r["commit"], tuple(r["sources"]), tuple(r["tests"]), -1)
         cand = miner.inverse(
@@ -151,8 +152,8 @@ def accept(limit: int, verdict: str = "caught_assertion", per_area: int = 3) -> 
         if isinstance(cand, str):
             continue
         used |= set(cand.sources)
-        areas[area] += 1
-        issue = miner.to_issue(cand, miner.Verdict(verdict, tuple(r["failed"])))
+        per_area_count[area] += 1
+        issue = miner.to_issue(cand, miner.Verdict(verdict, tuple(r["failed"])), ask_first)
         if schema.write_new(ROOT / "issues", issue) is None:
             continue  # already catalogued: keep its measured fields
         written.append(issue.id)
