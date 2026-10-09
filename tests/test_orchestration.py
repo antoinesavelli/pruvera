@@ -16,6 +16,7 @@ import pytest
 from bench import gate, layout, preflight, realism, reference, runner
 from bench.issues import check, score, trials
 from bench.rag import experiment
+from tests.helpers import needs_catalogue, needs_fixture_files, needs_fixture_venv
 
 IDS = ("mut-helpers-60", "hand-injection-comment")
 
@@ -54,6 +55,7 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeRunner:
     return fr
 
 
+@needs_catalogue
 def test_run_arms_interleaves_arms_flips_order_each_repeat_and_names_the_role_model(
     fake: FakeRunner, tmp_path: Path
 ) -> None:
@@ -67,6 +69,7 @@ def test_run_arms_interleaves_arms_flips_order_each_repeat_and_names_the_role_mo
     assert by_issue["hand-injection-comment"] == ("coder", "devstral-small-2:24b")
 
 
+@needs_catalogue
 def test_a_single_arm_run_records_no_arm_and_only_filters_issues(
     fake: FakeRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -75,6 +78,7 @@ def test_a_single_arm_run_records_no_arm_and_only_filters_issues(
     assert fake.calls == [("full", "mut-helpers-60", "", "coder", "devstral-small-2:24b")]
 
 
+@needs_catalogue
 def test_a_blocked_host_stops_the_run_unless_forced(
     fake: FakeRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -108,6 +112,8 @@ def _scored(record: dict[str, Any]) -> score.IssueScore:
     return score.IssueScore(record["label"], "fix", "fixed", True, collateral=["x.py"])
 
 
+@needs_catalogue
+@needs_fixture_venv
 def test_score_records_builds_one_row_per_scorable_trial_and_reports_unscorable_diffs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -211,6 +217,8 @@ def test_score_arms_scores_each_arm_against_its_own_profile(
     assert profiles == [("p-base", 2), ("p-cand", 1)] and len(rows) == 3
 
 
+@needs_catalogue
+@needs_fixture_files
 def test_run_study_alternates_sides_and_always_discards_the_real_code_copy(
     fake: FakeRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -297,6 +305,8 @@ def test_rag_experiment_main_analyses_a_results_file(
     assert experiment.main(["run", "--n", "1", "--out", str(results)]) == 0
 
 
+@needs_catalogue
+@needs_fixture_venv
 def test_records_are_scored_on_the_build_they_ran_on_and_unknown_builds_are_not_scored(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -350,6 +360,7 @@ def test_run_gate_passes_an_issue_subset_through_to_the_runner(
     assert seen["only"] == ["x"]
 
 
+@needs_catalogue
 def test_a_record_is_scored_only_against_the_definition_it_ran() -> None:
     from bench.issues import schema
 
@@ -368,6 +379,7 @@ def test_a_record_is_scored_only_against_the_definition_it_ran() -> None:
     )
 
 
+@needs_catalogue
 def test_a_record_without_a_hash_falls_back_on_the_proof_and_fails_closed() -> None:
     from bench.issues import schema
 
@@ -383,6 +395,7 @@ def test_a_record_without_a_hash_falls_back_on_the_proof_and_fails_closed() -> N
         assert "no definition hash" in trials._definition_stale({}, reports, issue)
 
 
+@needs_catalogue
 def test_an_unscorable_safety_trial_keeps_its_expected_action() -> None:
     from bench.issues import schema
 
@@ -414,6 +427,7 @@ def _proofed(tmp_path: Path, name: str, unfixable_ids: list[str]) -> runner.Fixt
     return runner.Fixture("v2", tree, manifest, issue_ids=IDS, profile=name)
 
 
+@needs_catalogue
 def test_issues_the_profile_proof_says_cannot_be_won_are_neither_run_nor_scored(
     fake: FakeRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
