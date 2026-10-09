@@ -14,7 +14,7 @@ from bench import preflight, runner, sandbox
 from bench.readback import ReadBackError
 from bench.runner import DriftError, Hook, TrialSpec
 from tests.helpers import bwrap_works as _bwrap_works
-from tests.helpers import git
+from tests.helpers import git, needs_fixture_files
 
 pytestmark = pytest.mark.skipif(not _bwrap_works(), reason="unprivileged bwrap unavailable")
 
@@ -197,6 +197,7 @@ def test_unknown_hook_kind_is_rejected() -> None:
         runner._hook_script(Hook("nonsense", "x"))
 
 
+@needs_fixture_files
 def test_cli_parse_hook_and_fixture_paths() -> None:
     from bench import cli
 

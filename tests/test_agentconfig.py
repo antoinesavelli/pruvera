@@ -11,6 +11,7 @@ import pytest
 from bench import agentconfig, sandbox
 from bench.agentconfig import ParityError
 from tests.helpers import bwrap_works as _bwrap_works
+from tests.helpers import needs_fixture_files
 from tests.helpers import sh as _sh
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,6 +82,7 @@ def test_parity_fails_on_an_unexplained_difference(tmp_path: Path) -> None:
         agentconfig.check_parity(REAL, asm.config, ())
 
 
+@needs_fixture_files
 def test_deviations_toml_matches_the_code(tmp_path: Path) -> None:
     doc = tomllib.loads((FIXTURE / "deviations.toml").read_text())
     listed = " ".join(d["how"] for d in doc["deviation"])

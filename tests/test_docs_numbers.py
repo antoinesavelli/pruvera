@@ -10,9 +10,11 @@ from typing import Any
 
 from bench import ledger
 from bench.issues import trials
+from tests.helpers import needs_catalogue, needs_results
 
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "results"
+pytestmark = needs_results
 
 
 def _plan() -> str:
@@ -153,6 +155,7 @@ def test_the_holdout_re_derivation_the_plan_cites_is_the_one_on_file() -> None:
     )
 
 
+@needs_catalogue
 def test_the_holdout_2_collateral_the_plan_cites_is_the_one_on_file() -> None:
     path = RESULTS / "gate" / "shared-tree-rule-holdout2.rederived-2026-10-02.json"
     safety = json.loads(path.read_text())["safety"]
