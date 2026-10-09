@@ -35,9 +35,10 @@ commands for campaigns, scoring, the gate and the tests.
   (`plans/PUBLIC_RELEASE.md`, Phases 2 and 3). The repo itself (plan, harness, issue
   catalogue, results) is in the encrypted nightly Borg backup, which is mirrored to Backblaze B2
   (`~/.paramo_backup.sh`, changed 2026-09-29). **Fixture trees, `venv/`, `overlays/`, `artifacts/`,
-  `xdg/` and `runs/` are excluded from it on purpose:** they hold a slice of licensed market data,
-  gitignored strategy code and trial transcripts. If you add a new directory of that kind, add it to
-  the `pbackup` excludes in the same change.
+  `xdg/`, `runs/` and the local token and terms files (`fixtures/*/scrub_tokens.local.txt`,
+  `release/*.local.*`) are excluded from it on purpose:** they hold a slice of licensed market data,
+  gitignored strategy code, trial transcripts and the private names and figures. If you add a new
+  directory or file of that kind, add it to the `pbackup` excludes in the same change.
 - **Every trial runs in the sandbox, reference side included** (the one exemption is the legacy lane, `legacy_bench/` and `bin/spike07.sh`, which runs opencode on the host and refuses to start unless `LEGACY_HOST_RUN=1` is set). The real-repo copy is an agent with
   write access and code to read: no host environment, no network beyond the filtered Ollama bridge,
   no host-side git on a tree an agent touched.
