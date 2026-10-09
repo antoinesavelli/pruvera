@@ -12,21 +12,21 @@ from tests.helpers import bwrap_works as sandbox_ok
 from tests.helpers import git
 
 FILES = {
-    "README.md": "Area map.\nThe tuned cell gave DSR 0.XXX in-sample for private_strategy.\n",
-    "config/keep.py": "X = 1\n# private_strategy fit gave win_loss 0.XXX\nY = 0.XXX\n",
-    "config/strategies/private_strategy.py": "SECRET_RECIPE_KNOB = 0.60\n",
+    "README.md": "Area map.\nThe tuned cell gave DSR 0.913 in-sample for secret_strategy.\n",
+    "config/keep.py": "X = 1\n# secret_strategy fit gave win_loss 0.4821\nY = 0.4821\n",
+    "config/strategies/secret_strategy.py": "SECRET_RECIPE_KNOB = 0.75\n",
     "engine/source_secret.py": "class RecipeSource:\n    LONG_RECIPE_NAME = 5\n",
     "docs/research/finding.md": "the finding\n",
-    "scripts/analysis/private_strategy/run.py": "def run_recipe_scan(): ...\n",
-    "tests/test_uses_recipe.py": "from scripts.analysis.private_strategy import run\n",
+    "scripts/analysis/secret_strategy/run.py": "def run_recipe_scan(): ...\n",
+    "tests/test_uses_recipe.py": "from scripts.analysis.secret_strategy import run\n",
     "tests/test_keeps.py": "from config import keep\n\ndef test_x():\n    assert keep.X == 1\n",
     "data/big.parquet": "not real data\n",
 }
 DENY = (
-    "docs/research/**\n**/*private_strategy*\nscripts/analysis/private_strategy/**\n"
+    "docs/research/**\n**/*secret_strategy*\nscripts/analysis/secret_strategy/**\n"
     "engine/source_secret.py\ndata/**\n"
 )
-TOKENS = "G | \\b0\\.988\\b | 0.XXX\nG | \\b0\\.6737\\b | 0.XXXX\n"
+TOKENS = "G | \\b0\\.913\\b | 0.XXX\nG | \\b0\\.4821\\b | 0.XXXX\n"
 
 
 @pytest.fixture
@@ -44,12 +44,12 @@ def repo(tmp_path: Path) -> Path:
 
 # ---------------------------------------------------------------- denylist
 def test_glob_semantics() -> None:
-    rules = ["docs/research/**", "**/*private_strategy*", "data/**", "*.key", "a/?/b.txt"]
+    rules = ["docs/research/**", "**/*secret_strategy*", "data/**", "*.key", "a/?/b.txt"]
     paths = [
         "docs/research/x/y.md",
         "docs/other.md",
-        "config/strategies/private_strategy.py",
-        "private_strategy_top.py",
+        "config/strategies/secret_strategy.py",
+        "secret_strategy_top.py",
         "data/a/b.parquet",
         "secret.key",
         "sub/secret.key",
@@ -58,8 +58,8 @@ def test_glob_semantics() -> None:
     ]
     assert denylist.excluded(paths, rules) == {
         "docs/research/x/y.md",
-        "config/strategies/private_strategy.py",
-        "private_strategy_top.py",
+        "config/strategies/secret_strategy.py",
+        "secret_strategy_top.py",
         "data/a/b.parquet",
         "secret.key",
         "a/1/b.txt",
@@ -114,33 +114,44 @@ def _rules(tmp_path: Path, text: str) -> list[scrub.Rule]:
 def test_global_and_contextual_rules(tmp_path: Path) -> None:
     rules = _rules(
         tmp_path,
-        "G | \\b0\\.988\\b | 0.XXX\nC | rolled | (=|>=)\\s*0\\.10\\b | \\1 0.XX\n",
+        "G | \\b0\\.913\\b | 0.XXX\nC | knob | (=|>=)\\s*0\\.15\\b | \\1 0.XX\n"
+        "W | secret_strategy\n",
     )
-    out = scrub.scrub_text("DSR 0.XXX\nunrelated rolled >= 0.10 here\n", rules, is_python=False)
-    assert "0.XXX" not in out.text
-    assert "rolled >= 0.10" in out.text, "contextual rule needs secret context in the window"
-    out = scrub.scrub_text("private_strategy note\nrolled >= 0.10\n", rules, is_python=False)
-    assert "rolled >= 0.XX" in out.text
+    out = scrub.scrub_text("DSR 0.913\nunrelated knob >= 0.15 here\n", rules, is_python=False)
+    assert "0.913" not in out.text
+    assert "knob >= 0.15" in out.text, "a contextual rule needs the W context in its window"
+    out = scrub.scrub_text("secret_strategy note\nknob >= 0.15\n", rules, is_python=False)
+    assert "knob >= 0.XX" in out.text
     assert out.changes and out.changes[0][1] != out.text
 
 
 def test_python_code_is_never_rewritten(tmp_path: Path) -> None:
-    rules = _rules(tmp_path, "G | \\b0\\.6737\\b | 0.XXXX\n")
+    rules = _rules(tmp_path, "G | \\b0\\.4821\\b | 0.XXXX\n")
     src = (
-        '"""Doc 0.XXX."""\nY = 0.XXX  # from 0.XXX\n'
-        'def f():\n    """inner 0.XXX"""\n    return 1\n'
+        '"""Doc 0.4821."""\nY = 0.4821  # from 0.4821\n'
+        'def f():\n    """inner 0.4821"""\n    return 1\n'
     )
     out = scrub.scrub_text(src, rules, is_python=True)
-    assert "Y = 0.XXX" in out.text, "a code value must survive"
+    assert "Y = 0.4821" in out.text, "a code value must survive"
     assert "# from 0.XXXX" in out.text and "Doc 0.XXXX" in out.text and "inner 0.XXXX" in out.text
     assert out.stops == [2]
 
 
 def test_residue_finds_leftovers(tmp_path: Path) -> None:
-    rules = _rules(tmp_path, "G | \\b0\\.988\\b | 0.XXX\n")
-    assert scrub.residue("a\nb 0.XXX\n", rules) == [2]
+    rules = _rules(tmp_path, "G | \\b0\\.913\\b | 0.XXX\n")
+    assert scrub.residue("a\nb 0.913\n", rules) == [2]
     with pytest.raises(ValueError):
         _rules(tmp_path, "X | nonsense\n")
+
+
+def test_contextual_rules_need_exactly_one_window_rule(tmp_path: Path) -> None:
+    contextual = "C | knob | 0\\.15 | 0.XX\n"
+    with pytest.raises(ValueError, match="need a W rule"):
+        _rules(tmp_path, contextual)
+    with pytest.raises(ValueError, match="more than one W"):
+        _rules(tmp_path, contextual + "W | one\nW | two\n")
+    rules = _rules(tmp_path, contextual + "W | secret_strategy\n")
+    assert [r.kind for r in rules] == ["C"] and rules[0].window is not None
 
 
 def test_is_text_rejects_binary() -> None:
@@ -153,7 +164,7 @@ def test_is_text_rejects_binary() -> None:
 def _write_inputs(tmp_path: Path) -> dict[str, Path]:
     stubs = tmp_path / "stubs"
     (stubs / "config" / "strategies").mkdir(parents=True)
-    (stubs / "config" / "strategies" / "private_strategy.py").write_text("STUB_KNOB_VALUE = 1\n")
+    (stubs / "config" / "strategies" / "secret_strategy.py").write_text("STUB_KNOB_VALUE = 1\n")
     deny = tmp_path / "deny.txt"
     deny.write_text(DENY)
     tok = tmp_path / "tokens.txt"
@@ -164,22 +175,22 @@ def _write_inputs(tmp_path: Path) -> dict[str, Path]:
 def test_build_end_to_end(repo: Path, tmp_path: Path) -> None:
     p = _write_inputs(tmp_path)
     allow = p["allow"]
-    allow.write_text("config/keep.py\n")  # the one deliberate code value (Y = 0.XXX)
+    allow.write_text("config/keep.py\n")  # the one deliberate code value (Y = 0.4821)
     out = tmp_path / "v1"
     result = build.build(repo, "HEAD", out, p["deny"], p["tok"], p["stubs"], allow, None)
     tree = out / "tree"
     assert not (tree / "docs" / "research").exists() and not (tree / "data").exists()
     assert not (tree / "engine" / "source_secret.py").exists()
-    assert (tree / "config/strategies/private_strategy.py").read_text() == "STUB_KNOB_VALUE = 1\n"
-    assert "0.XXX" not in (tree / "README.md").read_text()
-    assert "Y = 0.XXX" in (tree / "config/keep.py").read_text()
+    assert (tree / "config/strategies/secret_strategy.py").read_text() == "STUB_KNOB_VALUE = 1\n"
+    assert "0.913" not in (tree / "README.md").read_text()
+    assert "Y = 0.4821" in (tree / "config/keep.py").read_text()
     assert not (tree / "tests/test_uses_recipe.py").exists(), "dependent test must follow out"
     assert (tree / "tests/test_keeps.py").exists()
     m = result.manifest
     assert m["dependent_files_dropped"] == 1 and m["redactions"] == 2
     assert (out / "MANIFEST.json").exists() and (out / "redaction_report.json").exists()
     report = (out / "redaction_report.json").read_text()
-    assert "0.XXX" not in report and "before_sha256" in report, "originals are stored as hashes"
+    assert "0.913" not in report and "before_sha256" in report, "originals are stored as hashes"
     assert git(tree, "log", "--oneline").endswith("fixture base")
     assert git(tree, "status", "--porcelain") == ""
 
@@ -212,18 +223,18 @@ def test_identifier_leaks_reports_names_defined_only_in_excluded_files(tmp_path:
 
 
 def test_string_literals_are_redacted_but_numeric_code_is_not(tmp_path: Path) -> None:
-    rules = _rules(tmp_path, "G | \\b0\\.6737\\b | 0.XXXX\n")
-    src = 'MSG = "seed was 0.XXX then"\nY = 0.XXX\nZ = f"value {0.XXX}"\n'
+    rules = _rules(tmp_path, "G | \\b0\\.4821\\b | 0.XXXX\n")
+    src = 'MSG = "seed was 0.4821 then"\nY = 0.4821\nZ = f"value {0.4821}"\n'
     out = scrub.scrub_text(src, rules, is_python=True)
     assert 'MSG = "seed was 0.XXXX then"' in out.text
-    assert "Y = 0.XXX" in out.text and out.stops == [2, 3]
+    assert "Y = 0.4821" in out.text and out.stops == [2, 3]
 
 
 def test_patch_rule_edits_only_its_own_file(tmp_path: Path) -> None:
-    rules = _rules(tmp_path, "P | tests/test_a.py | (KNOB\\s*==\\s*)0\\.60\\b | \\g<1>0.33\n")
-    src = "assert c.KNOB == 0.60\n"
+    rules = _rules(tmp_path, "P | tests/test_a.py | (KNOB\\s*==\\s*)0\\.75\\b | \\g<1>0.25\n")
+    src = "assert c.KNOB == 0.75\n"
     hit = scrub.scrub_text(src, rules, is_python=True, path="tests/test_a.py")
-    assert hit.text == "assert c.KNOB == 0.33\n" and len(hit.changes) == 1
+    assert hit.text == "assert c.KNOB == 0.25\n" and len(hit.changes) == 1
     assert scrub.scrub_text(src, rules, is_python=True, path="tests/test_b.py").text == src
 
 
@@ -332,11 +343,11 @@ def test_rewrite_shebangs_and_tree_pth(tmp_path: Path) -> None:
 
 
 def test_a_denylist_stem_excludes_the_directory_it_names_and_everything_under_it() -> None:
-    rule = ["**/*private_strategy*"]
+    rule = ["**/*secret_strategy*"]
     inside = [
-        "tests/scripts/analysis/private_strategy/core/__init__.py",
-        "tests/x/private_strategy_old/sub/deep/file.txt",
-        "engine/screener/private_strategy_source.py",
+        "tests/scripts/analysis/secret_strategy/core/__init__.py",
+        "tests/x/secret_strategy_old/sub/deep/file.txt",
+        "engine/screener/secret_strategy_source.py",
     ]
     outside = ["engine/screener/insider_source.py", "docs/secret_notes.md"]
     assert denylist.excluded([*inside, *outside], rule) == set(inside)

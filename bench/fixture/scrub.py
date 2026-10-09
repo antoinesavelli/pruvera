@@ -1,8 +1,9 @@
 """Redact recipe-derived numbers from kept files, and report what would need an owner decision.
 
-Rules come from a gitignored local token file (never committed). In `.py` files only comments and
-docstrings are redacted; a match in real code is reported as a stop, never rewritten (ask-first
-values live there). Depends on: stdlib only.
+Rules come from a gitignored local token file (never committed). Its one `W` rule is the private
+context a contextual rule needs within CONTEXT_WINDOW lines, so this module names none of it. In
+`.py` files only comments and docstrings are redacted; a match in real code is reported as a stop,
+never rewritten (ask-first values live there). Depends on: stdlib only.
 """
 
 from __future__ import annotations
@@ -12,13 +13,10 @@ import hashlib
 import io
 import re
 import tokenize
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-SECRET_WINDOW = 2
-SECRET_CONTEXT = re.compile(
-    r"private_strategy|\bprivate_strategy\b|frozen cell|deployed cell|MIN_B|MIN_C|MIN_A", re.I
-)
+CONTEXT_WINDOW = 2  # lines either side of a contextual match where the W rule must match
 
 
 @dataclass(frozen=True)
@@ -28,6 +26,7 @@ class Rule:
     pattern: re.Pattern[str]
     placeholder: str
     path: str | None = None
+    window: re.Pattern[str] | None = None  # C rules: the W rule's private-context pattern
 
 
 @dataclass
@@ -48,9 +47,21 @@ def _parse_rule(parts: list[str], lineno: int) -> Rule:
             return Rule("C", re.compile(parts[1], re.I), re.compile(parts[2], re.I), parts[3])
         if kind == "P" and len(parts) == 4:
             return Rule("P", None, re.compile(parts[2], re.I), parts[3], path=parts[1])
+        if kind == "W" and len(parts) == 2:
+            return Rule("W", None, re.compile(parts[1], re.I), "")
     except re.error:
         raise ValueError(f"token rule at line {lineno} is not a valid regex") from None
     raise ValueError(f"unparseable token rule at line {lineno}")  # never echo the token text
+
+
+def _with_window(rules: list[Rule]) -> list[Rule]:
+    """Hand the one W rule to every C rule (C rules cannot do without it) and drop the W rule."""
+    windows = [r.pattern for r in rules if r.kind == "W"]
+    if len(windows) > 1:
+        raise ValueError("the token file has more than one W (window context) rule")
+    if any(r.kind == "C" for r in rules) and not windows:
+        raise ValueError("contextual (C) rules need a W rule naming the context they require")
+    return [replace(r, window=windows[0]) if r.kind == "C" else r for r in rules if r.kind != "W"]
 
 
 def load_rules(path: Path) -> list[Rule]:
@@ -60,7 +71,7 @@ def load_rules(path: Path) -> list[Rule]:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         rules.append(_parse_rule([p.strip() for p in line.split(" | ")], lineno))
-    return rules
+    return _with_window(rules)
 
 
 def is_text(data: bytes) -> bool:
@@ -80,8 +91,8 @@ def _applies(rule: Rule, lines: list[str], i: int) -> bool:
         return True
     if not rule.context.search(lines[i]):
         return False
-    window = " ".join(lines[max(0, i - SECRET_WINDOW) : i + SECRET_WINDOW + 1])
-    return bool(SECRET_CONTEXT.search(window))
+    window = " ".join(lines[max(0, i - CONTEXT_WINDOW) : i + CONTEXT_WINDOW + 1])
+    return rule.window is not None and bool(rule.window.search(window))
 
 
 def _redact_line(rules: list[Rule], lines: list[str], i: int, line: str) -> str:
