@@ -110,11 +110,11 @@ def test_inverse_says_why_it_cannot_plant(
 
 def test_screen_drops_candidates_that_touch_tokens_or_excluded_names(tmp_path: Path) -> None:
     tokens = tmp_path / "t.txt"
-    tokens.write_text("G | \\b0\\.988\\b | 0.XXX\n")
+    tokens.write_text("G | \\b0\\.913\\b | 0.XXX\n")
     rules = scrub.load_rules(tokens)
     clean = miner.Candidate("c", ("a.py",), (), (schema.Edit("a.py", "x = 2", "x = 1"),), 2)
     assert miner.screen(clean, rules, frozenset({"excluded_only_name"})) == []
-    token = miner.Candidate("c", ("a.py",), (), (schema.Edit("a.py", "y = 0.XXX", "y = 1"),), 2)
+    token = miner.Candidate("c", ("a.py",), (), (schema.Edit("a.py", "y = 0.913", "y = 1"),), 2)
     assert "scrub token" in miner.screen(token, rules, frozenset())[0]
     named = miner.Candidate(
         "c", ("a.py",), (), (schema.Edit("a.py", "excluded_only_name()", "x"),), 2
