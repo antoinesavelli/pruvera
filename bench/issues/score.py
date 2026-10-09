@@ -292,8 +292,9 @@ def _new_failures(env: check.Env, touched: list[str], overrides: dict[str, str])
     siblings = _sibling_tests(env, touched)
     if not siblings:
         return []
-    before = set(check.run_pytest(env, siblings).failed)
-    after = set(check.run_pytest(env, siblings, overrides).failed)
+    # keep_going: one sibling file that cannot be imported must not hide the others' failures.
+    before = set(check.run_pytest(env, siblings, keep_going=True).failed)
+    after = set(check.run_pytest(env, siblings, overrides, keep_going=True).failed)
     return sorted(after - before)
 
 
