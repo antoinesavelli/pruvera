@@ -11,7 +11,7 @@ import pytest
 
 from bench import layout
 from bench.issues import schema, split
-from tests.helpers import make_issue
+from tests.helpers import make_issue, needs_catalogue
 
 OLD_TUNE = ["old-ask-1", "old-ask-2", "old-fix-1", "old-fix-2"]
 
@@ -109,6 +109,7 @@ def test_the_profiles_are_written_once_and_dev3_holds_out_nothing(tmp_path: Path
         split.write_generation3(prof, issues)
 
 
+@needs_catalogue
 def test_with_no_fresh_issue_the_real_catalogue_has_an_empty_holdout3() -> None:
     prof = layout.ROOT / "issues" / "profiles"
     issues = schema.load_all(layout.ROOT / "issues")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -21,7 +22,12 @@ DOCUMENTED = (
     "bench.issues.verify",
     "bench.issues.seed",
     "bench.fixture.pins",
-    "bench.fixture.synthdata",
+    pytest.param(
+        "bench.fixture.synthdata",
+        marks=pytest.mark.skipif(
+            importlib.util.find_spec("pandas") is None, reason="could not import pandas"
+        ),
+    ),
     "bench.rag.index",
 )
 

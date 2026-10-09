@@ -169,8 +169,11 @@ def test_the_real_repo_path_inside_the_sandbox_is_the_base_not_the_host_repo(spe
     """The fixture is mounted where the real repo lives on the host: a mistake would expose it."""
     result = _sh(spec, f"ls -A {sandbox.WORKDIR} | sort | tr '\\n' ' '")
     assert result.stdout.strip() == "existing.txt gone.txt pkg", result.stdout
+    host = Path(sandbox.WORKDIR)
     host_only = [
-        p.name for p in Path(sandbox.WORKDIR).iterdir() if p.name not in ("pkg", "existing.txt")
+        p.name
+        for p in (host.iterdir() if host.is_dir() else [])
+        if p.name not in ("pkg", "existing.txt")
     ]
     if host_only:  # on this machine the host repo exists; none of its entries may show through
         names = " ".join(f"'{sandbox.WORKDIR}/{n}'" for n in host_only)
