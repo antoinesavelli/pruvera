@@ -180,6 +180,7 @@ phase status.
 | `results/` | Trial records (`trials.jsonl`), the realism studies, `issues/` campaigns, `gate/` (verdicts, the ledger, calibration; `commit-tool*` and `rules-restructure-hand` are runs by another session on candidates not described in this plan), `bakeoff/` (the other session's model bake-off), `archive/` (moved-aside results with `INDEX.jsonl`), `rag/` A/B, legacy results and the archive. |
 | `tests/` | The harness's own tests. |
 | `plans/` | Plans and evaluations beyond `PLAN.md`: `REVERTED_FIX_MINER.md`, `SYNTHETIC_DATA_FILL.md`, `RAG_AND_METRICS_EVALUATION.md`, `ROAD_TO_A.md` (what it takes to bring every review grade to A), `MODEL_BAKEOFF_COMMIT.md` and `MODEL_BAKEOFF_KINDS.md` (the other session's bake-off designs), `ARCHITECTURE_SCORECARD.md` (the architecture graded in 11 dimensions, 2026-10-02), `DECISION_SIDE_PLAN.md` (how trials become decisions: registry, design, provenance, front door, enforcement in Paramo), `GENERATION_3_DESIGNS.md` (simulated sizing of the next holdout, what is built, issue designs for review). |
+| `release/` | How the public copy of this repo is built: `allow_paths.txt` lists the paths that leave (deny by default, every commit rewritten). The private terms and replacement rules are local only. |
 | `spikes/` | One-off measurements behind an evaluation, with their result files (latency, retrieval, and the model bake-off, handoff and kinds drivers). |
 
 Run everything from the repo root. Most modules use only the standard library and run under the system
