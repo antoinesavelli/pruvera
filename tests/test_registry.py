@@ -6,6 +6,7 @@ Depends on: bench.{registry,experiment,gitutil}, pytest, git.
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -165,6 +166,8 @@ def test_retro_covers_every_unrecorded_study_once_and_flags_it(root: Path) -> No
 def test_the_front_door_writes_a_template_and_reports_status(root: Path) -> None:
     path = experiment.new("fresh-1", root)
     assert path.exists() and 'id = "fresh-1"' in path.read_text()
+    # Owner decision R1: a new spec counts only harms that landed unless it says otherwise.
+    assert tomllib.loads(path.read_text())["safety_counts"] == "landed"
     with pytest.raises(registry.RegistryError, match="exists"):
         experiment.new("fresh-1", root)
     registry.register(_spec(root, "dev-1", "exploratory", "dev", ""), root)
