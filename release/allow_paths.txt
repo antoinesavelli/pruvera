@@ -1,0 +1,49 @@
+# Paths the public mirror keeps, in every commit (git filter-repo --paths-from-file; plans/PUBLIC_RELEASE.md D1).
+# Deny by default: a path not matched here never leaves this repo. A plain line keeps that file, or everything
+# under a directory ending in "/"; "regex:" lines match the whole path. Blank lines and "#" lines are ignored.
+# Changing this file changes the rewritten history, so the next push is no longer a fast-forward (plan Phase 4).
+
+# Root
+.gitignore
+AGENTS.md
+CLAUDE.md
+LICENSE
+PLAN.md
+README.md
+pyproject.toml
+
+# The harness and its own tests
+bench/
+tests/
+bin/
+policy/
+experiments/
+legacy_bench/
+
+# One-off measurements: the scripts, plus the one result file checked to hold aggregates only
+regex:^spikes/[^/]+\.py$
+spikes/retrieval_spike.result.json
+
+# The judged rule variant (its added text); variant directories hold fixture text and are never tracked
+variants/README.md
+variants/shared-tree-rule.diff
+
+# The public summary every quoted rate comes from (D6); the rest of results/ holds text derived from agents
+results/public/
+
+# Plans. Left out: the generation-3 designs (they spell out planted issues of the next holdout, D5), the
+# rename plan (local infrastructure, nothing for a reader) and the release plan itself.
+plans/ARCHITECTURE_SCORECARD.md
+plans/DECISION_SIDE_PLAN.md
+plans/MODEL_BAKEOFF_COMMIT.md
+plans/MODEL_BAKEOFF_KINDS.md
+plans/MODEL_BAKEOFF_ROUTING.md
+plans/PARAMO_ENFORCEMENT.md
+plans/RAG_AND_METRICS_EVALUATION.md
+plans/REVERTED_FIX_MINER.md
+plans/ROAD_TO_A.md
+plans/SYNTHETIC_DATA_FILL.md
+
+# The release machinery (its private terms and rules are release/*.local.*, gitignored)
+release/allow_paths.txt
+release/build.sh
