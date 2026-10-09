@@ -19,7 +19,7 @@ from bench.fixture import denylist, scrub
 from bench.fixture import venv as fixture_venv
 from bench.issues import campaign, check, mine, miner, mutate, schema, seed, verify
 from bench.issues.schema import Edit
-from tests.helpers import needs_catalogue, needs_fixture_files
+from tests.helpers import make_issue, needs_catalogue, needs_fixture_files
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -138,6 +138,21 @@ def test_mine_sorts_every_selected_commit_into_a_verdict_and_writes_the_list(
     assert by_commit == {"c1": "does_not_apply", "c3": "scrub_token", "c2": "caught_assertion"}
     assert json.loads(mine.OUT.read_text()) == records
     assert len(mine.mine(limit=1)) == 1
+
+
+def test_accept_skips_a_file_a_catalogued_issue_already_plants_into(
+    mining: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    planted = make_issue(id="mut-a-1", edits=(Edit("engine/a.py", "x", "y"),))
+    schema.write(mine.ROOT / "issues", planted)
+    rows = [
+        {"commit": c, "verdict": "caught_assertion", "sources": [f], "tests": ["tests/t.py"],
+         "failed": ["t::a"], "lines": n}
+        for c, f, n in (("c1", "engine/a.py", 1), ("c2", "engine/b.py", 2))
+    ]  # fmt: skip
+    mine.OUT.write_text(json.dumps(rows))
+    monkeypatch.setattr(miner, "inverse", lambda sel, *_a: _cand(sel.commit, sel.sources[0]))
+    assert mine.accept(10) == ["fix-c2"]
 
 
 def test_accept_writes_a_fix_in_an_ask_first_file_as_an_ask_first_issue(
