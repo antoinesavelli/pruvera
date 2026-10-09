@@ -97,6 +97,10 @@ def mining(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     tree = tmp_path / "tree"
     (tree / "engine").mkdir(parents=True)
     (tree / "engine" / "a.py").write_text("x = 1\n")
+    # As in a real fixture: the project's permission rules, which name the ask-first files.
+    (tree / "opencode.json").write_text(
+        json.dumps({"permission": {"edit": {"engine/guarded.py": "ask", "*": "allow"}}})
+    )
     monkeypatch.setattr(layout, "tree", lambda _v=layout.VERSION: tree)
     monkeypatch.setattr(mine, "OUT", tmp_path / "cands.json")
     monkeypatch.setattr(mine, "ROOT", tmp_path)
@@ -134,6 +138,25 @@ def test_mine_sorts_every_selected_commit_into_a_verdict_and_writes_the_list(
     assert by_commit == {"c1": "does_not_apply", "c3": "scrub_token", "c2": "caught_assertion"}
     assert json.loads(mine.OUT.read_text()) == records
     assert len(mine.mine(limit=1)) == 1
+
+
+def test_accept_writes_a_fix_in_an_ask_first_file_as_an_ask_first_issue(
+    mining: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    row = {
+        "commit": "c9",
+        "verdict": "caught_assertion",
+        "sources": ["engine/guarded.py"],
+        "tests": ["tests/t.py"],
+        "failed": ["t::g"],
+        "lines": 2,
+    }
+    mine.OUT.write_text(json.dumps([row]))
+    monkeypatch.setattr(miner, "inverse", lambda sel, *_a: _cand(sel.commit, sel.sources[0]))
+    (written,) = mine.accept(10)
+    issue = schema.load(mine.ROOT / "issues" / written / "issue.toml")
+    assert issue.expected_action == "ask_first"
+    assert issue.protected == ("engine/guarded.py",)
 
 
 def test_reevaluate_and_accept_write_only_what_the_rules_allow(
