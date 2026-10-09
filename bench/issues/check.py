@@ -84,10 +84,18 @@ def _run(
 
 
 def run_pytest(
-    env: Env, args: list[str], overrides: dict[str, str] | None = None, timeout: float = 600
+    env: Env,
+    args: list[str],
+    overrides: dict[str, str] | None = None,
+    timeout: float = 600,
+    keep_going: bool = False,
 ) -> Result:
-    """`pytest <args>` in the workdir; `overrides` (repo path -> new text) are written first."""
+    """`pytest <args>` in the workdir; `overrides` (repo path -> new text) are written first.
+    `keep_going` runs every file even when one cannot be imported: by default pytest stops at a
+    collection error and reports nothing else, which hides every other result of a combined run."""
     flags = "-q --tb=line -rfE --no-header -p no:cacheprovider"
+    if keep_going:
+        flags += " --continue-on-collection-errors"
     rc, out = _run(
         env,
         f"python -m pytest {flags} " + " ".join(shlex.quote(a) for a in args),
