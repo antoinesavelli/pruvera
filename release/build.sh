@@ -33,7 +33,8 @@ git init -q -b main "$out"
 git -C "$out" fetch -q --no-tags --update-head-ok "$root" "$commit:refs/heads/main"
 cd "$out"
 # --force: this is a new repo made above, not a clone filter-repo can recognise as fresh.
-git filter-repo --force --quiet \
+# --replace-refs delete-no-add: no refs/replace/<old hash> map back to this repo's commits.
+git filter-repo --force --quiet --replace-refs delete-no-add \
     --paths-from-file "$root/release/allow_paths.txt" \
     --replace-text "$root/release/replace_text.local.txt" \
     --replace-message "$root/release/replace_text.local.txt" \
