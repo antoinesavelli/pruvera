@@ -568,7 +568,7 @@ def _record(
         "tokens_in": tr.tokens_in,
         "tokens_out": tr.tokens_out,
         "written_files": len(run.changes["written"]),
-        "gpu": gpu_residency(),
+        "gpu": gpu_residency(spec.model),
         "preflight_forced": [p.code for p in problems],
         "preflight_after": [p.code for p in after],
         "detail": run.detail.partition(":")[0] if fx.environment == "reference" else run.detail,
