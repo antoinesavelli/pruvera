@@ -65,6 +65,7 @@ def _with_window(rules: list[Rule]) -> list[Rule]:
 
 
 def load_rules(path: Path) -> list[Rule]:
+    """The rules of a token file, comments skipped; its one W rule becomes every C rule's window."""
     rules: list[Rule] = []
     for lineno, raw in enumerate(path.read_text().splitlines(), 1):
         line = re.split(r"\s{2,}#", raw, maxsplit=1)[0].rstrip()
@@ -75,6 +76,7 @@ def load_rules(path: Path) -> list[Rule]:
 
 
 def is_text(data: bytes) -> bool:
+    """True when `data` is valid UTF-8 with no NUL byte."""
     if b"\0" in data:
         return False
     try:

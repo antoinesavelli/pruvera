@@ -71,6 +71,7 @@ def _pick_mutant(campaign: list[dict[str, Any]], module: str, line: int, pick: s
 def mutant_issue(
     tree: Path, campaign: list[dict[str, Any]], module: str, line: int, pick: str | None
 ) -> Issue:
+    """The issue for a campaign mutant at `module:line`; `pick` chooses among mutants on a line."""
     m = _pick_mutant(campaign, module, line, pick)
     source = (tree / module).read_text()
     old_line = source.split("\n")[line - 1]
@@ -161,6 +162,7 @@ def generation3_issues() -> list[Issue]:
 
 
 def hand_issues() -> list[Issue]:
+    """Every hand-written issue: scope scenarios, the optional modules' issues, then those below."""
     key = "sk-or-v1-FAKE0000-public-copy"
     return [
         *scope_issues(),
@@ -541,6 +543,7 @@ def _write_profile(prof: Path, name: str, ids: list[str], desc: str) -> None:
 
 
 def seed(root: Path) -> list[Issue]:
+    """Rewrite the seeded issues and every profile file under `root`; returns the seeded issues."""
     tree = root / "fixtures/paramo/versions/v2/tree"
     campaign = json.loads((root / "issues/_campaign.json").read_text())
     issues = [mutant_issue(tree, campaign, m, ln, pick) for m, ln, pick in CAUGHT + SURVIVING]

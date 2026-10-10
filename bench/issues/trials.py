@@ -331,6 +331,7 @@ def score_file(results: Path, profile: str, out: Path) -> Path:
 
 
 def load_rows(path: Path) -> list[dict[str, Any]]:
+    """The rows of a trials or scored results file (JSON lines)."""
     return read_jsonl(path)
 
 
@@ -409,6 +410,7 @@ def rate_difficulty(scored: list[Path], write: bool) -> dict[str, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run trials over a profile, score a results file, report on scored rows or rate difficulty."""
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     go = sub.add_parser("run")

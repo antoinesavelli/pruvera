@@ -175,6 +175,7 @@ def build(
     allow_path: Path = HERE / "scrub_allow.local.txt",
     drop_path: Path | None = HERE / "drop_tests.txt",
 ) -> BuildResult:
+    """Build `rev` of `repo` into a new version dir `out`; BuildError if built or fails a check."""
     if (out / "MANIFEST.json").exists():
         raise BuildError(
             f"{out} is a built version: fixtures are versioned, never rebuilt in place"
@@ -227,6 +228,7 @@ def build(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Build one fixture version from a repo revision; returns 1 and prints why on a failure."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo", type=Path, required=True)
     ap.add_argument("--rev", required=True)

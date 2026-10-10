@@ -95,6 +95,7 @@ def pin(version: str) -> dict[str, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Report drift from the recorded pins (exit 1 if any); --write re-pins to what is on disk."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", default=layout.VERSION)
     parser.add_argument(

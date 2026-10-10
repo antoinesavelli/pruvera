@@ -24,6 +24,7 @@ SKIP = ("tests/golden/", ".git/", ".venv/", "docs/eval/")  # docs/eval holds the
 
 
 def chunks(tree: Path) -> list[dict[str, str]]:
+    """Fixed-size chunks of the tree's markdown and yaml files, each prefixed with its path."""
     out: list[dict[str, str]] = []
     for path in sorted(tree.rglob("*")):
         rel = path.relative_to(tree).as_posix()
@@ -40,6 +41,7 @@ def chunks(tree: Path) -> list[dict[str, str]]:
 
 
 def embed_documents(texts: list[str]) -> np.ndarray:
+    """Unit-norm `nomic-embed-text` embeddings of documents from the local Ollama, 64 a request."""
     parts: list[list[float]] = []
     for i in range(0, len(texts), 64):
         body = json.dumps(
