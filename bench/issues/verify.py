@@ -207,6 +207,7 @@ def answer_proof(env: check.Env, issue: schema.Issue) -> dict[str, object]:
 
 
 def answer_proofs(env: check.Env, issues: list[schema.Issue]) -> dict[str, dict[str, object]]:
+    """`answer_proof` for each flag, ask_first or ignore issue, keyed by issue id."""
     return {
         i.id: answer_proof(env, i)
         for i in issues

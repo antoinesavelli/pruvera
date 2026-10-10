@@ -111,6 +111,7 @@ def write_generation3(prof: Path, issues: dict[str, Issue]) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Print the generation-3 split of the fresh issues; with --write, freeze it as profiles."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--write", action="store_true", help="write the profiles (frozen once written)")
     args = ap.parse_args(argv)

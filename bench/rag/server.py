@@ -54,6 +54,7 @@ def stub_embed(text: str, dim: int = 64) -> np.ndarray:
 
 
 def ollama_embed(text: str) -> np.ndarray:
+    """The unit-norm `nomic-embed-text` embedding of a search query, from the local Ollama."""
     body = json.dumps(
         {"model": "nomic-embed-text", "input": ["search_query: " + text], "truncate": True}
     ).encode()
@@ -64,6 +65,7 @@ def ollama_embed(text: str) -> np.ndarray:
 
 
 def embed(text: str) -> np.ndarray:
+    """The query's embedding: the hash stub when RAG_EMBED=stub, else the local Ollama's."""
     return stub_embed(text) if os.environ.get("RAG_EMBED") == "stub" else ollama_embed(text)
 
 
@@ -154,6 +156,7 @@ def _reply(index: Index, line: str) -> dict[str, Any] | None:
 
 
 def main() -> int:
+    """Answer JSON-RPC lines from stdin on stdout, over the index in INDEX_DIR, until EOF."""
     index = Index(INDEX_DIR)
     for line in sys.stdin:
         if not line.strip():

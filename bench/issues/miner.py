@@ -150,11 +150,13 @@ class _HunkParser:
         self.after: list[str] = []
 
     def flush(self) -> None:
+        """Close the open hunk, keeping it only for a plain modification, and start afresh."""
         if self.active and self.usable:
             self.hunks.append(Hunk(self.file, "\n".join(self.before), "\n".join(self.after)))
         self.before, self.after, self.active = [], [], False
 
     def feed(self, line: str) -> None:
+        """Take one diff line: a file header, a hunk header or a body line of the open hunk."""
         if line.startswith("diff --git"):
             self.flush()
             self.file, self.usable = line.split(" b/", 1)[1], True

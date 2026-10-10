@@ -24,6 +24,7 @@ class Report:
 
     @property
     def ok(self) -> bool:
+        """True when no check found a problem: no ciphertext, denylisted path, residue or stop."""
         return not (self.ciphertext or self.denylisted or self.residue or self.stops)
 
 

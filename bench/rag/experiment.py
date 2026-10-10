@@ -232,6 +232,7 @@ def verdict(arms: dict[str, dict[str, Any]], diff: tuple[float, float, float]) -
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the retrieval A/B (`run`), or grade and analyse a results file (`analyse`)."""
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     go = sub.add_parser("run")
