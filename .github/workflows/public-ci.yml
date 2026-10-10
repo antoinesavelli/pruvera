@@ -53,7 +53,5 @@ jobs:
       - name: Ruff
         run: python -m ruff check
 
-      # The two generation-3 modules (bench/issues/hand_kinds.py and injections.py) are private and absent here;
-      # bench/issues/seed.py imports them behind a ModuleNotFoundError guard, which mypy cannot see.
       - name: Mypy
-        run: python -m mypy bench --disable-error-code import-not-found
+        run: python -m mypy bench
