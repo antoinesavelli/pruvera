@@ -252,12 +252,63 @@ def test_cli_trial_declares_every_argument_it_reads() -> None:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf), contextlib.suppress(SystemExit):
         cli.main(["trial", "--help"])
-    for flag in ("--wait", "--profile", "--keep-overlay", "--force", "--hook", "--hang-seconds"):
+    flags = ("--wait", "--profile", "--keep-overlay", "--force", "--hook", "--hang-seconds")
+    for flag in (*flags, "--seed"):
         assert flag in buf.getvalue(), flag
     # main() reads these off the parsed args: parsing must supply every one of them.
     ns = cli.build_parser().parse_args(["trial", "--agent", "a", "--model", "m", "--prompt", "p"])
-    for name in ("profile", "wait", "keep_overlay", "force", "hook", "timeout", "hang_seconds"):
+    names = ("profile", "wait", "keep_overlay", "force", "hook", "timeout", "hang_seconds", "seed")
+    for name in names:
         assert hasattr(ns, name), name
+
+
+TRIAL = ["trial", "--agent", "a", "--model", "m", "--prompt", "p"]
+
+
+def test_cli_seed_is_opt_in_and_parsed_as_an_integer() -> None:
+    from bench import cli
+
+    parse = cli.build_parser().parse_args
+    assert parse(TRIAL).seed is None, "a trial is unseeded unless --seed is given"
+    assert parse([*TRIAL, "--seed", "4242"]).seed == 4242
+    assert parse([*TRIAL, "--seed", "0"]).seed == 0
+
+
+@pytest.mark.parametrize("bad", ["-1", "2147483648", "abc", "1.5", ""])
+def test_cli_refuses_a_seed_that_is_not_one_at_parse_time(
+    bad: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from bench import cli
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.build_parser().parse_args([*TRIAL, "--seed", bad])
+    assert exit_info.value.code == 2
+    assert "argument --seed: seed must be an integer" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("seed", [None, 4242, 0])
+def test_cli_hands_the_seed_to_the_trial_spec(
+    seed: int | None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import contextlib
+
+    from bench import cli
+
+    specs: list[TrialSpec] = []
+
+    def fake_run_trial(_fx: object, spec: TrialSpec, *_a: object, **_k: object) -> dict[str, Any]:
+        specs.append(spec)
+        done = {"outcome": "completed", "secs": 0, "tool_calls": 0, "artifact": ""}
+        return {"trial_id": spec.trial_id, **done}
+
+    monkeypatch.setattr(runner, "load_profile", lambda *_a, **_k: object())
+    monkeypatch.setattr(runner, "run_trial", fake_run_trial)
+    monkeypatch.setattr(cli.preflight, "session_lock", contextlib.nullcontext)
+    monkeypatch.setattr(cli.reference, "sweep", lambda *_a: None)
+    argv = TRIAL if seed is None else [*TRIAL, "--seed", str(seed)]
+    assert cli.main(argv) == 0
+    capsys.readouterr()
+    assert [s.seed for s in specs] == [seed]
 
 
 def test_merge_lays_extra_config_over_base_and_recurses_into_dicts() -> None:
