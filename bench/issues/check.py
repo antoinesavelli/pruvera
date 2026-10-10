@@ -45,6 +45,7 @@ class Result:
 
     @property
     def passed(self) -> bool:
+        """True when the run exited with status 0."""
         return self.rc == 0
 
 

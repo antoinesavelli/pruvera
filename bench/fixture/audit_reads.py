@@ -35,6 +35,7 @@ def _hook(event: str, args: tuple[object, ...]) -> None:
 
 
 def pytest_runtest_setup(item: object) -> None:
+    """Pytest hook: note the test about to run, so each missing path is tagged with it."""
     _current["test"] = getattr(item, "nodeid", "")
 
 

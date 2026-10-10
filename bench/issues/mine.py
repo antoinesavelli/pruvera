@@ -48,6 +48,7 @@ def kept_paths(tree: Path) -> set[str]:
 
 
 def category(reason: str) -> str:
+    """The coarse category of a drop reason, so the output never carries diff text."""
     for needle, name in (
         ("ciphertext", "ciphertext"),
         ("plain modification", "not_a_modification"),
@@ -62,6 +63,7 @@ def category(reason: str) -> str:
 
 
 def mine(limit: int | None = None) -> list[dict[str, object]]:
+    """Screen and test each selected fix commit; write a verdict per commit and return them."""
     tree = layout.tree()
     env = check.Env(tree, layout.venv(), layout.data_root())
     rules = scrub.load_rules(FX / "scrub_tokens.local.txt")
@@ -179,6 +181,7 @@ def accept(limit: int, verdict: str = "caught_assertion", per_area: int = 3) -> 
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Mine the history; with --reevaluate re-test the last run, with --accept write its issues."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int, help="only the first N selected commits (a dry run)")
     ap.add_argument("--reevaluate", action="store_true", help="re-run tests for the last run")

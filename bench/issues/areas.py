@@ -40,6 +40,7 @@ def summary(module: str, line: int, mutant: dict[str, Any]) -> str:
 
 
 def issue_for(tree: Path, module: str, mutant: dict[str, Any]) -> schema.Issue:
+    """One caught mutant as an issue; ask_first when the repo's rules reserve its file."""
     source = (tree / module).read_text()
     line = int(mutant["line"])
     old_line = source.split("\n")[line - 1]
@@ -80,6 +81,7 @@ def accept(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Print the issues accepted from a campaign file; with --write, add them to the catalogue."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("campaign", type=Path, help="a campaign file under issues/")
     parser.add_argument("--seed", type=int, default=1)
