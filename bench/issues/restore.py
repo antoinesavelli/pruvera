@@ -96,8 +96,8 @@ def _original(tree: Path, issue: schema.Issue, rel: str) -> str | None:
     return text
 
 
-def _without_docstrings(tree: ast.AST) -> ast.AST:
-    """The tree with module, class and function docstrings removed: their layout is not code."""
+def without_docstrings(tree: ast.AST) -> ast.AST:
+    """The tree with module, class and function docstrings removed in place: they are not code."""
     for node in ast.walk(tree):
         if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             body = node.body
@@ -110,7 +110,7 @@ def _without_docstrings(tree: ast.AST) -> ast.AST:
 def _parse(text: str) -> ast.AST | None:
     """The text's AST with docstrings removed, or None if it cannot be parsed."""
     try:
-        return _without_docstrings(ast.parse(text))
+        return without_docstrings(ast.parse(text))
     except (SyntaxError, ValueError, RecursionError, MemoryError):
         return None
 
