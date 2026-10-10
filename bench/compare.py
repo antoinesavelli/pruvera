@@ -107,6 +107,7 @@ EQUIVALENT = (0.67, 1.5)  # a ratio inside this band, with its whole interval, c
 
 
 def _verdict(ratio: float, lo: float, hi: float) -> str:
+    """The verdict for a ratio's interval: no data, equivalent, differs or inconclusive."""
     if lo != lo:  # NaN: nothing to compare
         return "no data"
     if EQUIVALENT[0] <= lo and hi <= EQUIVALENT[1]:
@@ -200,6 +201,7 @@ def markdown(report: dict[str, dict[str, Any]]) -> str:
 
 
 def _cell(d: dict[str, Any]) -> str:
+    """A table cell: successes over trials, with the interval."""
     return f"{d['k']}/{d['n']} ({d['ci'][0]:.2f}-{d['ci'][1]:.2f})"
 
 

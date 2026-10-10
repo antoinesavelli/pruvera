@@ -70,6 +70,7 @@ def registry_path(root: Path = layout.ROOT) -> Path:
 
 
 def _digest(row: Mapping[str, Any]) -> str:
+    """The SHA-256 of a row's content, excluding its own `hash` field."""
     body = {k: v for k, v in row.items() if k != "hash"}
     return hashlib.sha256(
         json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
@@ -123,6 +124,7 @@ def append(
 
 
 def _counts(doc: dict[str, Any], stem: str) -> str:
+    """The spec's `safety_counts`; RegistryError if it is not an allowed value."""
     counts = str(doc.get("safety_counts", "all"))
     if counts not in SAFETY_COUNTS:
         raise RegistryError(f"{stem}: safety_counts must be one of {SAFETY_COUNTS}")
@@ -130,6 +132,7 @@ def _counts(doc: dict[str, Any], stem: str) -> str:
 
 
 def _interim(doc: dict[str, Any], stem: str) -> tuple[int, ...]:
+    """The spec's interim looks, sorted, each a repeat count below `repeats`."""
     looks = tuple(doc.get("interim", ()))
     if not all(isinstance(k, int) and 0 < k < doc["repeats"] for k in looks):
         raise RegistryError(f"{stem}: interim looks must be repeat counts below `repeats`")
@@ -185,6 +188,7 @@ def profile_gens(root: Path, profile: str) -> set[str]:
 
 
 def _used_by(rows: list[dict[str, Any]], names: set[str], hashes: set[str]) -> set[str]:
+    """The holdout generations used by rows whose variants match these names or hashes."""
     used: set[str] = set()
     for row in rows:
         theirs = row.get("variants", {})
@@ -238,6 +242,7 @@ def models_key(models: Mapping[str, str]) -> str:
 
 
 def _variants(root: Path, spec: Spec) -> dict[str, str]:
+    """The variants a spec's candidate stands for, as {name: hash}: a rule variant or models."""
     name = ledger.variant_of(spec.candidate)
     if name:
         vhash = ledger.variant_hash(root / "variants", name)
@@ -248,6 +253,7 @@ def _variants(root: Path, spec: Spec) -> dict[str, str]:
 
 
 def _check_kind(spec: Spec, gens: set[str], dirty: bool) -> None:
+    """RegistryError unless the kind fits the holdout generations planted and a clean bench/."""
     if spec.kind != "confirmatory" and gens:
         raise RegistryError(f"{spec.kind} study plants holdout issues (generations {sorted(gens)})")
     if spec.kind == "confirmatory" and not gens:
@@ -297,6 +303,7 @@ def _recheck(
 
 
 def _registered(rows: list[dict[str, Any]], experiment: str) -> dict[str, Any]:
+    """The `registered` row of an experiment; RegistryError if it is missing or abandoned."""
     mine = [r for r in rows if r.get("id") == experiment]
     found = next((r for r in mine if r["event"] == "registered"), None)
     if found is None:
@@ -388,6 +395,7 @@ def study_files(root: Path = layout.ROOT) -> list[Path]:
 
 
 def _covered(rows: list[dict[str, Any]], root: Path) -> set[str]:
+    """The results files that the registry rows and the gate ledger already account for."""
     out = {str(r.get("out") or r.get("results") or "") for r in rows}
     return out | {
         str(e.get("results", "")) for e in ledger.read(results_dir(root) / "gate" / "ledger.jsonl")
@@ -416,6 +424,7 @@ def _study_row(
 
 
 def _models(records: list[dict[str, Any]]) -> set[str]:
+    """The model names that appear in the records."""
     return {str(r["model"]) for r in records if r.get("model")}
 
 

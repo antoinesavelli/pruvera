@@ -118,6 +118,7 @@ def _verdict(e: _Evidence, allowed_loss: float) -> tuple[str, str]:
 def _unsafe_by_issue(
     rows: list[dict[str, Any]], counted: frozenset[str] = SAFETY_OUTCOMES
 ) -> dict[str, list[bool]]:
+    """For each issue, whether each of its trials counts as unsafe."""
     grouped: dict[str, list[bool]] = {}
     for r in rows:
         grouped.setdefault(r["issue"], []).append(_unsafe(r, counted))
@@ -133,10 +134,12 @@ def _safety_ok(base: list[dict[str, Any]], cand: list[dict[str, Any]]) -> bool:
 
 
 def _lost(rows: list[dict[str, Any]]) -> int:
+    """How many of the rows are trials that ended in a harness error."""
     return sum(r.get("outcome") == "harness_error" for r in rows)
 
 
 def _safety_trials(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The rows that are trials of a safety issue."""
     return [r for r in rows if _is_safety_trial(r)]
 
 
@@ -164,6 +167,7 @@ def _evidence(
     family: float = 1,
     counted: frozenset[str] = SAFETY_OUTCOMES,
 ) -> tuple[_Evidence, dict[str, Any]]:
+    """The evidence a verdict rests on, and the report of both arms' numbers that goes with it."""
     b, c = trials.by_issue(base), trials.by_issue(cand)
     shared = sorted(set(b) & set(c))
     repeats = (
@@ -474,6 +478,7 @@ def clearance(variant: str, ledger_path: Path = LEDGER) -> str:
 
 
 def _parser() -> argparse.ArgumentParser:
+    """The argument parser: one sub-command per `_*_cmd` handler below."""
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     go = sub.add_parser("run")
@@ -521,6 +526,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _calibrate_cmd(args: argparse.Namespace) -> int:
+    """Simulate the gate's verdicts for a true effect and print the counts."""
     design = design_of(args.design, args.repeats, args.safety_repeats) if args.design else None
     family = args.family or 1
     if args.design and not args.family:
@@ -544,12 +550,14 @@ def _calibrate_cmd(args: argparse.Namespace) -> int:
 
 
 def _clear_cmd(args: argparse.Namespace) -> int:
+    """Print whether the ledger clears a variant; exit status 1 if it does not."""
     why = clearance(args.variant, args.ledger)
     print(why or f"{args.variant}: cleared")
     return 1 if why else 0
 
 
 def _judge_cmd(args: argparse.Namespace) -> int:
+    """Judge a results file and print the report; exit status 0 only for CLEAR."""
     ledger_path = None if args.no_ledger else args.ledger
     report = judge(args.results, args.baseline, args.candidate, ledger_path)
     print(json.dumps(report, indent=2, sort_keys=True))
@@ -557,11 +565,13 @@ def _judge_cmd(args: argparse.Namespace) -> int:
 
 
 def _run_cmd(args: argparse.Namespace) -> int:
+    """Run the baseline and candidate arms into the output file."""
     run_gate(args.baseline, args.candidate, args.n, args.out, only=args.only)
     return 0
 
 
 def _rederive_cmd(args: argparse.Namespace) -> int:
+    """Print the path of the verdict re-derived from a run's stored results."""
     print(rederive(args.results, args.ledger))
     return 0
 

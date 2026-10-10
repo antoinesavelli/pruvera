@@ -22,12 +22,14 @@ from bench.jsonl import read_jsonl
 
 
 def _records(path: Path) -> list[dict[str, Any]]:
+    """The trial records in a results file (those with a fixture hash or an artifact)."""
     return [
         r for r in read_jsonl(path, skip_bad=True) if "fixture_tree_hash" in r or "artifact" in r
     ]
 
 
 def _missing_builds(records: list[dict[str, Any]], version: str) -> list[str]:
+    """Short hashes of the builds the records ran on that are no longer on disk."""
     hashes = {r["fixture_tree_hash"] for r in records if "fixture_tree_hash" in r}
     return sorted(h[:12] for h in hashes if layout.find_profile_dir(h, version) is None)
 
@@ -90,6 +92,7 @@ def audit_builds(version: str = layout.VERSION) -> list[str]:
 
 
 def _flags(row: dict[str, Any]) -> list[str]:
+    """The warnings for one results file's row of the report."""
     flags = []
     if row["missing_builds"]:
         flags.append(f"builds gone: {row['missing_builds']}")
@@ -109,6 +112,7 @@ def _flags(row: dict[str, Any]) -> list[str]:
 
 
 def _report(rows: list[dict[str, Any]], builds: list[str], builds_checked: bool) -> None:
+    """Print a line per results file with its flags, then build drift and opencode versions."""
     clean = "reproducible" if builds_checked else "no flags (builds not re-hashed)"
     for r in rows:
         print(f"{r['file']:50s} {r['records']:4d} records  {'; '.join(_flags(r)) or clean}")
@@ -129,6 +133,7 @@ def _archived(results_dir: Path) -> list[dict[str, Any]]:
 def _status(
     rows: list[dict[str, Any]], builds: list[str], strict: bool, registry_problems: list[str]
 ) -> int:
+    """The exit status: 1 for a missing or drifted build, a strict flag or a registry problem."""
     gone = any(r["missing_builds"] for r in rows)
     flagged = strict and any(_flags(r) for r in rows)
     return 1 if gone or builds or flagged or registry_problems else 0

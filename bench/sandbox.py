@@ -85,6 +85,7 @@ def _usr_layout() -> list[str]:
 
 
 def _etc_layout() -> list[str]:
+    """Read-only binds for the allowed /etc entries that exist on the host."""
     argv: list[str] = []
     for name in ETC_ALLOW:
         host = Path("/etc") / name
@@ -197,6 +198,7 @@ def limit_prefix() -> tuple[str, ...]:
 
 
 def _scope_prefix() -> tuple[str, ...]:
+    """The `systemd-run --scope` prefix that caps memory, tasks and CPU; empty if unusable."""
     if shutil.which("systemd-run") is None:
         return ()
     prefix = (
@@ -353,6 +355,7 @@ def check_layout(spec: Spec) -> None:
 
 
 def _check_overlay(spec: Spec) -> None:
+    """SandboxError unless the overlay workdir is empty and upper and work share a filesystem."""
     if {p.name for p in spec.work.iterdir()} - {"work"}:
         # The kernel keeps its own `work` subdir between mounts; anything else is foreign.
         raise SandboxError("overlay workdir must start empty")

@@ -24,14 +24,17 @@ def loads_line(line: str) -> object | None:
 
 
 def _num(value: object) -> float:
+    """`value` as a float if it is a number (not a bool), else 0.0."""
     return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0.0
 
 
 def _dict(value: object) -> dict[str, Any]:
+    """`value` if it is a dict, else an empty one."""
     return value if isinstance(value, dict) else {}
 
 
 def _bounded_input(value: object) -> object:
+    """A tool's input as it is, or its leading JSON text if it is larger than MAX_INPUT."""
     text = json.dumps(value, default=str)
     return value if len(text) <= MAX_INPUT else {"truncated": text[:MAX_INPUT]}
 
@@ -144,6 +147,7 @@ def _shape(args: object) -> dict[str, object]:
 
 
 def _sanitize_event(event: dict[str, Any]) -> dict[str, Any]:
+    """An event cut down to its allowed fields: trimmed text, the input's shape, no output."""
     part = _dict(event.get("part"))
     kept_part = {k: part[k] for k in PART_FIELDS if k in part}
     if "text" in part:

@@ -47,6 +47,7 @@ class ReadBackError(RuntimeError):
 
 
 def _run(sb: sandbox.Spec, script: str, timeout: float) -> str:
+    """Run a git read-back script in the sandbox with no network; ReadBackError on failure."""
     offline = dataclasses.replace(sb, net="none", ollama_trace=None)  # git needs no endpoint
     try:
         done = sandbox.run(
@@ -60,6 +61,7 @@ def _run(sb: sandbox.Spec, script: str, timeout: float) -> str:
 
 
 def _commits(text: str, sep: str, hidden: bool = False) -> list[dict[str, Any]]:
+    """The commits in git output split on `sep`: sha, subject and files (flagged if hidden)."""
     commits = []
     for block in text.split(sep)[1:]:
         first, *files = block.strip("\n").split("\n")
