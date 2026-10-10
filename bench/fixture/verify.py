@@ -31,6 +31,7 @@ class Report:
 
 
 def _tree_paths(tree: Path) -> list[str]:
+    """Every file in the tree, repo-relative and sorted, `.git` left out."""
     return sorted(
         p.relative_to(tree).as_posix()
         for p in tree.rglob("*")
