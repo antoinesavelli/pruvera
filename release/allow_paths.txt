@@ -15,11 +15,13 @@ pyproject.toml
 # The harness and its own tests. Generation 3's hand issues stay private in every commit: their two modules
 # define the answers to holdout issues (plan D5; generations 1 and 2 are accepted as exposed, owner 2026-10-08).
 regex:^bench/(?!issues/(hand_kinds|injections)\.py$)
-tests/
-bin/
+# The 2026-09-23 host-running bench (legacy_bench/, fixtures/legacy/, the bin/ scripts that drive it) and its
+# test are left out of every public commit (owner, 2026-10-09): the one unsandboxed lane does not belong in a
+# project about containing agents. bin/ruff is the only bin/ file the harness uses.
+regex:^tests/(?!test_legacy_bench\.py$)
+bin/ruff
 policy/
 experiments/
-legacy_bench/
 
 # One-off measurements: the scripts, plus the one result file checked to hold aggregates only
 regex:^spikes/[^/]+\.py$
