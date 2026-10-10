@@ -108,12 +108,14 @@ def register(spec_path: Path, root: Path = layout.ROOT) -> dict[str, Any]:
 
 
 def _results(experiment_id: str, root: Path) -> Path:
+    """The results file of an experiment."""
     return registry.results_dir(root) / "experiments" / f"{experiment_id}.jsonl"
 
 
 def _arms(
     experiment_id: str, root: Path
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    """An experiment's registered row and its scored baseline and candidate rows."""
     row = registry.registered(experiment_id, root)
     if not row["candidate"]:
         raise registry.RegistryError(f"{experiment_id}: a baseline-only study has nothing to judge")
@@ -122,6 +124,7 @@ def _arms(
 
 
 def _through(rows: list[dict[str, Any]], repeat: int) -> list[dict[str, Any]]:
+    """The rows of repeats up to and including `repeat`."""
     return [r for r in rows if (r.get("repeat") or 0) <= repeat]
 
 
@@ -170,6 +173,7 @@ def _scope(records: list[dict[str, Any]]) -> dict[str, Any]:
 def _caveats(
     row: dict[str, Any], verdict: dict[str, Any], records: list[dict[str, Any]]
 ) -> list[str]:
+    """Notes that qualify a verdict: study kind, power, an uncommitted bench/, missing hashes."""
     notes = []
     if row["kind"] != "confirmatory":
         notes.append(f"{row['kind']} study: not a verdict of record")
@@ -187,12 +191,14 @@ def _caveats(
 
 
 def _sha(path: Path) -> str:
+    """The SHA-256 of a file's bytes."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _write_bundle(
     row: dict[str, Any], rows: list[dict[str, Any]], verdict: dict[str, Any], text: str, root: Path
 ) -> Path:
+    """Write a verdict bundle (spec, scored rows, verdict, report); returns its directory."""
     out = registry.results_dir(root) / "verdicts" / row["id"]
     out.mkdir(parents=True, exist_ok=True)
     shutil.copy(root / "experiments" / f"{row['id']}.toml", out / "spec.toml")
@@ -218,6 +224,7 @@ def _check_judgeable(row: dict[str, Any], rows: list[dict[str, Any]], root: Path
 def _check_complete(
     row: dict[str, Any], rows: list[dict[str, Any]], verdict: dict[str, Any]
 ) -> None:
+    """Raise unless every registered repeat is recorded or an interim look stopped the study."""
     stopped = any(
         r["event"] == "interim" and r["id"] == row["id"] and r["decision"] == "STOP" for r in rows
     )
@@ -305,6 +312,7 @@ def verify_verdicts(root: Path = layout.ROOT) -> list[str]:
 
 
 def _redecide(row: dict[str, Any], bundle: Path) -> list[str]:
+    """Problems if a bundle's stored rows no longer give the recorded verdict."""
     scored = read_jsonl(bundle / "scored.jsonl")
     verdict = gate.decide(
         gate.arm_rows(scored, "baseline"), gate.arm_rows(scored, "candidate"),
@@ -318,6 +326,7 @@ def _redecide(row: dict[str, Any], bundle: Path) -> list[str]:
 
 
 def _state(rows: list[dict[str, Any]], experiment: str) -> str:
+    """Where an experiment stands: abandoned, started or registered."""
     events = {r["event"] for r in rows if r.get("id") == experiment}
     return (
         "abandoned" if "abandoned" in events else "started" if "started" in events else "registered"
@@ -367,27 +376,32 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _show(value: Any) -> int:
+    """Print a value as JSON and return exit status 0."""
     print(json.dumps(value, indent=1, sort_keys=True))
     return 0
 
 
 def _verify() -> int:
+    """Audit the registry and the verdict bundles; print the problems, return 1 if any."""
     problems = [*registry.audit(), *verify_verdicts()]
     print("\n".join(problems) or "registry: chain intact, studies covered, verdict bundles intact")
     return 1 if problems else 0
 
 
 def _status() -> int:
+    """Print one JSON line per experiment and return 0."""
     for line in status():
         print(json.dumps(line, sort_keys=True))
     return 0
 
 
 def _done(*_ignored: object) -> int:
+    """Ignore the arguments and return 0, so a lambda can run a call for its effect."""
     return 0
 
 
 def _dispatch(args: argparse.Namespace) -> int:
+    """Run the sub-command `args.cmd` names and return its exit status."""
     handlers: dict[str, Callable[[], int]] = {
         "new": lambda: _done(print(new(args.id))),
         "register": lambda: _show(register(args.spec.resolve())),

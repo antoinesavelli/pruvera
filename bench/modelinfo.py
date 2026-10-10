@@ -18,6 +18,7 @@ _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # no pro
 
 
 def _open(request: str | urllib.request.Request, timeout: float) -> Any:
+    """Open a request through the opener that ignores proxy variables."""
     return _OPENER.open(request, timeout=timeout)
 
 

@@ -59,6 +59,7 @@ def allowed(method: str, target: str) -> bool:
 
 
 def _no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Build a dict from JSON key-value pairs; a duplicate key is an error."""
     keys = [k for k, _ in pairs]
     if len(keys) != len(set(keys)):
         raise ValueError("duplicate keys")
@@ -103,6 +104,7 @@ MAX_STOP = 16  # stop sequences per request
 
 
 def _int_in(value: object, low: int, high: int) -> bool:
+    """True for a real int (not a bool) from `low` to `high` inclusive."""
     return isinstance(value, int) and not isinstance(value, bool) and low <= value <= high
 
 
@@ -139,6 +141,7 @@ def _stop_ok(doc: dict[str, Any]) -> bool:
 
 
 def _bounds_ok(source: dict[str, Any]) -> bool:
+    """Whether the context, prediction and token limits in a request are within the caps."""
     ctx, predict = source.get("num_ctx"), source.get("num_predict")
     capped = (source.get(k) for k in ("max_tokens", "max_completion_tokens"))
     return (
@@ -158,6 +161,7 @@ def _resources_ok(doc: dict[str, object]) -> bool:
 
 
 def _keep_alive_ok(keep: object) -> bool:
+    """Whether `keep_alive` is absent or at most the cap (seconds, or `Ns`, `Nm`, `Nh`)."""
     if keep is None:
         return True
     if isinstance(keep, bool):
@@ -175,6 +179,7 @@ class _Refusal(Exception):
     """A request the filter will not forward: the status code and the reason for the client."""
 
     def __init__(self, code: int, why: str) -> None:
+        """Keep the status code and the reason the client will be told."""
         super().__init__(why)
         self.code, self.why = code, why
 
@@ -201,6 +206,7 @@ def _vet(method: str, target: str, body: bytes | None, models: frozenset[str]) -
 
 
 def _short(value: object) -> str:
+    """A 12-hex-digit hash of a value's JSON: the trace records hashes, never the text."""
     return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
@@ -262,6 +268,7 @@ TRACE_MAX_BYTES = 5 * 1024 * 1024  # a trial's trace stops growing here
 def _trace(
     path: Path, target: str, status: int, first: float, total: float, body: bytes | None
 ) -> None:
+    """Append one line (path, status, timings, request shape) to the trace, within its size cap."""
     line = {
         "t": round(time.time(), 3),
         "path": target.split("?", 1)[0][:80],
@@ -290,6 +297,7 @@ def make_handler(
             return
 
         def _refuse(self, code: int, why: str) -> None:
+            """Answer with `code` and a JSON error body that says `why`."""
             body = f'{{"error": "{why}"}}'.encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
@@ -316,10 +324,12 @@ def make_handler(
                 slots.release()
 
         def _hang_up(self) -> None:
+            """Shut the connection down: the request took longer than the receive deadline."""
             with contextlib.suppress(OSError):
                 self.connection.shutdown(socket.SHUT_RDWR)
 
         def _forward(self) -> None:
+            """Read, vet and relay one request upstream; a refusal or a 502 on failure; trace it."""
             try:
                 length = _content_length(self.headers)
                 # Read the body before any refusal: closing with unread bytes resets the
@@ -354,9 +364,12 @@ MAX_THREADS = 64  # connections served at once; the rest are refused before a th
 
 
 class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    """A threaded unix-socket server that turns away connections beyond MAX_THREADS."""
+
     daemon_threads = True
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Set up the thread-slot semaphore, then the server."""
         self._thread_slots = threading.BoundedSemaphore(MAX_THREADS)
         super().__init__(*args, **kwargs)
 

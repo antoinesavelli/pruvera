@@ -21,6 +21,7 @@ YOUNG_SECONDS = 3600  # longer than any trial's wall-clock limit
 
 
 def _size(path: Path) -> int:
+    """The total size in bytes of the regular files under `path`; symlinks are not counted."""
     return sum(p.stat().st_size for p in path.rglob("*") if p.is_file() and not p.is_symlink())
 
 

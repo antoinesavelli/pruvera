@@ -28,6 +28,7 @@ REAL_VENV = Path("/mnt/ParamoStorage/Paramo/.venv")
 
 
 def _manifest(tree: Path, rev: str) -> dict[str, str]:
+    """The manifest of a prepared reference tree: tree hash, base commit, git hash, source."""
     commit = gitutil.text(tree, "rev-parse", "HEAD")
     return {
         "tree_hash": sandbox.tree_hash(tree, (".git",)),
