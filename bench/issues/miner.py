@@ -10,7 +10,6 @@ bench.issues.{check,plant,restore,schema}, bench.fixture.{denylist,scrub,verify}
 
 from __future__ import annotations
 
-import ast
 import difflib
 import re
 from dataclasses import dataclass, field
@@ -247,12 +246,9 @@ def inverse(sel: Selected, diff: bytes, tree: Path, max_lines: int = 80) -> Cand
 
 def behavioural(before: str, after: str) -> bool:
     """True if the two Python texts differ in code (comments, docstrings and whitespace ignored)."""
-    try:
-        a = ast.dump(restore.without_docstrings(ast.parse(before)))
-        b = ast.dump(restore.without_docstrings(ast.parse(after)))
-    except SyntaxError:
-        return True  # cannot tell: keep it and let the test decide
-    return a != b
+    # A text that cannot be parsed, or is too big to, counts as differing: keep it and let the
+    # test decide.
+    return restore.same_ast(after, before) is not True
 
 
 def excluded_identifiers(

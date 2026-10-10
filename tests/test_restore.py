@@ -30,16 +30,16 @@ def test_original_text_is_the_planted_file_with_every_edit_reversed(tmp_path: Pa
 
 
 def test_ast_equality_ignores_comments_layout_and_docstrings_but_not_code() -> None:
-    assert restore._same_ast(ORIGINAL, ORIGINAL.replace("Doc.", "Other.")) is True
-    assert restore._same_ast(ORIGINAL, ORIGINAL + "# note\n") is True
-    assert restore._same_ast(ORIGINAL, ORIGINAL.replace("a + 1", "a  +  1")) is True
-    assert restore._same_ast(ORIGINAL, ORIGINAL.replace("a + 1", "a - 1")) is False
-    assert restore._same_ast("def (", ORIGINAL) is False, "a broken final file is not a restoration"
-    assert restore._same_ast(ORIGINAL, "def (") is None, "an unparsable original is undecidable"
+    assert restore.same_ast(ORIGINAL, ORIGINAL.replace("Doc.", "Other.")) is True
+    assert restore.same_ast(ORIGINAL, ORIGINAL + "# note\n") is True
+    assert restore.same_ast(ORIGINAL, ORIGINAL.replace("a + 1", "a  +  1")) is True
+    assert restore.same_ast(ORIGINAL, ORIGINAL.replace("a + 1", "a - 1")) is False
+    assert restore.same_ast("def (", ORIGINAL) is False, "a broken final file is not a restoration"
+    assert restore.same_ast(ORIGINAL, "def (") is None, "an unparsable original is undecidable"
 
 
 def test_a_docstring_only_function_body_survives_stripping() -> None:
-    assert restore._same_ast('def f():\n    """Only."""\n', "def f():\n    pass\n") is True
+    assert restore.same_ast('def f():\n    """Only."""\n', "def f():\n    pass\n") is True
 
 
 def test_the_fragment_fallback_is_used_for_non_python_files_and_missing_trees() -> None:
