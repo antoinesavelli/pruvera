@@ -138,6 +138,8 @@ def git_base(tree: Path, history: bool = False) -> str:
 
 @dataclass
 class _Stripped:
+    """What `_strip` did: paths removed and their source, stubs copied in, files kept, dropped."""
+
     gone: set[str]  # denylisted paths
     excluded_sources: dict[str, str]  # their Python text, kept only to measure identifier leaks
     provided: set[str]  # stub files copied in

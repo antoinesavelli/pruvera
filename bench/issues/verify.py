@@ -267,6 +267,7 @@ def _caught_together(
     failed = set(run.failed)
 
     def red(test: str) -> bool:  # a file that cannot even be imported fails every test in it
+        """True when `test`, or the file holding it, is among the planted run's failures."""
         return test in failed or test.split("::", 1)[0] in failed
 
     missed = [i.id for i in issues if i.detector == "test" and not all(map(red, i.tests))]
