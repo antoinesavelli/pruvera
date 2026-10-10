@@ -49,20 +49,28 @@ def model_parameters(model: str, port: int = 11434) -> str:
         return ""
 
 
-def gpu_residency() -> str:
-    """The PROCESSOR column of `ollama ps` (for example '100% GPU'), or ''."""
+def gpu_residency(model: str) -> str:
+    """The PROCESSOR column of `model`'s row in `ollama ps` (for example '100% GPU'), or ''."""
+    # Only that model's own row counts: a trial also calls other models (opencode's `small_model`
+    # titles a session), so the first row can belong to one of them. Not loaded -> '' (unknown).
     try:
         rows = subprocess.run(
             ["ollama", "ps"], capture_output=True, text=True, timeout=10, check=False
         ).stdout.splitlines()
     except (OSError, subprocess.SubprocessError):
         return ""
-    if len(rows) < 2:
+    if not rows:
         return ""
-    start, end = rows[0].find("PROCESSOR"), rows[0].find("UNTIL")
+    start = rows[0].find("PROCESSOR")
     if start < 0:
         return ""
-    return rows[1][start : end if end > start else None].strip()[:24]
+    # the column ends where the next one (CONTEXT, else UNTIL) begins
+    ends = [i for i in (rows[0].find("CONTEXT"), rows[0].find("UNTIL")) if i > start]
+    end = min(ends) if ends else None
+    for row in rows[1:]:
+        if row.split(maxsplit=1)[:1] == [model]:
+            return row[start:end].strip()[:24]
+    return ""
 
 
 @functools.cache
