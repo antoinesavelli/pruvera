@@ -537,6 +537,7 @@ def dev_ids(issues: dict[str, Issue], holdouts: list[frozenset[str]]) -> list[st
 
 
 def _write_profile(prof: Path, name: str, ids: list[str], desc: str) -> None:
+    """Write a profile file holding its description and issue ids."""
     (prof / f"{name}.toml").write_text(
         f"description = {json.dumps(desc)}\nissues = {json.dumps(ids)}\n"
     )

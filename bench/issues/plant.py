@@ -91,6 +91,7 @@ def leak_check(tree: Path, issues: list[schema.Issue], base: Path | None = None)
 
 
 def _base_stamp() -> float:
+    """The base commit's date as a timestamp."""
     return datetime.fromisoformat(build.BASE_DATE).timestamp()
 
 

@@ -19,6 +19,7 @@ _seen: set[tuple[str, str]] = set()
 
 
 def _hook(event: str, args: tuple[object, ...]) -> None:
+    """Audit hook: log, once per test, a missing data-root path that was opened or listed."""
     if event not in EVENTS or not args:
         return
     path = args[0]

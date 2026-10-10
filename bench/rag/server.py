@@ -73,6 +73,7 @@ class Index:
     """The prebuilt docs index (chunks and unit-norm vectors) that `search_docs` queries."""
 
     def __init__(self, directory: Path) -> None:
+        """Load the chunks and their vectors from `directory`."""
         self.chunks: list[dict[str, str]] = json.loads((directory / "chunks.json").read_text())
         self.vectors = np.load(directory / "vectors.npy")
 
@@ -93,6 +94,7 @@ class Index:
 
 
 def _error(ident: Any, code: int, message: str) -> dict[str, Any]:
+    """A JSON-RPC error reply."""
     return {"jsonrpc": "2.0", "id": ident, "error": {"code": code, "message": message}}
 
 
@@ -102,6 +104,7 @@ def _dict(value: Any) -> dict[str, Any]:
 
 
 def _call(index: Index, params: dict[str, Any], ident: Any) -> dict[str, Any]:
+    """The reply to a `tools/call`: search hits, or an error for a bad name, query or `top_k`."""
     args = _dict(params.get("arguments"))
     top_k = args.get("top_k", 5)
     query = args.get("query", "")

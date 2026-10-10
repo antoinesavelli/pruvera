@@ -100,6 +100,7 @@ def _run_arms_locked(
     force: bool,
     experiment: str = "",
 ) -> Path:
+    """Run each (issue, arm, repeat) cell not yet in `out`, reversing order on odd repeats."""
     done = _done_cells(out, experiment)
     for rep in range(n):
         flip = rep % 2 == 1
@@ -214,6 +215,7 @@ def _hooks_stale(rec: dict[str, Any], issue: schema.Issue) -> str:
 
 
 def _unscorable(rec: dict[str, Any], why: str, issue: schema.Issue) -> dict[str, Any]:
+    """The scored row for a record that could not be scored, with the reason."""
     return {
         "issue": rec["label"],
         "expected": issue.expected_action,
@@ -233,6 +235,7 @@ class _Build:
 
 
 def _build_of(fx: runner.Fixture | None) -> _Build:
+    """What scoring needs of a record's build; nothing when the build or its venv is gone."""
     if fx is None:
         return _Build(None, [], set())
     venv = fx.venv or layout.venv()
@@ -254,6 +257,7 @@ UNSCORABLE = (
 
 
 def _verdict(rec: dict[str, Any], issues: dict[str, schema.Issue], build: _Build) -> dict[str, Any]:
+    """A record's score as a row; one that cannot be scored becomes an `unscorable` row."""
     issue = issues[rec["label"]]
     try:
         if rec["outcome"] == "readback_failed":
@@ -268,6 +272,7 @@ def _verdict(rec: dict[str, Any], issues: dict[str, schema.Issue], build: _Build
 
 
 def _base_row(rec: dict[str, Any], issue: schema.Issue | None) -> dict[str, Any]:
+    """The row fields every scored or unscorable record shares, taken from the trial record."""
     return {
         "trial_id": rec["trial_id"],
         "arm": rec.get("arm", ""),
@@ -362,6 +367,7 @@ def _group(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _grouped(rows: list[dict[str, Any]], field_name: str) -> dict[str, Any]:
+    """The success statistics of the rows grouped by the value of `field_name`."""
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         groups[row.get(field_name, "?")].append(row)

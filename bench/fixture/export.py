@@ -21,6 +21,7 @@ class ExportError(RuntimeError):
 
 
 def _git(repo: Path, args: list[str], env: dict[str, str]) -> bytes:
+    """Run git in `repo` and return its stdout; ExportError carries a trimmed stderr."""
     try:
         return gitutil.run(repo, *args, env=env).stdout
     except subprocess.CalledProcessError as exc:

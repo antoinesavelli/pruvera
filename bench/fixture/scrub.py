@@ -43,6 +43,7 @@ class Result:
 
 
 def _parse_rule(parts: list[str], lineno: int) -> Rule:
+    """One token-file line as a Rule (kind G, C, P or W); ValueError never echoes the token."""
     kind = parts[0]
     try:
         if kind == "G" and len(parts) == 3:
@@ -91,6 +92,7 @@ def is_text(data: bytes) -> bool:
 
 
 def _applies(rule: Rule, lines: list[str], i: int) -> bool:
+    """Whether `rule` fires on line `i`: C rules need their context and the W window; P never."""
     if rule.kind == "P":
         return False  # patches run only through _apply_patches, on their own file
     if rule.context is None:
@@ -102,6 +104,7 @@ def _applies(rule: Rule, lines: list[str], i: int) -> bool:
 
 
 def _redact_line(rules: list[Rule], lines: list[str], i: int, line: str) -> str:
+    """`line` with the pattern of every applicable rule replaced."""
     for rule in rules:
         if _applies(rule, lines, i):
             line = rule.pattern.sub(rule.placeholder, line)
@@ -109,10 +112,12 @@ def _redact_line(rules: list[Rule], lines: list[str], i: int, line: str) -> str:
 
 
 def _matches(rules: list[Rule], lines: list[str], i: int, line: str) -> bool:
+    """Whether any applicable rule still matches `line`."""
     return any(_applies(rule, lines, i) and rule.pattern.search(line) for rule in rules)
 
 
 def _docstring_lines(tree: ast.AST) -> set[int]:
+    """The line numbers of module, class and function docstrings: the prose that may be redacted."""
     prose: set[int] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):

@@ -40,6 +40,7 @@ class BuildResult:
 
 
 def _remove(tree: Path, rels: set[str]) -> None:
+    """Delete the given files and prune the directories left empty."""
     for rel in rels:
         target = tree / rel
         if target.is_file() or target.is_symlink():
@@ -50,6 +51,7 @@ def _remove(tree: Path, rels: set[str]) -> None:
 
 
 def _copy_stubs(stubs: Path, tree: Path) -> set[str]:
+    """Copy the stub files into the tree; returns their relative paths."""
     provided: set[str] = set()
     for src in sorted(p for p in stubs.rglob("*") if p.is_file()):
         rel = src.relative_to(stubs).as_posix()
@@ -61,6 +63,7 @@ def _copy_stubs(stubs: Path, tree: Path) -> set[str]:
 
 
 def _scrub_tree(tree: Path, rules: list[scrub.Rule]) -> list[dict[str, object]]:
+    """Redact every text file outside `.git` in place; returns one record per change."""
     changes: list[dict[str, object]] = []
     for path in sorted(p for p in tree.rglob("*") if p.is_file()):
         rel = path.relative_to(tree).as_posix()
@@ -80,6 +83,7 @@ def _scrub_tree(tree: Path, rules: list[scrub.Rule]) -> list[dict[str, object]]:
 
 
 def _git_env(tree: Path, date: str) -> dict[str, str]:
+    """A clean git environment with a fixed identity and `date`, and no global config."""
     return {
         "PATH": os.environ.get("PATH", ""),
         "HOME": str(tree),
@@ -166,6 +170,7 @@ def _strip(tree: Path, paths: list[str], deny: list[str], stubs: Path) -> _Strip
 
 
 def _sha(path: Path | None) -> str:
+    """The SHA-256 of a file, or an empty string when there is none."""
     return hashlib.sha256(path.read_bytes()).hexdigest() if path and path.exists() else ""
 
 

@@ -85,6 +85,7 @@ class Issue:
 
 
 def _q(value: str) -> str:
+    """A string as a quoted TOML value (JSON escaping, non-ASCII kept)."""
     return json.dumps(value, ensure_ascii=False)
 
 
@@ -143,6 +144,7 @@ def definition_hash(issue: Issue) -> str:
 
 
 def _build(doc: dict[str, Any]) -> Issue:
+    """An Issue from a TOML document with defaults filled; SchemaError on a missing field."""
     try:
         return Issue(
             id=doc["id"],
@@ -172,6 +174,7 @@ def _build(doc: dict[str, Any]) -> Issue:
 
 
 def _check_vocabulary(issue: Issue) -> None:
+    """Raise SchemaError if the kind, source, detector or expected action is unknown."""
     for value, allowed, label in (
         (issue.kind, KINDS, "kind"),
         (issue.source, SOURCES, "source"),

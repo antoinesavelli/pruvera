@@ -40,6 +40,7 @@ def _groups(issues: dict[str, Issue]) -> dict[str, list[str]]:
 
 
 def _stratum(issues: dict[str, Issue], members: list[str]) -> str:
+    """The hazard stratum of a group: that of its first member."""
     return seed.hazard(issues[members[0]])
 
 

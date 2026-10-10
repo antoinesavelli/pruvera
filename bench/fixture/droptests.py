@@ -24,12 +24,14 @@ def load_ids(path: Path) -> list[str]:
 
 
 def _span(node: ast.stmt) -> tuple[int, int]:
+    """The first and last line of a statement, decorators included."""
     decorators = getattr(node, "decorator_list", [])
     start = min([node.lineno, *[d.lineno for d in decorators]])
     return start, node.end_lineno or node.lineno
 
 
 def _find(body: list[ast.stmt], names: list[str]) -> ast.stmt | None:
+    """The class or function at the dotted `names` path in `body`, or None."""
     for node in body:
         if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             if node.name == names[0]:
@@ -38,6 +40,7 @@ def _find(body: list[ast.stmt], names: list[str]) -> ast.stmt | None:
 
 
 def _find_in(node: ast.stmt, names: list[str]) -> ast.stmt | None:
+    """The statement `names` leads to inside a class, or None for anything else."""
     return _find(node.body, names) if isinstance(node, ast.ClassDef) else None
 
 
