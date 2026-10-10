@@ -74,6 +74,8 @@ class DriftError(RuntimeError):
 
 @dataclass(frozen=True)
 class Fixture:
+    """A built profile a trial runs on: tree, manifest, venv, data slice and pins."""
+
     version: str
     tree: Path
     manifest: dict[str, Any]
@@ -96,6 +98,8 @@ class Hook:
 
 @dataclass(frozen=True)
 class TrialSpec:
+    """What one trial is: agent, model, prompt, hooks, limits and the study labels."""
+
     agent: str
     model: str
     prompt: str
@@ -296,6 +300,7 @@ def _stream(
     last = [time.monotonic()]
 
     def read_out() -> None:
+        """Read the agent's stdout into `raw` and the transcript, noting the last event's time."""
         assert proc.stdout is not None
         kept = 0
         while line := proc.stdout.readline(MAX_LINE):
@@ -309,6 +314,7 @@ def _stream(
                 last[0] = time.monotonic()
 
     def read_err() -> None:
+        """Read the agent's stderr into `err`, within the capture limits."""
         assert proc.stderr is not None
         kept = 0
         while line := proc.stderr.readline(MAX_LINE):

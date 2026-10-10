@@ -31,6 +31,8 @@ class ParityError(RuntimeError):
 
 @dataclass(frozen=True)
 class Deviation:
+    """One named difference between the trial's config and the real one, with its reason."""
+
     pointer: str  # JSON pointer of the changed location (prefix match)
     action: str  # "removed" or "changed"
     reason: str
@@ -38,6 +40,8 @@ class Deviation:
 
 @dataclass(frozen=True)
 class Assembly:
+    """The assembled trial config, its deviations, the real file's hash and the inline overrides."""
+
     config: dict[str, Any]
     deviations: tuple[Deviation, ...]
     real_sha256: str
@@ -45,6 +49,7 @@ class Assembly:
     seed: int | None = None  # None: unseeded, the default
 
     def env(self) -> dict[str, str]:
+        """The environment variable that carries the inline config into the sandbox."""
         return {"OPENCODE_CONFIG_CONTENT": json.dumps(self.inline, sort_keys=True)}
 
 

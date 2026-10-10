@@ -140,6 +140,7 @@ def _status(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Audit the results, the builds and the registry; print the report and return its status."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--results", type=Path, default=layout.RESULTS)
     ap.add_argument("--skip-builds", action="store_true", help="do not re-hash the profile trees")

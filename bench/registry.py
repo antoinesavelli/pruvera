@@ -66,6 +66,7 @@ def results_dir(root: Path = layout.ROOT) -> Path:
 
 
 def registry_path(root: Path = layout.ROOT) -> Path:
+    """The registry file of the results under `root`."""
     return results_dir(root) / "registry.jsonl"
 
 
@@ -78,6 +79,7 @@ def _digest(row: Mapping[str, Any]) -> str:
 
 
 def read(root: Path = layout.ROOT) -> list[dict[str, Any]]:
+    """The registry's rows; none if the file does not exist."""
     path = registry_path(root)
     return read_jsonl(path) if path.exists() else []
 
