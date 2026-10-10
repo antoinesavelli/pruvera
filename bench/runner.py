@@ -223,6 +223,7 @@ def check_experiment(spec: TrialSpec) -> None:
 
 
 def _bind_allowed(host: Path, dest: str) -> bool:
+    """Whether an extra bind is allowed: an existing allowed host path and an allowed target."""
     resolved = host.resolve()
     bases = {ROOT, layout.STATE}
     allowed_roots = [
@@ -241,6 +242,7 @@ def _dest_allowed(dest: str) -> bool:
 
 
 def _hook_script(hook: Hook) -> str:
+    """The shell command that seeds one peer-state hook (dirty, staged, untracked or stashed)."""
     path, body = shlex.quote(hook.path), shlex.quote(hook.content)
     if hook.kind == "untracked":
         return f'mkdir -p "$(dirname {path})" && printf %s {body} > {path}'
@@ -272,6 +274,7 @@ def _config_env(asm: agentconfig.Assembly, spec: TrialSpec) -> dict[str, str]:
 
 
 def _tool_binds(extra: Sequence[tuple[Path, str]]) -> tuple[tuple[Path, str], ...]:
+    """Binds for the agent binary and ripgrep when present, plus the extra binds."""
     binds: list[tuple[Path, str]] = []
     if OPENCODE.exists():
         binds.append((OPENCODE.resolve(), "/opt/bin/opencode"))
@@ -281,6 +284,7 @@ def _tool_binds(extra: Sequence[tuple[Path, str]]) -> tuple[tuple[Path, str], ..
 
 
 def _skip_line(stream: Any) -> None:
+    """Discard the rest of a line that was longer than the read limit."""
     while (chunk := stream.readline(MAX_LINE)) and not chunk.endswith("\n"):
         pass
 
@@ -288,6 +292,7 @@ def _skip_line(stream: Any) -> None:
 def _stream(
     proc: subprocess.Popen[str], transcript: Transcript, raw: list[str], err: list[str]
 ) -> tuple[threading.Thread, threading.Thread, list[float]]:
+    """Start threads reading the agent's stdout and stderr; returns them and the last-event time."""
     last = [time.monotonic()]
 
     def read_out() -> None:
@@ -345,6 +350,7 @@ def _watch(
 
 
 def _classify(rc: int | None, killed: str | None, tr: Transcript) -> str:
+    """The outcome of a run: the kill reason, else completed, silent_stall or agent_error."""
     if killed:
         return killed
     if rc == 0:
@@ -405,6 +411,7 @@ def _link_or_copy(src: str, dst: str) -> str:
 def _sandbox_spec(
     fx: Fixture, spec: TrialSpec, tdir: Path, asm: agentconfig.Assembly
 ) -> sandbox.Spec:
+    """The sandbox spec for a trial: binds, environment, network, data and the Ollama allowlist."""
     binds: list[tuple[Path, str]] = list(_tool_binds(spec.extra_binds))
     base = _neutral_base(fx.tree, tdir)
     binds.append(
@@ -457,10 +464,12 @@ def _execute(
 
 
 def _over_cap(sb: sandbox.Spec) -> bool:
+    """Whether any measured overlay of the sandbox has outgrown its size cap."""
     return any(sandbox.upper_exceeds(root) for root in sandbox.measured_roots(sb))
 
 
 def _seed_hooks(sb: sandbox.Spec, spec: TrialSpec) -> None:
+    """Run each seeding hook in the sandbox, with no network, before the agent starts."""
     offline = replace(sb, net="none", ollama_trace=None)  # seeding needs no inference endpoint
     for hook in spec.hooks:
         seeded = sandbox.run(
@@ -471,6 +480,7 @@ def _seed_hooks(sb: sandbox.Spec, spec: TrialSpec) -> None:
 
 
 def _stream_agent(sb: sandbox.Spec, spec: TrialSpec, argv: Sequence[str], run: _Run) -> None:
+    """Run the agent in the sandbox and stream its output; sets the run's exit and outcome."""
     with sandbox.popen(sb, argv) as proc:
         t_out, t_err, last = _stream(proc, run.tr, run.raw, run.err)
         killed = _watch(proc, spec, last, sandbox.measured_roots(sb))
@@ -494,6 +504,7 @@ def _infrastructure_failure(run: _Run) -> bool:
 
 
 def _phases(run: _Run) -> dict[str, float]:
+    """Where a run's time went: startup, agent, exit wait and after exit (empty if unknown)."""
     tr = run.tr
     if tr.first_ts is None or tr.last_ts is None or not run.exited:
         return {}
@@ -515,6 +526,7 @@ def _record(
     after: list[preflight.Problem],
     adir: Path,
 ) -> dict[str, Any]:
+    """The trial record written for a run: what it ran on, what it did and what was left."""
     tr = run.tr
     record: dict[str, Any] = {
         "schema": 2,

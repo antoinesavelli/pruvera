@@ -142,6 +142,7 @@ def _run_study_locked(
     trials: Path,
     seed: int = 1,
 ) -> Path:
+    """Run `n` repeats of each task on each side in seeded order; returns `out`."""
     try:
         source = reference.prepare(layout.REAL_REPO, layout.source_commit(), trials / "ref-source")
         for rep in range(n):

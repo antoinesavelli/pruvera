@@ -92,6 +92,7 @@ class Problem:
 
 
 def _cmdline(pid_dir: Path) -> list[str]:
+    """The argv of a process from its /proc directory; empty if it is gone or unreadable."""
     try:
         raw = (pid_dir / "cmdline").read_bytes()
     except OSError:
