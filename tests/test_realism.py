@@ -336,6 +336,7 @@ def test_a_reference_trial_keeps_no_diff_status_or_repo_state(tmp_path: Path) ->
     assert json.loads((tmp_path / "changes.json").read_text())["written"] == 1
 
 
+@needs_bwrap
 def test_a_reference_record_keeps_the_kind_of_failure_but_not_its_text(tmp_path: Path) -> None:
     """The detail of a harness error can hold git or hook stderr from the real repo."""
     source = _git_source(tmp_path)
