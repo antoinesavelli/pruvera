@@ -1,0 +1,59 @@
+# CI for the public copy of pruvera (the filtered mirror built from release/allow_paths.txt).
+#
+# The copy has no fixture trees, no fixture venv, no Ollama and no opencode, so the tests that need them skip
+# themselves (tests/helpers.py, "!!! N TESTS SKIPPED" banner in the pytest summary). What runs here is the part of
+# the harness that is pure code: the scorers, the statistics, the gate, the registry, the doc-consistency checks.
+# It says the code is internally consistent; it does not re-run any trial.
+name: public-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # pyproject.toml has requires-python ">=3.12" and ruff's target-version py312. A fixed 3.12 keeps the run
+      # reproducible; a version file would resolve ">=3.12" to whatever is newest.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Exact pins, validated together in a fresh venv. The tests import numpy, pandas (with pyarrow for parquet)
+      # and PyYAML; the rest of the harness is standard library. Pinning ruff and mypy keeps a new release's rules
+      # from turning a green badge red between two commits; bump them on purpose.
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            pytest==9.1.1 \
+            numpy==2.5.3 \
+            pandas==3.0.6 \
+            pyarrow==26.0.0 \
+            pyyaml==6.0.3 \
+            ruff==0.17.0 \
+            mypy==2.4.0
+
+      - name: Tests
+        run: python -m pytest tests -q -p no:cacheprovider
+
+      - name: Ruff
+        run: python -m ruff check
+
+      # The two generation-3 modules (bench/issues/hand_kinds.py and injections.py) are private and absent here;
+      # bench/issues/seed.py imports them behind a ModuleNotFoundError guard, which mypy cannot see.
+      - name: Mypy
+        run: python -m mypy bench --disable-error-code import-not-found
