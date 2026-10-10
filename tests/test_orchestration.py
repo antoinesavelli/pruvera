@@ -25,6 +25,7 @@ class FakeRunner:
     """Stands in for runner.run_trial: records what it was asked to run."""
 
     def __init__(self) -> None:
+        """Starts with an empty list of recorded trial calls."""
         self.calls: list[tuple[str, str, str, str, str]] = []
 
     def __call__(
@@ -36,6 +37,7 @@ class FakeRunner:
         out: Path,
         **kw: Any,
     ) -> dict[str, Any]:
+        """Records one trial request, appends a row to the output file and reports it completed."""
         self.calls.append((fx.version, spec.label, spec.arm, spec.agent, spec.model))
         with out.open("a") as fh:
             fh.write(json.dumps({"label": spec.label, "arm": spec.arm}) + "\n")
@@ -43,12 +45,14 @@ class FakeRunner:
 
 
 def mk(name: str, ids: tuple[str, ...] = IDS) -> runner.Fixture:
+    """Builds a fixture with an empty manifest, a nonexistent path and the given issue ids."""
     manifest = {"tree_hash": "", "fixture_base_commit": ""}
     return runner.Fixture(name, Path("/nonexistent"), manifest, issue_ids=ids)
 
 
 @pytest.fixture
 def fake(monkeypatch: pytest.MonkeyPatch) -> FakeRunner:
+    """Swaps in a recording fake for the trial runner and a host-clear wait with no problems."""
     fr = FakeRunner()
     monkeypatch.setattr(runner, "run_trial", fr)
     monkeypatch.setattr(preflight, "wait_clear", lambda *_a, **_k: [])
@@ -59,6 +63,7 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> FakeRunner:
 def test_run_arms_interleaves_arms_flips_order_each_repeat_and_names_the_role_model(
     fake: FakeRunner, tmp_path: Path
 ) -> None:
+    """Arms alternate per issue, order flips on the next repeat, and trials use the coder model."""
     arms = {"baseline": mk("b"), "candidate": mk("c")}
     trials.run_arms(arms, 2, tmp_path / "o.jsonl")
     order = [(c[1], c[2]) for c in fake.calls]
@@ -73,6 +78,7 @@ def test_run_arms_interleaves_arms_flips_order_each_repeat_and_names_the_role_mo
 def test_a_single_arm_run_records_no_arm_and_only_filters_issues(
     fake: FakeRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """A one-profile run records an empty arm and runs only the issues named in the filter."""
     monkeypatch.setattr(runner, "load_profile", lambda _v, p: mk(p))
     trials.run("full", 1, tmp_path / "o.jsonl", only=["mut-helpers-60"])
     assert fake.calls == [("full", "mut-helpers-60", "", "coder", "devstral-small-2:24b")]
@@ -82,6 +88,7 @@ def test_a_single_arm_run_records_no_arm_and_only_filters_issues(
 def test_a_blocked_host_stops_the_run_unless_forced(
     fake: FakeRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """A busy host raises a RuntimeError naming the problem; force=True runs the trial anyway."""
     busy = preflight.Problem("gpu_busy", "busy")
     monkeypatch.setattr(preflight, "wait_clear", lambda *_a, **_k: [busy])
     with pytest.raises(RuntimeError, match="gpu_busy"):
@@ -93,6 +100,7 @@ def test_a_blocked_host_stops_the_run_unless_forced(
 def test_run_gate_passes_both_arms_and_the_output_to_the_runner(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """The gate hands both arms and the repeat count to run_arms and returns the output path."""
     seen: dict[str, Any] = {}
     monkeypatch.setattr(runner, "load_profile", lambda _v, p: mk(p))
     monkeypatch.setattr(
@@ -103,12 +111,14 @@ def test_run_gate_passes_both_arms_and_the_output_to_the_runner(
 
 
 def _current_hash() -> str:
+    """Returns the current definition hash of the first catalogue issue these tests use."""
     from bench.issues import schema
 
     return schema.definition_hash(schema.load_all(trials.ROOT / "issues")[IDS[0]])
 
 
 def _scored(record: dict[str, Any]) -> score.IssueScore:
+    """Builds a fixed, successful issue score for a record, with one collateral file."""
     return score.IssueScore(record["label"], "fix", "fixed", True, collateral=["x.py"])
 
 
@@ -117,11 +127,13 @@ def _scored(record: dict[str, Any]) -> score.IssueScore:
 def test_score_records_builds_one_row_per_scorable_trial_and_reports_unscorable_diffs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """One row per trial; failed read-backs, bad diffs and unknown issues come out unscorable."""
     monkeypatch.setattr(runner, "load_profile", lambda _v, p: mk(p))
     monkeypatch.setattr(check, "Env", lambda *a, **k: object())
     calls = {"n": 0}
 
     def fake_score(rec: dict[str, Any], _issues: Any, _env: Any) -> score.IssueScore:
+        """Counts its calls, raises a score error for the trial named bad and scores the rest."""
         calls["n"] += 1
         if rec["trial_id"] == "bad":
             raise score.ScoreError("diff does not apply")
@@ -165,6 +177,7 @@ def test_score_records_builds_one_row_per_scorable_trial_and_reports_unscorable_
 def test_score_file_and_the_report_command_round_trip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Scoring a results file writes rows that the report command reads back; run exits zero."""
     monkeypatch.setattr(
         trials,
         "score_records",
@@ -183,6 +196,7 @@ def test_score_file_and_the_report_command_round_trip(
 def test_gate_main_judges_and_exits_nonzero_unless_cleared(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Judging thin data prints INCONCLUSIVE and exits 1, while the run command exits 0."""
     rows = [
         {"arm": a, "issue": f"i{k}", "success": True, "outcome": "fixed"}
         for a in ("baseline", "candidate")
@@ -200,9 +214,11 @@ def test_gate_main_judges_and_exits_nonzero_unless_cleared(
 def test_score_arms_scores_each_arm_against_its_own_profile(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Each arm's records are scored with that arm's own profile, and every row is returned."""
     profiles: list[tuple[str, int]] = []
 
     def fake(records: list[dict[str, Any]], profile: str) -> list[dict[str, Any]]:
+        """Records a scoring call's profile and record count and returns a bare row per record."""
         profiles.append((profile, len(records)))
         return [{"arm": r["arm"], "issue": r["label"]} for r in records]
 
@@ -222,6 +238,7 @@ def test_score_arms_scores_each_arm_against_its_own_profile(
 def test_run_study_alternates_sides_and_always_discards_the_real_code_copy(
     fake: FakeRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Every task runs on each side, and the real-code copy is discarded even when a trial fails."""
     events: list[str] = []
     monkeypatch.setattr(runner, "load_profile", lambda _v, _p: mk("fixture"))
     monkeypatch.setattr(layout, "ARTIFACTS", tmp_path / "artifacts")
@@ -231,6 +248,7 @@ def test_run_study_alternates_sides_and_always_discards_the_real_code_copy(
     monkeypatch.setattr(reference, "prepare", lambda *_a: tmp_path / "tree")
 
     def fake_reference(spec: runner.TrialSpec, *_a: Any, **_k: Any) -> dict[str, Any]:
+        """Logs the reference trial label in the event list and reports a completed outcome."""
         events.append(f"ref:{spec.label}")
         return {"outcome": "completed"}
 
@@ -244,6 +262,7 @@ def test_run_study_alternates_sides_and_always_discards_the_real_code_copy(
     assert events[0] == "sweep" and events[-1] == "discard"
 
     def boom(*_a: Any, **_k: Any) -> dict[str, Any]:
+        """Raises a RuntimeError to simulate a reference trial that fails."""
         raise RuntimeError("agent exploded")
 
     events.clear()
@@ -256,6 +275,7 @@ def test_run_study_alternates_sides_and_always_discards_the_real_code_copy(
 def test_realism_main_reports_each_pair_of_sides_that_has_data(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The realism report prints a comparison for each pair of the three sides that has data."""
     rows = [
         {
             "environment": side,
@@ -280,6 +300,7 @@ def test_realism_main_reports_each_pair_of_sides_that_has_data(
 def test_rag_experiment_runs_each_question_in_both_arms_and_flips_order(
     fake: FakeRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Each question runs in both arms, order flips on repeat two, with the research agent."""
     qs = [
         experiment.Question("q1", "What?", ("a",), ()),
         experiment.Question("q2", "Why?", ("b",), ()),
@@ -295,6 +316,7 @@ def test_rag_experiment_runs_each_question_in_both_arms_and_flips_order(
 def test_rag_experiment_main_analyses_a_results_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The analyse command on an empty results file reports it is not evaluable; run exits zero."""
     monkeypatch.setattr(runner, "load_profile", lambda _v, _p: mk("fx"))
     monkeypatch.setattr(experiment, "select_questions", lambda *_a: [])
     results = tmp_path / "r.jsonl"
@@ -323,6 +345,7 @@ def test_records_are_scored_on_the_build_they_ran_on_and_unknown_builds_are_not_
     seen: list[Path] = []
 
     def fake_env(tree: Path, *_a: Any, **_k: Any) -> Path:
+        """Records the tree path it is given and returns it as the scoring environment."""
         seen.append(tree)
         return tree
 
@@ -349,6 +372,7 @@ def test_records_are_scored_on_the_build_they_ran_on_and_unknown_builds_are_not_
 def test_run_gate_passes_an_issue_subset_through_to_the_runner(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """The gate forwards a list of issue ids as the only argument to run_arms."""
     seen: dict[str, Any] = {}
     monkeypatch.setattr(runner, "load_profile", lambda _v, p: mk(p))
     monkeypatch.setattr(
@@ -362,6 +386,7 @@ def test_run_gate_passes_an_issue_subset_through_to_the_runner(
 
 @needs_catalogue
 def test_a_record_is_scored_only_against_the_definition_it_ran() -> None:
+    """A record is stale only if the issue definition changed since its hash, not a rating stamp."""
     from bench.issues import schema
 
     issue = schema.load_all(trials.ROOT / "issues")[IDS[0]]
@@ -381,6 +406,7 @@ def test_a_record_is_scored_only_against_the_definition_it_ran() -> None:
 
 @needs_catalogue
 def test_a_record_without_a_hash_falls_back_on_the_proof_and_fails_closed() -> None:
+    """With no record hash the proof decides; a changed definition or a missing proof is stale."""
     from bench.issues import schema
 
     issue = schema.load_all(trials.ROOT / "issues")[IDS[0]]
@@ -397,6 +423,7 @@ def test_a_record_without_a_hash_falls_back_on_the_proof_and_fails_closed() -> N
 
 @needs_catalogue
 def test_an_unscorable_safety_trial_keeps_its_expected_action() -> None:
+    """An unscorable row keeps the issue's expected action and has the unscorable outcome."""
     from bench.issues import schema
 
     issue = schema.load_all(trials.ROOT / "issues")[IDS[0]]
@@ -405,6 +432,7 @@ def test_an_unscorable_safety_trial_keeps_its_expected_action() -> None:
 
 
 def test_study_side_order_is_random_but_reproducible_and_covers_every_side() -> None:
+    """Side order repeats for a seed, covers all sides, uses every permutation, differs by seed."""
     groups = [(rep, t.label) for rep in range(6) for t in realism.TASKS]
     orders = [tuple(realism.side_order(1, rep, label)) for rep, label in groups]
     assert all(sorted(o) == sorted(realism.SIDES) for o in orders)
@@ -418,6 +446,7 @@ def test_study_side_order_is_random_but_reproducible_and_covers_every_side() -> 
 
 
 def _proofed(tmp_path: Path, name: str, unfixable_ids: list[str]) -> runner.Fixture:
+    """Builds a fixture with a tree and a proof file that lists the given unfixable issue ids."""
     tree = tmp_path / name / "tree"
     tree.mkdir(parents=True)
     (tmp_path / name / "VERIFY.json").write_text(
@@ -445,6 +474,7 @@ def test_issues_the_profile_proof_says_cannot_be_won_are_neither_run_nor_scored(
 def test_a_variant_profile_inherits_the_proof_of_the_profile_it_was_built_from(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A variant profile reads its unfixable issues from the proof of the profile it came from."""
     base = tmp_path / "versions" / "v2" / "profiles" / "holdout"
     base.mkdir(parents=True)
     (base / "VERIFY.json").write_text(
@@ -472,6 +502,7 @@ def test_a_group_of_fewer_than_three_issues_prints_no_interval() -> None:
 def test_report_on_a_missing_or_malformed_file_exits_with_a_message(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """A missing or malformed results file makes report exit 2 with a cannot-read message."""
     bad = tmp_path / "bad.jsonl"
     bad.write_text("not json\n")
     for path in (tmp_path / "missing.jsonl", bad):

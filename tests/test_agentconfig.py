@@ -30,12 +30,14 @@ REAL = {
 
 
 def _write_real(tmp_path: Path) -> Path:
+    """Writes the sample real config as opencode.json under tmp_path and returns its path."""
     path = tmp_path / "opencode.json"
     path.write_text(json.dumps(REAL))
     return path
 
 
 def test_diff_pointers() -> None:
+    """Lists changed, added and removed JSON pointers between two config dicts, in order."""
     other = {"a": 1, "b": {"c": 2}, "d": 4}
     real = {"a": 1, "b": {"c": 3}, "e": 5}
     assert agentconfig.diff_pointers(real, other) == [
@@ -46,6 +48,7 @@ def test_diff_pointers() -> None:
 
 
 def test_assemble_removes_remote_parts_and_records_every_change(tmp_path: Path) -> None:
+    """Assembly drops the remote provider and MCP, retargets models and records every change."""
     asm = agentconfig.assemble("git", "gpt-oss:20b", _write_real(tmp_path))
     assert "openrouter" not in asm.config["provider"] and "mcp" not in asm.config
     assert asm.config["agent"]["plan"]["model"] == "ollama/gpt-oss:20b"
@@ -62,6 +65,7 @@ def test_assemble_removes_remote_parts_and_records_every_change(tmp_path: Path) 
 
 
 def test_assemble_lists_an_unlisted_model_and_leaves_a_listed_one(tmp_path: Path) -> None:
+    """An unlisted model is added to the Ollama list as a recorded change; a listed one is not."""
     real = {**REAL, "provider": {"ollama": {"models": {"a": {"name": "a"}}}}}
     path = tmp_path / "opencode.json"
     path.write_text(json.dumps(real))
@@ -73,6 +77,7 @@ def test_assemble_lists_an_unlisted_model_and_leaves_a_listed_one(tmp_path: Path
 
 
 def test_parity_fails_on_an_unexplained_difference(tmp_path: Path) -> None:
+    """Parity fails on a change no deviation explains, and when the deviation list is empty."""
     asm = agentconfig.assemble("git", "gpt-oss:20b", _write_real(tmp_path))
     tampered = json.loads(json.dumps(asm.config))
     tampered["agent"]["git"]["model"] = "ollama/other"
@@ -84,6 +89,7 @@ def test_parity_fails_on_an_unexplained_difference(tmp_path: Path) -> None:
 
 @needs_fixture_files
 def test_deviations_toml_matches_the_code(tmp_path: Path) -> None:
+    """Every deviation that assembly can record is described in the fixture's deviations.toml."""
     doc = tomllib.loads((FIXTURE / "deviations.toml").read_text())
     listed = " ".join(d["how"] for d in doc["deviation"])
     asm = agentconfig.assemble("git", "gpt-oss:20b", _write_real(tmp_path))
@@ -97,6 +103,7 @@ def test_deviations_toml_matches_the_code(tmp_path: Path) -> None:
 
 
 def test_write_puts_the_global_config_under_xdg(tmp_path: Path) -> None:
+    """Writing an assembled config puts its JSON at opencode/opencode.json under the config dir."""
     asm = agentconfig.assemble("git", "m", _write_real(tmp_path))
     target = agentconfig.write(asm, tmp_path / "config")
     assert target == tmp_path / "config/opencode/opencode.json"
@@ -104,6 +111,7 @@ def test_write_puts_the_global_config_under_xdg(tmp_path: Path) -> None:
 
 
 def _real_available() -> bool:
+    """True when the real global config, opencode binary, fixture venv and fixture tree exist."""
     return (
         agentconfig.REAL_GLOBAL.exists()
         and OPENCODE.exists()
@@ -116,6 +124,7 @@ def _real_available() -> bool:
     not _bwrap_works() or not _real_available(), reason="needs bwrap and the fixture"
 )
 def test_opencode_resolves_the_trial_config_as_designed(tmp_path: Path) -> None:
+    """In the sandbox, opencode resolves Ollama only, the chosen model, real prompt and no key."""
     base = ROOT / "fixtures/paramo/versions/v2/tree"
     dirs = {n: tmp_path / n for n in ("upper", "work")}
     for d in dirs.values():
@@ -152,6 +161,7 @@ def test_opencode_resolves_the_trial_config_as_designed(tmp_path: Path) -> None:
 def test_every_provider_but_ollama_is_removed_and_a_literal_credential_is_refused(
     tmp_path: Path,
 ) -> None:
+    """Other providers are removed and recorded; a literal API key is refused, an env ref passes."""
     real = {
         "provider": {
             "ollama": {"options": {"baseURL": "http://localhost:11434/v1"}, "models": {}},

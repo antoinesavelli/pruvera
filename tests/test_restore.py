@@ -12,24 +12,28 @@ ORIGINAL = 'def f(a):\n    """Doc."""\n    return a + 1\n'
 
 
 def _tree(tmp_path: Path, planted: str) -> Path:
+    """Writes the planted text to `pkg/m.py` under the temp path and returns that tree."""
     (tmp_path / "pkg").mkdir()
     (tmp_path / "pkg" / "m.py").write_text(planted)
     return tmp_path
 
 
 def _issue() -> Issue:
+    """Builds a review-only issue with one edit turning `return a + 1` into `return a - 1`."""
     return make_issue(
         detector="review_only", edits=(Edit("pkg/m.py", "return a + 1", "return a - 1"),)
     )
 
 
 def test_original_text_is_the_planted_file_with_every_edit_reversed(tmp_path: Path) -> None:
+    """The original is the planted file with every edit reversed, and None for an absent file."""
     tree = _tree(tmp_path, ORIGINAL.replace("a + 1", "a - 1"))
     assert restore._original(tree, _issue(), "pkg/m.py") == ORIGINAL
     assert restore._original(tree, _issue(), "pkg/absent.py") is None
 
 
 def test_ast_equality_ignores_comments_layout_and_docstrings_but_not_code() -> None:
+    """AST equality ignores docstrings, comments and layout, not code; a broken final is False."""
     assert restore.same_ast(ORIGINAL, ORIGINAL.replace("Doc.", "Other.")) is True
     assert restore.same_ast(ORIGINAL, ORIGINAL + "# note\n") is True
     assert restore.same_ast(ORIGINAL, ORIGINAL.replace("a + 1", "a  +  1")) is True
@@ -39,10 +43,12 @@ def test_ast_equality_ignores_comments_layout_and_docstrings_but_not_code() -> N
 
 
 def test_a_docstring_only_function_body_survives_stripping() -> None:
+    """A function whose body is only a docstring compares equal to one whose body is `pass`."""
     assert restore.same_ast('def f():\n    """Only."""\n', "def f():\n    pass\n") is True
 
 
 def test_the_fragment_fallback_is_used_for_non_python_files_and_missing_trees() -> None:
+    """Non-Python files are graded on text fragments: the old text must return, missing fails."""
     issue = make_issue(detector="review_only", edits=(Edit("README.md", "old text", "new text"),))
     assert restore.restored(issue, {"README.md": "old text here\n"})
     assert not restore.restored(issue, {"README.md": "new text here\n"})
@@ -51,6 +57,7 @@ def test_the_fragment_fallback_is_used_for_non_python_files_and_missing_trees() 
 
 
 def test_code_tokens_keep_strings_whole_and_drop_comments() -> None:
+    """Code tokens keep strings whole, drop comments; `_contains` finds a run, not an empty one."""
     tokens = restore._code_tokens('x = "a b"  # c\ny = 1\n')
     texts = [t[1] for t in tokens]
     assert any(t in ("a b", '"a b"') for t in texts) and not any("# c" in t for t in texts)
@@ -59,6 +66,7 @@ def test_code_tokens_keep_strings_whole_and_drop_comments() -> None:
 
 
 def test_a_fixed_file_with_a_syntax_error_appended_is_not_a_restoration(tmp_path: Path) -> None:
+    """A fixed file with a syntax error appended is not a restoration, while the clean fix is."""
     tree = tmp_path / "tree"
     tree.mkdir()
     (tree / "m.py").write_text("def f():\n    return 2\n")
@@ -72,6 +80,7 @@ def test_a_change_only_in_a_docstring_is_graded_on_its_text(tmp_path: Path) -> N
     # The AST comparison ignores docstrings, so a docstring-only issue looked fixed while still
     # planted (a doc-drift issue in a module docstring, 2026-10-09). Its text decides instead, and
     # the code must still match the original.
+    """A docstring-only change is graded on its text, and the code must still match the original."""
     original = '"""Mod.\n\nDepends on:\n- pkg.a: helpers.\n"""\n\n\ndef f(a):\n    return a + 1\n'
     old, new = "- pkg.a: helpers.\n", "- pkg.a, pkg.gone: helpers.\n"
     planted = original.replace(old, new)
@@ -86,6 +95,7 @@ def test_a_change_only_in_a_docstring_is_graded_on_its_text(tmp_path: Path) -> N
 
 
 def test_a_code_change_is_still_graded_on_its_ast(tmp_path: Path) -> None:
+    """A code change is graded on its AST, so fixed code placed in a docstring does not count."""
     tree = _tree(tmp_path, ORIGINAL.replace("a + 1", "a - 1"))
     fixed_in_docstring = ORIGINAL.replace("a + 1", "a - 1").replace("Doc.", "return a + 1")
     assert restore.restored(_issue(), {"pkg/m.py": ORIGINAL}, tree)

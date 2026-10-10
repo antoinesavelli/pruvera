@@ -33,6 +33,7 @@ def reply(idx: server.Index, message: dict[str, Any]) -> dict[str, Any]:
 
 @pytest.fixture
 def index_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Writes a small stub-embedded docs index (chunks and vectors) to a temp dir and returns it."""
     monkeypatch.setenv("RAG_EMBED", "stub")
     items = [{"file": f, "text": f"{f}\n{t}"} for f, t in DOCS.items()]
     vectors = np.array([server.stub_embed(i["text"]) for i in items])
@@ -44,6 +45,7 @@ def index_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_search_ranks_the_relevant_file_first_and_returns_distinct_files(index_dir: Path) -> None:
+    """Search ranks the relevant doc first, returns distinct files and caps top_k at corpus size."""
     idx = server.Index(index_dir)
     hits = idx.search("which strategy is the operative default", top_k=3)
     assert hits[0][1] == "docs/strategy.md" and len({h[1] for h in hits}) == len(hits)
@@ -52,6 +54,7 @@ def test_search_ranks_the_relevant_file_first_and_returns_distinct_files(index_d
 
 
 def test_protocol_initialize_list_call_and_errors(index_dir: Path) -> None:
+    """The handler answers initialize, list and call, skips notifications, errors on bad input."""
     idx = server.Index(index_dir)
     init = reply(
         idx,
@@ -94,6 +97,7 @@ def test_protocol_initialize_list_call_and_errors(index_dir: Path) -> None:
 
 
 def test_the_server_speaks_json_lines_over_stdio(index_dir: Path) -> None:
+    """The server answers JSON lines on stdio: one reply per request, none for a notification."""
     requests = [
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
@@ -116,6 +120,7 @@ def test_the_server_speaks_json_lines_over_stdio(index_dir: Path) -> None:
 def test_chunks_skip_golden_and_non_docs_and_prefix_each_chunk_with_its_path(
     tmp_path: Path,
 ) -> None:
+    """`chunks` splits a long doc into path-prefixed chunks and skips a non-doc and golden files."""
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "a.md").write_text("x" * 3200)
     (tmp_path / "docs" / "b.py").write_text("code")
@@ -159,6 +164,7 @@ def test_chunks_skip_golden_and_non_docs_and_prefix_each_chunk_with_its_path(
 def test_a_malformed_call_is_a_bad_call_reply_not_a_crash(
     index_dir: Path, message: dict[str, Any]
 ) -> None:
+    """A malformed tools/call (bad top_k, arguments, params or query type) gets error -32602."""
     idx = server.Index(index_dir)
     assert server.handle(idx, message)["error"]["code"] == -32602  # type: ignore[index]
 
@@ -166,6 +172,7 @@ def test_a_malformed_call_is_a_bad_call_reply_not_a_crash(
 def test_odd_but_harmless_requests_get_replies_and_a_bad_line_does_not_end_the_server(
     index_dir: Path,
 ) -> None:
+    """Odd requests get replies and a bad line gets an error code while later ones still work."""
     idx = server.Index(index_dir)
     assert server.handle(idx, {"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": None})[
         "result"

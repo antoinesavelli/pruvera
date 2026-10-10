@@ -41,6 +41,7 @@ def complexity(func: ast.AST) -> int:
 
 
 def _functions(path: Path) -> list[tuple[str, int]]:
+    """Lists each function in a file as a location label with its complexity count."""
     tree = ast.parse(path.read_text())
     return [
         (f"{path.relative_to(ROOT)}:{n.lineno} {n.name}", complexity(n))
@@ -50,6 +51,7 @@ def _functions(path: Path) -> list[tuple[str, int]]:
 
 
 def test_no_harness_function_reaches_the_complexity_ceiling() -> None:
+    """No function in the bench package reaches the complexity ceiling."""
     over = [
         f"{where} = {n}"
         for path in sorted((ROOT / "bench").rglob("*.py"))
@@ -60,5 +62,6 @@ def test_no_harness_function_reaches_the_complexity_ceiling() -> None:
 
 
 def test_the_counter_counts_boolean_operands_and_comprehension_filters() -> None:
+    """Complexity counts boolean operands and comprehension filters, scoring a sample function 6."""
     func = ast.parse("def f(a, b, c):\n    if a and b or c:\n        return [x for x in a if x]\n")
     assert complexity(func.body[0]) == 1 + 1 + 2 + 2

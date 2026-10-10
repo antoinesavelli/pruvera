@@ -112,6 +112,7 @@ def spec(
     commit: bool = True,
     extra: str = "",
 ) -> Path:
+    """Writes an experiment spec under root/experiments, commits it by default, returns its path."""
     path = root / "experiments" / f"{sid}.toml"
     path.parent.mkdir(exist_ok=True)
     path.write_text(

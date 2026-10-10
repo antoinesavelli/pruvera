@@ -23,17 +23,20 @@ SCOPE = {
 
 
 def _row(root: Path, event: str, **fields: object) -> None:
+    """Appends a registry row of the given event with the given fields."""
     registry.append(root, event, **fields)
 
 
 @pytest.fixture
 def served(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pins the served model digest, opencode version and fixture source commit to known values."""
     monkeypatch.setattr(modelinfo, "model_digest", lambda _m: "d1")
     monkeypatch.setattr(modelinfo, "opencode_version", lambda: "1.0")
     monkeypatch.setattr(policy.layout, "source_commit", lambda *_a: "abc")
 
 
 def test_a_change_is_classified_by_its_highest_file_not_by_its_message() -> None:
+    """A change is classed by its highest-tier file, and an empty file list is tier 0."""
     assert policy.classify(["README.md", "x.py"], TIERS) == 0
     assert policy.classify(["docs/agents/GIT.md", "x.py"], TIERS) == 1
     assert policy.classify(["AGENTS.md", "machines/workstation/model-routing.yaml"], TIERS) == 2
@@ -41,11 +44,13 @@ def test_a_change_is_classified_by_its_highest_file_not_by_its_message() -> None
 
 
 def test_the_shipped_table_puts_permissions_and_routing_in_tier_two() -> None:
+    """The shipped table puts opencode.json in tier 2, AGENTS.md in tier 1 and other code in 0."""
     assert policy.classify(["opencode.json"]) == 2 and policy.classify(["AGENTS.md"]) == 1
     assert policy.classify(["engine/strategy/risk_manager.py"]) == 0
 
 
 def test_trailers_are_read_from_a_commit_message() -> None:
+    """Trailers such as Evidence and Gate-Verdict are parsed from a commit message into a dict."""
     message = "feat: x\n\nbody\n\nEvidence: exp-1\nGate-Verdict: exp-2\n"
     assert policy.trailers(message) == {"Evidence": "exp-1", "Gate-Verdict": "exp-2"}
 
@@ -53,6 +58,7 @@ def test_trailers_are_read_from_a_commit_message() -> None:
 def test_tier_one_needs_a_registered_live_experiment(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A tier 1 change needs an Evidence trailer naming a registered, non-abandoned experiment."""
     monkeypatch.setattr(policy, "load_tiers", lambda *_a: TIERS)
     assert policy.check(["AGENTS.md"], "feat: x", root)[1] == [
         "tier 1 change: add an `Evidence: <experiment id>` trailer"
@@ -68,6 +74,7 @@ def test_tier_one_needs_a_registered_live_experiment(
 def test_tier_two_needs_a_confirmatory_clear_whose_scope_still_holds(
     root: Path, monkeypatch: pytest.MonkeyPatch, served: None
 ) -> None:
+    """A tier 2 change needs a Gate-Verdict that is a judged confirmatory CLEAR still in scope."""
     monkeypatch.setattr(policy, "load_tiers", lambda *_a: TIERS)
     assert "Gate-Verdict" in policy.check(["opencode.json"], "feat", root)[1][0]
     _row(root, "registered", id="e1", kind="confirmatory")
@@ -88,6 +95,7 @@ def test_tier_two_needs_a_confirmatory_clear_whose_scope_still_holds(
 def test_a_verdict_expires_when_a_model_opencode_or_the_fixture_changes(
     monkeypatch: pytest.MonkeyPatch, served: None
 ) -> None:
+    """Scope checks flag a changed or unreadable model digest, a new opencode or a new fixture."""
     assert policy.scope_problems(SCOPE) == []
     monkeypatch.setattr(modelinfo, "model_digest", lambda _m: "d2")
     assert "digest is d2" in policy.scope_problems(SCOPE)[0]
@@ -102,6 +110,7 @@ def test_a_verdict_expires_when_a_model_opencode_or_the_fixture_changes(
 def test_a_range_of_commits_is_checked_commit_by_commit(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A commit range is checked per commit, flagging only the tier 1 commit that lacks evidence."""
     monkeypatch.setattr(policy, "load_tiers", lambda *_a: TIERS)
     base = gitutil.text(root, "rev-parse", "HEAD")
     (root / "AGENTS.md").write_text("rule\n")
@@ -115,6 +124,7 @@ def test_a_range_of_commits_is_checked_commit_by_commit(
 
 
 def test_the_decision_row_is_text_for_the_owner_to_paste(root: Path) -> None:
+    """The decision row is a table line starting `| D-NNN |` with the verdict and report path."""
     _row(root, "registered", id="e1", kind="confirmatory")
     _row(
         root,
@@ -130,6 +140,7 @@ def test_the_decision_row_is_text_for_the_owner_to_paste(root: Path) -> None:
 
 
 def test_the_shipped_table_guards_the_paths_that_widen_what_a_model_may_do_unsupervised() -> None:
+    """Settings, hooks, agents, MCP and git hooks are tier 2; skills, commands, agent docs 1."""
     for path in (
         ".claude/settings.json", ".claude/settings.local.json", ".claude/hooks/guard.py",
         ".opencode/agent/coder.md", ".mcp.json", ".githooks/pre-push",
@@ -142,6 +153,7 @@ def test_the_shipped_table_guards_the_paths_that_widen_what_a_model_may_do_unsup
 def test_a_merge_commit_is_classified_by_what_it_brought_in(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A merge commit is classed by the commits it brought in, and a finding names the merge sha."""
     monkeypatch.setattr(policy, "load_tiers", lambda *_a: TIERS)
     gitutil.run(root, "checkout", "-q", "-b", "side")
     (root / "AGENTS.md").write_text("rule\n")

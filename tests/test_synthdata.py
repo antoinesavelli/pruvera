@@ -18,6 +18,7 @@ VENV_PYTHON = ROOT / "fixtures/paramo/venv/v2/bin/python"
 
 
 def _template() -> Any:
+    """Builds an empty DataFrame with the aggregate columns and dtypes the generator must match."""
     return pd.DataFrame(
         {
             "date": pd.Series([], dtype="datetime64[ns]"),
@@ -44,6 +45,7 @@ def _template() -> Any:
 
 
 def test_trading_days_skip_weekends_and_holidays_and_include_the_last_needed_day() -> None:
+    """Trading days exclude weekends and a market holiday and include the last needed day."""
     days = synthdata.trading_days("2024-02-15", "2024-03-06")
     assert pd.Timestamp("2024-02-19") not in days, "Presidents Day is a holiday"
     assert pd.Timestamp("2024-02-17") not in days, "a Saturday"
@@ -51,6 +53,7 @@ def test_trading_days_skip_weekends_and_holidays_and_include_the_last_needed_day
 
 
 def test_generated_rows_satisfy_every_invariant_and_match_the_template_dtypes() -> None:
+    """Generated rows pass check, match the template dtypes and cover every day and symbol."""
     template = _template()
     days = synthdata.trading_days("2022-12-01", "2023-02-28")
     df = synthdata.generate(days, synthdata.symbols(4), 7, template)
@@ -61,6 +64,7 @@ def test_generated_rows_satisfy_every_invariant_and_match_the_template_dtypes() 
 
 
 def test_same_seed_same_data_different_seed_different_data() -> None:
+    """The same seed reproduces identical data and a different seed gives different data."""
     days = synthdata.trading_days("2022-12-01", "2022-12-31")
     a = synthdata.generate(days, synthdata.symbols(2), 1, _template())
     b = synthdata.generate(days, synthdata.symbols(2), 1, _template())
@@ -69,6 +73,7 @@ def test_same_seed_same_data_different_seed_different_data() -> None:
 
 
 def test_check_catches_each_kind_of_bad_row() -> None:
+    """The check flags a too-low high, a real symbol, a collision, a bad marketcap, a duplicate."""
     days = synthdata.trading_days("2022-12-01", "2022-12-20")
     good = synthdata.generate(days, synthdata.symbols(2), 1, _template())
     assert synthdata.check(good, set(), set()) == []
@@ -87,6 +92,7 @@ def test_check_catches_each_kind_of_bad_row() -> None:
 
 
 def test_build_copies_the_base_untouched_and_adds_files_after_it(tmp_path: Path) -> None:
+    """Build keeps base files byte-identical, adds monthly files and a manifest, refuses a clash."""
     base = tmp_path / "v_base" / "root"
     real = base / synthdata.AGG_SUBDIR / "2022"
     real.mkdir(parents=True)
@@ -111,6 +117,7 @@ def test_build_copies_the_base_untouched_and_adds_files_after_it(tmp_path: Path)
 
 
 def _real_root(tmp_path: Path, symbol: str, month: str = "2022-11") -> Path:
+    """Builds a base root holding one month of rows for the given symbol and returns it."""
     base = tmp_path / "v_base" / "root"
     real = base / synthdata.AGG_SUBDIR / month[:4]
     real.mkdir(parents=True)
@@ -121,6 +128,7 @@ def _real_root(tmp_path: Path, symbol: str, month: str = "2022-11") -> Path:
 
 
 def test_check_names_the_remaining_broken_invariants() -> None:
+    """The check names a bad low, zero volume, inverted timestamps and a reserved symbol prefix."""
     days = synthdata.trading_days("2022-12-01", "2022-12-20")
     good = synthdata.generate(days, synthdata.symbols(2), 1, _template())
     bad = good.copy()
@@ -138,6 +146,7 @@ def test_check_names_the_remaining_broken_invariants() -> None:
 
 
 def test_a_failed_check_removes_the_half_built_root_and_a_clash_is_refused(tmp_path: Path) -> None:
+    """A collision leaves no output root, and a build that would overwrite a file is refused."""
     clash = synthdata.symbols(1)[0]
     base = _real_root(tmp_path, clash)
     out = tmp_path / "v_new" / "root"
@@ -152,6 +161,7 @@ def test_a_failed_check_removes_the_half_built_root_and_a_clash_is_refused(tmp_p
 def test_the_command_builds_a_root_and_prints_its_manifest(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The command entry point builds a root, returns 0 and prints a manifest with files_written."""
     base = _real_root(tmp_path, "CPIX")
     out = tmp_path / "v_new" / "root"
     assert synthdata.main(["--base", str(base), "--out", str(out), "--symbols", "1"]) == 0

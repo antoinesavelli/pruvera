@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load(name: str) -> ModuleType:
+    """Loads a spike script from the spikes directory as a module and returns it."""
     spec = importlib.util.spec_from_file_location(f"spike_{name}", ROOT / "spikes" / f"{name}.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -22,6 +23,7 @@ def _load(name: str) -> ModuleType:
 
 
 def test_latency_trace_prints_a_summary_per_side(capsys: pytest.CaptureFixture[str]) -> None:
+    """The latency trace prints a per-side summary with first-byte times and the later median."""
     spike = _load("latency_trace")
     calls = [
         {"first_byte_s": 3.2, "system": "a", "tools": "b", "body_len": 10},
@@ -35,6 +37,7 @@ def test_latency_trace_prints_a_summary_per_side(capsys: pytest.CaptureFixture[s
 
 
 def test_retrieval_spike_ranks_files_and_scores_recall_and_mrr() -> None:
+    """The retrieval spike ranks files by best chunk and scores recall, MRR, BM25 and z-scores."""
     np = pytest.importorskip("numpy")
     pytest.importorskip("yaml")
     spike = _load("retrieval_spike")
@@ -54,11 +57,13 @@ def test_retrieval_spike_ranks_files_and_scores_recall_and_mrr() -> None:
 
 
 def test_the_startup_spike_still_imports_and_names_its_prompt() -> None:
+    """The startup spike imports, its prompt names the status file, and `run_once` is callable."""
     spike = _load("latency_startup")
     assert "STATUS.md" in spike.PROMPT and callable(spike.run_once)
 
 
 def _bakeoff_row(issue: str, model: str, success: bool, **extra: object) -> dict[str, object]:
+    """Builds one scored bakeoff trial row for an issue and model, with optional overrides."""
     row: dict[str, object] = {"trial_id": f"{model}-{issue}-{extra.get('repeat', 1)}"}
     row |= {"issue": issue, "model": model, "success": success, "kind": "logic_bug_caught_by_test"}
     row |= {"expected": "fix", "outcome": "fixed" if success else "missed", "answer_kind": "text"}
@@ -66,6 +71,7 @@ def _bakeoff_row(issue: str, model: str, success: bool, **extra: object) -> dict
 
 
 def _write_study(directory: Path, name: str, rows: list[dict[str, object]]) -> None:
+    """Writes a study's raw and scored JSONL files into a directory from the given rows."""
     import json
 
     raw = [{"trial_id": r["trial_id"], "outcome": "completed", "steps": 4, "fixture_version": "v2"}
@@ -77,6 +83,7 @@ def _write_study(directory: Path, name: str, rows: list[dict[str, object]]) -> N
 def test_the_public_summary_drops_held_out_rows_and_prints_no_issue_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The public summary drops held-out issue rows from its counts and prints no issue id."""
     spike = _load("public_summary")
     monkeypatch.setattr(spike.registry, "holdout_issues", lambda root: {"1": frozenset({"h-999"})})
     monkeypatch.setattr(spike.registry, "read", lambda root: [])
@@ -107,6 +114,7 @@ def test_the_public_summary_drops_held_out_rows_and_prints_no_issue_id(
 def test_the_public_summary_refuses_without_a_holdout_profile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The public summary exits with a refusal when no holdout profile is registered."""
     spike = _load("public_summary")
     monkeypatch.setattr(spike.registry, "holdout_issues", lambda root: {})
     monkeypatch.setattr(sys, "argv", ["x", str(tmp_path), "--out", str(tmp_path / "S.md")])
@@ -115,6 +123,7 @@ def test_the_public_summary_refuses_without_a_holdout_profile(
 
 
 def test_every_interval_the_readme_quotes_is_in_the_public_summary() -> None:
+    """Every k/n interval the README quotes appears in the public summary text."""
     import re
 
     summary = ROOT / "results" / "public" / "SUMMARY.md"
@@ -126,6 +135,7 @@ def test_every_interval_the_readme_quotes_is_in_the_public_summary() -> None:
 
 
 def test_the_cost_report_passes_its_own_checks(capsys: pytest.CaptureFixture[str]) -> None:
+    """The cost report's self-test returns 0 and prints over ten lines, none starting with FAIL."""
     spike = _load("cost_report")
     assert spike.self_test() == 0
     lines = capsys.readouterr().out.splitlines()

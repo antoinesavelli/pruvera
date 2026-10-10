@@ -13,6 +13,7 @@ from bench.preflight import PreflightError
 
 
 def _proc(root: Path, pid: int, argv: list[str], ppid: int = 1) -> None:
+    """Adds a fake process directory with a cmdline and a stat line naming its parent pid."""
     d = root / str(pid)
     d.mkdir()
     (d / "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
@@ -21,6 +22,7 @@ def _proc(root: Path, pid: int, argv: list[str], ppid: int = 1) -> None:
 
 @pytest.fixture
 def proc(tmp_path: Path) -> Path:
+    """A fake /proc root holding one ordinary bash process."""
     root = tmp_path / "proc"
     root.mkdir()
     _proc(root, 10, ["/usr/bin/bash", "-c", "sleep 1"])
@@ -28,16 +30,19 @@ def proc(tmp_path: Path) -> Path:
 
 
 def test_quiet_host_has_no_problems(proc: Path) -> None:
+    """A host with only an ordinary process, a quiet GPU and Ollama up reports no problems."""
     assert preflight.problems(proc, gpu=lambda: 3, ollama=lambda: True, me=999) == []
 
 
 def test_running_opencode_is_a_problem(proc: Path) -> None:
+    """A running opencode process is reported as one agent_running problem naming its pid."""
     _proc(proc, 20, ["/home/u/.opencode/bin/opencode", "run", "--agent", "x"])
     found = preflight.running_agents(proc, me=999)
     assert [p.code for p in found] == ["agent_running"] and "pid 20" in found[0].message
 
 
 def test_bench_scripts_match_by_argv_not_substring(proc: Path) -> None:
+    """A bench script matches by argv; a shell that merely mentions its name is not reported."""
     _proc(proc, 21, ["python3", "bench/nav_bench.py", "run", "--n", "3"])
     _proc(proc, 22, ["/bin/bash", "-c", "echo opencode nav_bench.py bench.py"])
     found = preflight.running_agents(proc, me=999)
@@ -45,6 +50,7 @@ def test_bench_scripts_match_by_argv_not_substring(proc: Path) -> None:
 
 
 def test_own_process_and_parents_are_ignored(proc: Path) -> None:
+    """The caller's own process and its parents are ignored, but count for any other caller."""
     _proc(proc, 30, ["python3", "bench/bench.py", "run"], ppid=1)
     _proc(proc, 31, ["/x/opencode", "run"], ppid=30)
     assert preflight.running_agents(proc, me=31) == []
@@ -52,16 +58,19 @@ def test_own_process_and_parents_are_ignored(proc: Path) -> None:
 
 
 def test_busy_gpu_and_missing_ollama(proc: Path) -> None:
+    """A GPU at 85 percent and a missing Ollama are reported as gpu_busy and ollama_down."""
     found = preflight.problems(proc, gpu=lambda: 85, ollama=lambda: False, me=999)
     assert {p.code for p in found} == {"gpu_busy", "ollama_down"}
 
 
 def test_an_unreadable_gpu_blocks_because_contention_is_then_unknown(proc: Path) -> None:
+    """A GPU reading of None, with everything else fine, yields a single gpu_unreadable problem."""
     found = preflight.problems(proc, gpu=lambda: None, ollama=lambda: True, me=999)
     assert [p.code for p in found] == ["gpu_unreadable"]
 
 
 def test_a_python_dash_m_harness_entry_point_counts_as_a_running_bench(proc: Path) -> None:
+    """A python -m bench.realism process counts as a running bench; python -m pytest does not."""
     _proc(proc, 20, ["python3", "-m", "bench.realism", "--n", "3"])
     _proc(proc, 21, ["python3", "-m", "pytest", "tests"])
     found = preflight.running_agents(proc, me=999)
@@ -69,6 +78,7 @@ def test_a_python_dash_m_harness_entry_point_counts_as_a_running_bench(proc: Pat
 
 
 def test_check_raises_unless_forced(proc: Path) -> None:
+    """Check raises on a running agent unless forced, when it returns the problems instead."""
     _proc(proc, 40, ["/x/opencode", "run"])
     with pytest.raises(PreflightError, match="agent_running"):
         preflight.check(proc_root=proc, gpu=lambda: 1, ollama=lambda: True, me=999)
@@ -79,7 +89,10 @@ def test_check_raises_unless_forced(proc: Path) -> None:
 def test_gpu_utilization_reads_nvidia_smi_output_or_gives_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """GPU use is parsed from nvidia-smi output and is None when the output is not a number."""
+
     def fake(out: str) -> Any:
+        """Returns a fake `subprocess.run` that yields the given text as stdout with exit code 0."""
         return lambda *a, **k: subprocess.CompletedProcess(a, 0, out, "")
 
     monkeypatch.setattr(subprocess, "run", fake("37\n"))
@@ -89,13 +102,16 @@ def test_gpu_utilization_reads_nvidia_smi_output_or_gives_none(
 
 
 def test_wait_clear_polls_until_clear_or_timeout(proc: Path) -> None:
+    """Waiting polls until the GPU is clear, or returns gpu_busy once the timeout passes."""
     readings = iter([90, 60, 5])
     now = [0.0]
 
     def clock() -> float:
+        """Returns the fake time kept in `now`."""
         return now[0]
 
     def sleep(seconds: float) -> None:
+        """Advances the fake time in `now` by the requested seconds instead of sleeping."""
         now[0] += seconds
 
     found = preflight.wait_clear(
@@ -116,6 +132,7 @@ def test_wait_clear_polls_until_clear_or_timeout(proc: Path) -> None:
 
 
 def test_a_second_run_of_trials_cannot_take_the_session_lock(tmp_path: Path) -> None:
+    """A second holder of the session lock is refused as another run, and the lock frees on exit."""
     lock = tmp_path / "o" / ".session.lock"
     with preflight.session_lock(lock):
         with pytest.raises(PreflightError, match="another run"):
@@ -126,6 +143,7 @@ def test_a_second_run_of_trials_cannot_take_the_session_lock(tmp_path: Path) -> 
 
 
 def test_every_harness_entry_point_that_starts_trials_is_recognised(proc: Path) -> None:
+    """The gate, issue trials and cli modules run with python -m are all counted as running."""
     for i, module in enumerate(("bench.gate", "bench.issues.trials", "bench.cli")):
         _proc(proc, 30 + i, ["python3", "-m", module, "run"])
     codes = [p.message for p in preflight.running_agents(proc, me=999)]
@@ -150,11 +168,13 @@ def test_every_harness_entry_point_that_starts_trials_is_recognised(proc: Path) 
     ],
 )
 def test_interpreter_command_line_variants_are_recognised(proc: Path, argv: list[str]) -> None:
+    """Interpreter flags and env, timeout or nice wrappers still count as a running bench."""
     _proc(proc, 40, argv)
     assert [p.code for p in preflight.running_agents(proc, me=999)] == ["bench_running"]
 
 
 def test_a_pure_simulation_does_not_block_trials(proc: Path) -> None:
+    """A gate calibrate run is a pure simulation and is not counted as a running bench."""
     _proc(proc, 41, ["python3", "-m", "bench.gate", "calibrate", "--true-diff", "0"])
     assert preflight.running_agents(proc, me=999) == []
 

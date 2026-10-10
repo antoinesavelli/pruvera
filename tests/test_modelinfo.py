@@ -13,6 +13,7 @@ from bench import modelinfo
 
 
 def _serve(monkeypatch: pytest.MonkeyPatch, payload: object) -> None:
+    """Patches modelinfo._open to return the given payload as a JSON response body."""
     body = json.dumps(payload).encode()
     monkeypatch.setattr(modelinfo, "_open", lambda *_a, **_k: io.BytesIO(body))
 
@@ -20,6 +21,7 @@ def _serve(monkeypatch: pytest.MonkeyPatch, payload: object) -> None:
 def test_a_models_digest_is_read_from_the_tags_listing_by_name_or_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A digest is found by name or model key in the tags list; an unlisted model gives empty."""
     _serve(
         monkeypatch, {"models": [{"name": "a:1", "digest": "d1"}, {"model": "b:2", "digest": "d2"}]}
     )
@@ -28,7 +30,10 @@ def test_a_models_digest_is_read_from_the_tags_listing_by_name_or_model(
 
 
 def test_everything_fails_soft_to_an_empty_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Digest and parameter lookups return an empty string when Ollama is down or replies oddly."""
+
     def down(*_a: object, **_k: object) -> None:
+        """Stands in for the Ollama request and raises OSError."""
         raise OSError("no ollama")
 
     monkeypatch.setattr(modelinfo, "_open", down)
@@ -38,6 +43,7 @@ def test_everything_fails_soft_to_an_empty_string(monkeypatch: pytest.MonkeyPatc
 
 
 def _ollama_ps(monkeypatch: pytest.MonkeyPatch, out: str) -> None:
+    """Patches subprocess.run to return the given text as the output of ollama ps."""
     monkeypatch.setattr(
         subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, out, "")
     )
@@ -47,6 +53,7 @@ def test_gpu_residency_is_the_processor_column_of_the_models_own_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Aligned like real `ollama ps`: a CONTEXT column, and a second model loaded first.
+    """Residency is the PROCESSOR cell of the exact model's row, empty for other or prefix names."""
     out = (
         "NAME           ID            SIZE     PROCESSOR          CONTEXT    UNTIL\n"
         "gpt-oss:20b    17052f91a42e  12 GB    100% GPU           32768      4 minutes from now\n"
@@ -62,17 +69,20 @@ def test_gpu_residency_is_the_processor_column_of_the_models_own_row(
 def test_gpu_residency_without_a_context_column_ends_at_until(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Without a CONTEXT column the processor value still ends before the UNTIL column."""
     _ollama_ps(monkeypatch, "NAME ID SIZE PROCESSOR UNTIL\nm:1 abc 5 GB 100% GPU 4 minutes\n")
     assert modelinfo.gpu_residency("m:1").startswith("100% GPU")
 
 
 def test_gpu_residency_fails_soft(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Residency is empty for a header-only or empty listing and for a missing ollama binary."""
     _ollama_ps(monkeypatch, "NAME\n")
     assert modelinfo.gpu_residency("m:1") == ""
     _ollama_ps(monkeypatch, "")
     assert modelinfo.gpu_residency("m:1") == ""
 
     def missing(*_a: object, **_k: object) -> None:
+        """Stands in for subprocess.run and raises OSError for a missing binary."""
         raise OSError("no ollama binary")
 
     monkeypatch.setattr(subprocess, "run", missing)
@@ -82,6 +92,7 @@ def test_gpu_residency_fails_soft(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_the_opencode_version_is_empty_without_a_binary(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """The opencode version is empty when the binary path does not exist."""
     modelinfo.opencode_version.cache_clear()
     monkeypatch.setattr(modelinfo, "OPENCODE", tmp_path / "absent")
     assert modelinfo.opencode_version() == ""
@@ -91,6 +102,7 @@ def test_the_opencode_version_is_empty_without_a_binary(
 def test_a_bare_model_name_finds_the_digest_of_its_latest_tag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A bare model name resolves to the digest of its latest tag, an explicit tag to its own."""
     _serve(
         monkeypatch,
         {"models": [{"name": "m:latest", "digest": "dl"}, {"name": "m:7b", "digest": "d7"}]},

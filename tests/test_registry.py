@@ -16,6 +16,7 @@ from tests.helpers import spec as _spec
 
 
 def test_an_exploratory_dev_study_registers_and_records_its_preregistration(root: Path) -> None:
+    """An exploratory dev study registers with no holdout generations and a verifiable chain."""
     row = registry.register(_spec(root, "dev-1", "exploratory", "dev", "dev+rule"), root)
     assert row["holdout_gens"] == [] and row["variants"].keys() == {"rule"}
     assert row["spec_commit"] == gitutil.text(root, "rev-parse", "HEAD")
@@ -23,12 +24,14 @@ def test_an_exploratory_dev_study_registers_and_records_its_preregistration(root
 
 
 def test_a_spec_that_is_not_committed_is_refused(root: Path) -> None:
+    """A spec file that is not committed and unmodified is refused at registration."""
     path = _spec(root, "dev-2", "exploratory", "dev", "", commit=False)
     with pytest.raises(registry.RegistryError, match="committed and unmodified"):
         registry.register(path, root)
 
 
 def test_an_exploratory_study_may_not_plant_holdout_issues(root: Path) -> None:
+    """An exploratory study whose profile plants holdout issues is refused."""
     with pytest.raises(registry.RegistryError, match="plants holdout issues"):
         registry.register(_spec(root, "tune-1", "exploratory", "tune", "tune+rule"), root)
 
@@ -36,6 +39,7 @@ def test_an_exploratory_study_may_not_plant_holdout_issues(root: Path) -> None:
 def test_registering_a_confirmatory_study_spends_the_look_even_if_it_is_abandoned(
     root: Path,
 ) -> None:
+    """A confirmatory registration spends the holdout look even if the study is then abandoned."""
     first = registry.register(
         _spec(root, "hold-1", "confirmatory", "holdout", "holdout+rule"), root
     )
@@ -48,6 +52,7 @@ def test_registering_a_confirmatory_study_spends_the_look_even_if_it_is_abandone
 def test_a_look_spent_by_a_different_name_but_the_same_variant_text_is_still_spent(
     root: Path,
 ) -> None:
+    """A renamed variant copy with identical files shares the spent look and is refused."""
     registry.register(_spec(root, "hold-1", "confirmatory", "holdout", "holdout+rule"), root)
     copy = root / "variants" / "rule-copy" / "files"
     copy.mkdir(parents=True)
@@ -60,6 +65,7 @@ def test_a_look_spent_by_a_different_name_but_the_same_variant_text_is_still_spe
 
 
 def test_a_confirmatory_study_needs_a_holdout_and_a_clean_bench(root: Path) -> None:
+    """A confirmatory study needs a holdout profile and a clean bench, else it is refused."""
     with pytest.raises(registry.RegistryError, match="on a holdout generation"):
         registry.register(_spec(root, "c-1", "confirmatory", "dev", "dev+rule"), root)
     (root / "bench" / "x.py").write_text("x = 2\n")
@@ -68,6 +74,7 @@ def test_a_confirmatory_study_needs_a_holdout_and_a_clean_bench(root: Path) -> N
 
 
 def test_a_spent_look_in_the_legacy_ledger_blocks_a_new_registration(root: Path) -> None:
+    """A holdout look already spent in the legacy ledger blocks registering that candidate."""
     ledger = root / "results" / "gate" / "ledger.jsonl"
     ledger.parent.mkdir(parents=True)
     ledger.write_text(
@@ -78,6 +85,7 @@ def test_a_spent_look_in_the_legacy_ledger_blocks_a_new_registration(root: Path)
 
 
 def test_the_chain_notices_an_edited_or_removed_row(root: Path) -> None:
+    """Verification flags an edited or removed row, and appending to a broken chain is refused."""
     for i in range(3):
         registry.append(root, "retro", n=i)
     path = registry.registry_path(root)
@@ -94,6 +102,7 @@ def test_the_chain_notices_an_edited_or_removed_row(root: Path) -> None:
 def test_a_candidate_run_without_a_registration_is_refused_and_a_baseline_run_is_not(
     root: Path,
 ) -> None:
+    """Candidate and model-override runs need a registered experiment; baseline runs do not."""
     out = root / "o.jsonl"
     with pytest.raises(registry.RegistryError, match="needs a registered experiment"):
         registry.authorize("", {"candidate": "dev+rule"}, None, out, root)
@@ -103,6 +112,7 @@ def test_a_candidate_run_without_a_registration_is_refused_and_a_baseline_run_is
 
 
 def test_a_run_must_match_what_was_registered(root: Path) -> None:
+    """A run is recorded as started once; changed arms, models or variant files are refused."""
     registry.register(_spec(root, "dev-1", "exploratory", "dev", "dev+rule"), root)
     out, arms = root / "results" / "experiments" / "dev-1.jsonl", {"b": "dev", "c": "dev+rule"}
     assert registry.authorize("dev-1", arms, None, out, root) == "dev-1"
@@ -120,6 +130,7 @@ def test_a_run_must_match_what_was_registered(root: Path) -> None:
 
 
 def test_an_edited_spec_or_an_abandoned_experiment_cannot_run(root: Path) -> None:
+    """An edited spec, an abandoned experiment or an unknown id each stops the run."""
     path = _spec(root, "dev-1", "exploratory", "dev", "")
     registry.register(path, root)
     path.write_text(path.read_text().replace("repeats = 4", "repeats = 40"))
@@ -133,6 +144,7 @@ def test_an_edited_spec_or_an_abandoned_experiment_cannot_run(root: Path) -> Non
 
 
 def test_a_confirmatory_run_refuses_a_bench_that_became_dirty(root: Path) -> None:
+    """A confirmatory run is refused when the bench became dirty after registration."""
     registry.register(_spec(root, "hold-1", "confirmatory", "holdout", "holdout+rule"), root)
     (root / "bench" / "new.py").write_text("y = 1\n")
     with pytest.raises(registry.RegistryError, match="clean bench"):
@@ -140,6 +152,7 @@ def test_a_confirmatory_run_refuses_a_bench_that_became_dirty(root: Path) -> Non
 
 
 def _study(root: Path, name: str, profile: str, label: str) -> str:
+    """Writes a one-trial results file under results/gate and returns its relative path."""
     path = root / "results" / "gate" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -150,6 +163,7 @@ def _study(root: Path, name: str, profile: str, label: str) -> str:
 
 
 def test_retro_covers_every_unrecorded_study_once_and_flags_it(root: Path) -> None:
+    """Retro adds one flagged row per unrecorded study and spends its look; a rerun adds none."""
     rel = _study(root, "old.jsonl", "tune+rule", "h1")
     (root / "results" / "gate" / "old.scored.jsonl").write_text('{"issue": "h1"}\n')
     assert [p for p in registry.audit(root) if "no registry row" in p] == [
@@ -164,6 +178,7 @@ def test_retro_covers_every_unrecorded_study_once_and_flags_it(root: Path) -> No
 
 
 def test_the_front_door_writes_a_template_and_reports_status(root: Path) -> None:
+    """A new spec gets a landed-harms template and a duplicate is refused; status shows states."""
     path = experiment.new("fresh-1", root)
     assert path.exists() and 'id = "fresh-1"' in path.read_text()
     # Owner decision R1: a new spec counts only harms that landed unless it says otherwise.
@@ -180,6 +195,7 @@ def test_the_front_door_writes_a_template_and_reports_status(root: Path) -> None
 
 
 def test_a_malformed_spec_is_refused(root: Path) -> None:
+    """A spec with a bad id, missing fields, an unknown kind or a zero repeat count is refused."""
     bad = root / "experiments" / "Bad_Id.toml"
     bad.parent.mkdir()
     bad.write_text('id = "Bad_Id"\n')
