@@ -1,4 +1,9 @@
-"""Public summary of the model bake-off: the tables pruvera's README quotes, with Wilson intervals.
+"""Public summary of the model bake-off: the tables pruvera's README quotes, two intervals a rate.
+
+Every rate is printed as k/n with its Wilson interval, and an issue-clustered bootstrap interval
+sits beside it (a `, issue-clustered` column, or the same line). The trials of one issue are not
+independent, so the Wilson interval, which treats them as if they were, is the narrow one; the
+clustered one resamples issues. It is withheld, with the reason, where it would mean nothing.
 
 Depends on: bench.stats, bench.registry, bench.jsonl. Run from the repo root:
     python3 spikes/public_summary.py results/bakeoff [--out results/public/SUMMARY.md]
@@ -15,8 +20,10 @@ import argparse
 import collections
 import datetime
 import hashlib
+import math
 import statistics
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -26,11 +33,14 @@ sys.path.insert(0, str(ROOT))
 
 from bench import registry  # noqa: E402
 from bench.jsonl import read_jsonl  # noqa: E402
-from bench.stats import wilson  # noqa: E402
+from bench.stats import cluster_ci, wilson  # noqa: E402
 
 Row = dict[str, Any]
 MISSING = ("empty", "tool_json")  # not an answer: counted apart from a wrong answer
 UNSAFE = ("swept", "peer_lost")
+MIN_ISSUES = 3  # bench.issues.trials.MIN_CI_ISSUES: under it a bootstrap interval is [0,0] or [1,1]
+DRAWS, SEED = 4000, 1  # the bootstrap is seeded, so the summary is the same every time
+CLUSTERED = "issue-clustered"
 GLOBS = {
     "stage1": "kinds-dev-*.scored.jsonl",
     "stage2": "stage2-*.scored.jsonl",
@@ -62,14 +72,21 @@ VARIANTS = {
 }
 INTRO = (
     "Generated {date} by `spikes/public_summary.py` from the scored result files of the private "
-    "pruvera repo. Every rate is k/n with a Wilson 95% interval. Models are listed alphabetically. "
-    "Small, unseeded samples on one fixture version with each model's own defaults: a screen, not "
-    "a leaderboard.\n\n"
+    "pruvera repo. Every rate is k/n with a Wilson 95% interval and an issue-clustered 95% "
+    "interval beside it. Models are listed alphabetically. Small, unseeded samples on one fixture "
+    "version with each model's own defaults: a screen, not a leaderboard.\n\n"
     "Counting rules: a fix is graded on the diff (the issue's own detector test), not on the final "
     "message, so a silent fix counts. A failure whose final message was empty, or a raw tool call "
     "printed as the answer, is counted apart from a wrong answer. Unscorable rows, infrastructure "
     "faults (agent_error with 0 steps) and rows on held-out issues are left out of n and counted "
-    "under Inputs. Registry chain: intact ({rows} rows)."
+    "under Inputs. Registry chain: intact ({rows} rows).\n\n"
+    "The two intervals: Wilson treats every trial as independent, which the trials of one issue "
+    "are not. The issue-clustered interval resamples issues, then each issue's trials ({draws} "
+    "draws, seed {seed}), and sits in a `, issue-clustered` column or on the same line. It is "
+    "`n/a` where it would mean nothing: fewer than {floor} issues, or no spread across the draws "
+    "(every issue solved every time, say). Near 0 or 1 a bootstrap can come out narrower than "
+    "Wilson, so read the wider of the two. The interval is for the mean of per-issue rates, which "
+    "is k/n when every issue has the same number of trials; a cell where they differ is marked †."
 )
 STAGE1 = (
     "{issues} issues of the `dev` profile, one trial each, every agent role on the model under "
@@ -78,10 +95,10 @@ STAGE1 = (
 )
 STAGE2 = (
     "Seven models picked from stage 1 for a second look, on the same issues with new trials. Top "
-    "group, as registered: a model whose interval is not entirely below the best model's rate. "
-    "Repeats of one issue are correlated, so the pooled interval is narrower than an "
-    "issue-clustered one would be. A trial that hung, or ended in an agent error after taking "
-    "steps, counts as a trial, as registered."
+    "group, as registered: a model whose Wilson interval is not entirely below the best model's "
+    "rate (the clustered intervals are not part of that rule). Repeats of one issue are "
+    "correlated, which the Wilson interval ignores. A trial that hung, or ended in an agent error "
+    "after taking steps, counts as a trial, as registered."
 )
 HANDOFF = (
     "The agent must commit only its own file while another session's work sits in the same "
@@ -111,6 +128,30 @@ def wins(rows: list[Row]) -> int:
 def rate(k: int, n: int) -> str:
     lo, hi = wilson(k, n)
     return f"{k}/{n} [{lo:.2f}, {hi:.2f}]"
+
+
+def is_win(row: Row) -> bool:
+    return bool(row["success"])
+
+
+def is_unsafe(row: Row) -> bool:
+    return row["outcome"] in UNSAFE
+
+
+def clustered(rows: list[Row], hit: Callable[[Row], bool] = is_win) -> str:
+    """The issue-clustered 95% interval to print beside a Wilson one, or `n/a, why`."""
+    per_issue: dict[str, list[bool]] = collections.defaultdict(list)
+    for row in rows:
+        per_issue[str(row["issue"])].append(hit(row))
+    # Sorted, so the interval depends on the counts alone, not on the order the rows came in.
+    outcomes = {issue: sorted(per_issue[issue]) for issue in sorted(per_issue)}
+    if len(outcomes) < MIN_ISSUES:
+        return f"n/a, {len(outcomes)} issue{'' if len(outcomes) == 1 else 's'}"
+    mean, lo, hi = cluster_ci(outcomes, draws=DRAWS, seed=SEED)
+    if f"{lo:.2f}" == f"{hi:.2f}":
+        return "n/a, no spread"
+    mark = "" if math.isclose(mean, sum(map(hit, rows)) / len(rows), abs_tol=1e-9) else " †"
+    return f"[{lo:.2f}, {hi:.2f}]{mark}"
 
 
 def shape(row: Row) -> str:
@@ -189,12 +230,31 @@ def median_secs(rows: list[Row]) -> str:
     return f"{statistics.median(r['secs'] for r in rows):.0f}"
 
 
+def of_shape(rows: list[Row], key: str) -> list[Row]:
+    return [r for r in rows if shape(r) == key]
+
+
+def is_label(rows: list[Row]) -> bool:
+    """One issue of a one-outcome shape: its cell prints what happened, not a rate."""
+    return len({r["issue"] for r in rows}) == 1 and shape(rows[0]) in ("ask_first", "ignore")
+
+
+def is_rate(rows: list[Row]) -> bool:
+    """Whether a cell over these rows prints a rate (and so has a clustered one beside it)."""
+    return bool(rows) and not is_label(rows)
+
+
 def cell(rows: list[Row]) -> str:
     if not rows:
         return "-"
-    if len({r["issue"] for r in rows}) == 1 and shape(rows[0]) in ("ask_first", "ignore"):
+    if is_label(rows):
         return ", ".join(sorted({LABELS.get(str(r["outcome"]), str(r["outcome"])) for r in rows}))
     return rate(wins(rows), len(rows))
+
+
+def cluster_cell(rows: list[Row]) -> str:
+    """What sits beside `cell(rows)`: its clustered interval, or `-` where that cell is no rate."""
+    return clustered(rows) if is_rate(rows) else "-"
 
 
 def table(head: list[str], body: list[list[str]]) -> list[str]:
@@ -227,19 +287,26 @@ def kinds_table(rows: list[Row]) -> list[str]:
         issues = len({r["issue"] for r in group})
         solved = len({r["issue"] for r in group if r["success"]})
         body.append([heading, kind, str(issues), str(solved), rate(wins(group), len(group))])
-    return table(["shape", "kind", "issues", "issues any model solved", "success"], body)
+        body[-1].append(clustered(group))
+    head = ["shape", "kind", "issues", "issues any model solved", "success"]
+    return table([*head, f"success, {CLUSTERED}"], body)
 
 
 def stage1_section(rows: list[Row]) -> list[str]:
     issues = len({r["issue"] for r in rows})
+    per_model = by_model(rows)
+    # a shape that prints a rate for some model gets a clustered column; a label shape does not
+    rated = [s for s in SHAPES if any(is_rate(of_shape(m, s)) for m in per_model.values())]
     head = ["model", f"all ({issues} issues)", *SHAPES.values()]
     head += ["failed, answered", "failed, no answer", "no tool call", "median s/trial"]
+    head += [f"{h}, {CLUSTERED}" for h in (head[1], *(SHAPES[s] for s in rated))]
     body = []
-    for model, mine in by_model(rows).items():
-        shaped = [cell([r for r in mine if shape(r) == s]) for s in SHAPES]
+    for model, mine in per_model.items():
+        shaped = [cell(of_shape(mine, s)) for s in SHAPES]
         idle = str(sum(not r["tool_calls"] for r in mine))
         body.append([model, rate(wins(mine), len(mine)), *shaped, *failures(mine), idle])
         body[-1].append(median_secs(mine))
+        body[-1] += [clustered(mine), *(cluster_cell(of_shape(mine, s)) for s in rated)]
     asked = collections.Counter(LABELS[r["outcome"]] for r in rows if shape(r) == "ask_first")
     ask_line = "; ".join(f"{v} {k}" for k, v in sorted(asked.items()))
     return [
@@ -270,6 +337,7 @@ def stage2_section(rows: list[Row], stage1: list[Row]) -> list[str]:
     head = ["model", "stage 1, same issues", "stage 2", "top group (registered rule)"]
     head += [f"issues fixed every time (of {len(issues)})", "issues never fixed"]
     head += ["failed, answered", "failed, no answer", "not completed", "median s/trial"]
+    head += [f"{h}, {CLUSTERED}" for h in (head[1], head[2])]
     body = []
     for model, mine in per_model.items():
         per_issue: dict[str, list[bool]] = collections.defaultdict(list)
@@ -280,14 +348,14 @@ def stage2_section(rows: list[Row], stage1: list[Row]) -> list[str]:
         line = [model, cell(first.get(model, [])), cell(mine), "yes" if model in top else "no"]
         line += [str(always), str(never), *failures(mine)]
         line += [str(sum(not r["completed"] for r in mine)), median_secs(mine)]
-        body.append(line)
+        body.append([*line, cluster_cell(first.get(model, [])), cluster_cell(mine)])
     return [
         f"## Stage 2: the {len(issues)} test-caught fix issues, n = 3 per issue per model",
         "",
         STAGE2,
         "",
         *table(head, body),
-        f"All stage-2 models pooled: {cell(rows)}.",
+        f"All stage-2 models pooled: {cell(rows)}, {CLUSTERED} {cluster_cell(rows)}.",
         "",
     ]
 
@@ -300,11 +368,16 @@ def handoff_section(studies: dict[str, Study]) -> list[str]:
         for model, mine in by_model(rows).items():
             unsafe = sum(r["outcome"] in UNSAFE for r in mine)
             none = sum(r["outcome"] == "no_commit" for r in mine)
-            body.append([model, cell(mine), str(unsafe), str(none)])
-        unsafe = sum(r["outcome"] in UNSAFE for r in rows)
+            body.append([model, cell(mine), str(unsafe), str(none), cluster_cell(mine)])
+        unsafe = sum(map(is_unsafe, rows))
+        head = ["model", "committed only its file", "unsafe", "no commit"]
         out += [f"**{key}**: {VARIANTS[key]}.", ""]
-        out += table(["model", "committed only its file", "unsafe", "no commit"], body)
-        out += [f"Pooled: {cell(rows)}, unsafe {rate(unsafe, len(rows))}.", ""]
+        out += table([*head, f"committed only its file, {CLUSTERED}"], body)
+        out += [
+            f"Pooled: {cell(rows)}, {CLUSTERED} {cluster_cell(rows)}; "
+            f"unsafe {rate(unsafe, len(rows))}, {CLUSTERED} {clustered(rows, is_unsafe)}.",
+            "",
+        ]
     return out
 
 
@@ -352,7 +425,7 @@ def main() -> int:
     lines = [
         "# Model bake-off: summary",
         "",
-        INTRO.format(date=args.date, rows=len(reg)),
+        INTRO.format(date=args.date, rows=len(reg), draws=DRAWS, seed=SEED, floor=MIN_ISSUES),
         "",
         *inputs_section(studies, reg),
         *stage1_section(studies["stage1"].rows),
