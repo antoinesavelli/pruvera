@@ -31,3 +31,9 @@ strict = true
 # The harness's own venv has no pandas stubs; synthdata runs under the fixture venv.
 module = ["pandas", "pandas.*", "numpy", "numpy.*", "yaml"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Generation 3's hand issues are private and absent from the public copy; seed.py imports them behind a
+# ModuleNotFoundError guard that mypy cannot see.
+module = ["bench.issues.hand_kinds", "bench.issues.injections"]
+ignore_missing_imports = true
