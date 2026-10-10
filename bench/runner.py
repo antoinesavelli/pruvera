@@ -111,6 +111,7 @@ class TrialSpec:
     repeat: int = 0  # which repeat of its issue and arm this is (1-based; 0 outside a campaign)
     extra_binds: tuple[tuple[Path, str], ...] = ()  # read-only binds an experiment adds
     inline: dict[str, Any] = field(default_factory=dict)  # merged into the inline config
+    seed: int | None = None  # opt-in sampling seed, for variance studies; None is a real session's
     trial_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 
 
@@ -212,6 +213,7 @@ def check_experiment(spec: TrialSpec) -> None:
     """Refuse experiment config beyond an MCP server and read-only binds under /opt."""
     if spec.net not in ("ollama", "none"):
         raise ValueError(f"a trial may use net 'ollama' or 'none', not {spec.net!r}")
+    agentconfig.check_seed(spec.seed)
     extra = set(spec.inline) - EXPERIMENT_INLINE_KEYS
     if extra:
         raise ValueError(f"an experiment may only add {sorted(EXPERIMENT_INLINE_KEYS)}: {extra}")
@@ -541,7 +543,8 @@ def _record(
         "model": spec.model,
         "model_digest": model_digest(spec.model),
         "model_parameters": model_parameters(spec.model),
-        "seeded": False,
+        "seeded": asm.seed is not None,
+        "seed": asm.seed,
         "prompt": spec.prompt,
         "hooks": [h.__dict__ for h in spec.hooks],
         "deviations": [d.__dict__ for d in asm.deviations],
@@ -615,7 +618,7 @@ def run_trial(
     tdir = trials_dir / spec.trial_id
     for sub in ("upper", "work", "xdg/config", "xdg/data", "xdg/state"):
         (tdir / sub).mkdir(parents=True)
-    asm = agentconfig.assemble(spec.agent, spec.model, config_source)
+    asm = agentconfig.assemble(spec.agent, spec.model, config_source, spec.seed)
     agentconfig.check_parity(json.loads(config_source.read_text()), asm.config, asm.deviations)
     agentconfig.write(asm, tdir / "xdg" / "config")
     argv = list(
