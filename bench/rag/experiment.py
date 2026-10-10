@@ -35,6 +35,8 @@ ADOPT_MARGIN = 0.10  # pre-registered: treatment must beat control by this much,
 
 @dataclass(frozen=True)
 class Question:
+    """A knowledge question with the patterns a correct answer must and must not contain."""
+
     id: str
     text: str
     must: tuple[str, ...]

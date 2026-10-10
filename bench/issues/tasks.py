@@ -25,6 +25,8 @@ REPORT = "Reply with a short summary of what you found or changed, naming the fi
 
 @dataclass(frozen=True)
 class Task:
+    """What a trial is sent: the agent, its model and the delegation prompt."""
+
     agent: str
     model: str
     prompt: str
