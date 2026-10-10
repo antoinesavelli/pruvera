@@ -94,6 +94,7 @@ def mine(limit: int | None = None) -> list[dict[str, object]]:
     print(f"{len(todo)} candidates apply and pass the screen; running their tests", flush=True)
 
     def run(cand: miner.Candidate) -> dict[str, object]:
+        """Plant one candidate, run its tests and return its verdict as a record."""
         v = miner.evaluate(env, cand)
         return {
             "commit": cand.commit,
@@ -125,6 +126,7 @@ def reevaluate() -> None:
     }
 
     def run(r: dict[str, Any]) -> dict[str, Any]:
+        """Re-evaluate one record's candidate; one that no longer applies comes back unchanged."""
         sel = miner.Selected(str(r["commit"]), tuple(r["sources"]), tuple(r["tests"]), -1)
         cand = miner.inverse(
             sel, miner.source_diff(layout.REAL_REPO, sel.commit, sel.sources), tree
