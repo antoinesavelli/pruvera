@@ -13,9 +13,10 @@ repeats are not independent draws of anything else), and a group with fewer than
 gets no ICC at all. Across models it gives the rank correlation of per-issue success and a
 difficulty rating per issue (definition at `rating`), then lists the issues no model solved, with
 their trial ids so the transcripts can be read. Rows that are not valid runs (not completed, or
-`unscorable`) are dropped and counted. `--md` replaces the block between the generated-block
-markers in an existing file (or creates the file holding just the block), so prose around it
-survives a rerun.
+`unscorable`) are dropped and counted; `--drop MODEL/AGENT` also leaves out one model's rows that
+were routed to an agent that did not run that model's work, and counts them. `--md` replaces the
+block between the generated-block markers in an existing file (or creates the file holding just the
+block), so prose around it survives a rerun.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ import json
 import math
 import random
 import sys
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -76,18 +78,27 @@ class ModelRuns:
     expected: dict[str, str] = field(default_factory=dict)
     missing: dict[str, int] = field(default_factory=dict)
     dropped: int = 0
+    excluded: int = 0
 
     def groups(self, issues: Sequence[str]) -> Groups:
         return [(sum(self.wins[i]), len(self.wins[i])) for i in issues if i in self.wins]
 
 
-def load_runs(path: Path) -> ModelRuns:
-    """A scored file as one model's runs; the last row per (issue, repeat) wins."""
+def load_runs(path: Path, drop: dict[str, set[str]] | None = None) -> ModelRuns:
+    """A scored file as one model's runs; the last row per (issue, repeat) wins.
+
+    `drop` maps a model name to routed agents whose rows are not that model's work and are left out
+    (counted in `excluded`, apart from the rows that were not valid runs).
+    """
     rows = read_jsonl(path)
     names = collections.Counter(str(r.get("model", "")) for r in rows)
     runs = ModelRuns(name=names.most_common(1)[0][0] if names else path.stem)
+    skipped = (drop or {}).get(runs.name, set())
     cells: dict[tuple[str, int], dict[str, Any]] = {}
     for row in rows:
+        if row.get("agent") in skipped:
+            runs.excluded += 1
+            continue
         if (
             row.get("outcome") == "unscorable"
             or row.get("trial_outcome", "completed") != "completed"
@@ -301,9 +312,10 @@ def model_section(runs: ModelRuns) -> list[str]:
         f"### {runs.name}",
         "",
         f"{len(issues)} issues, {trials} valid trials ({runs.dropped} rows dropped as not valid "
-        f"runs). Success {rate(ok, trials)} (Wilson over trials); issue-clustered mean "
-        f"{clustered[0]:.2f} [{clustered[1]:.2f}, {clustered[2]:.2f}]. No final answer "
-        f"(`empty` or `tool_json`): {nonanswers}/{trials}, counted as failures here.",
+        f"runs, {runs.excluded} excluded by --drop). Success {rate(ok, trials)} (Wilson over "
+        f"trials); issue-clustered mean {clustered[0]:.2f} "
+        f"[{clustered[1]:.2f}, {clustered[2]:.2f}]. No final answer (`empty` or `tool_json`): "
+        f"{nonanswers}/{trials}, counted as failures here.",
         "",
         HEADER,
         reliability_row("all issues", runs.groups(issues)),
@@ -518,6 +530,18 @@ def self_test() -> int:
     ]
     kappa, icc = fleiss_kappa(sim), icc1(sim)
     checks.append(("kappa and ICC(1,1) agree closely on bimodal data", abs(kappa - icc) < 0.05))
+    with tempfile.TemporaryDirectory() as tmp:
+        scored = Path(tmp) / "m.scored.jsonl"
+        rows = [
+            {"model": "m", "issue": i, "repeat": r, "agent": a, "success": True, "outcome": "ok"}
+            for i, a in (("x", "coder"), ("y", "git"))
+            for r in (1, 2, 3)
+        ]
+        scored.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+        kept = load_runs(scored, {"m": {"git"}})
+        checks.append(("--drop leaves out and counts the named agent", kept.excluded == 3))
+        checks.append(("--drop keeps the other agent's issue", list(kept.wins) == ["x"]))
+        checks.append(("without --drop nothing is excluded", load_runs(scored).excluded == 0))
     bad = [name for name, ok in checks if not ok]
     for name, ok in checks:
         print(("PASS " if ok else "FAIL ") + name)
@@ -530,13 +554,26 @@ def main() -> int:
     ap.add_argument("scored", nargs="*", type=Path, help="one scored .jsonl per model")
     ap.add_argument("--md", type=Path, help="write or refresh the generated block in this file")
     ap.add_argument("--json", type=Path, help="write the per-issue records here")
+    ap.add_argument(
+        "--drop",
+        action="append",
+        default=[],
+        metavar="MODEL/AGENT",
+        help="leave out that model's rows routed to AGENT (not its own work); repeatable",
+    )
     ap.add_argument("--self-test", action="store_true", help="run the built-in checks and exit")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
     if len(args.scored) < 2:
         ap.error("give at least two scored files (one per model)")
-    models = [load_runs(p) for p in args.scored]
+    drop: dict[str, set[str]] = {}
+    for spec in args.drop:
+        model, _, agent = spec.rpartition("/")
+        if not model or not agent:
+            ap.error(f"--drop wants MODEL/AGENT, not {spec!r}")
+        drop.setdefault(model, set()).add(agent)
+    models = [load_runs(p, drop) for p in args.scored]
     block, payload = build(models)
     if args.md:
         write_block(args.md, block)
