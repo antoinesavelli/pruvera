@@ -15,6 +15,7 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -494,9 +495,14 @@ def test_the_ollama_bridge_needs_socat_and_a_missing_one_is_named(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     real = shutil.which
-    monkeypatch.setattr(
-        shutil, "which", lambda name, *a, **k: None if name == "socat" else real(name, *a, **k)
-    )
+
+    def which(name: str, *a: Any, **k: Any) -> str | None:
+        """No socat, and a bwrap that is always found: the tool check runs bwrap first."""
+        if name == "socat":
+            return None
+        return "/usr/bin/bwrap" if name == "bwrap" else real(name, *a, **k)
+
+    monkeypatch.setattr(shutil, "which", which)
     for sub in ("base", "upper", "work", "xdg"):
         (tmp_path / sub).mkdir()
     spec = sandbox.Spec(
