@@ -15,6 +15,7 @@ SOURCE = "def f(x):\n    if x > 5:\n        return 1\n    return 0\n"
 def mutant(
     line: int, col: int, old: str, new: str, killed: bool = True, **kw: Any
 ) -> dict[str, Any]:
+    """Builds a mutant record at a line and column from the old and new tokens and a killed flag."""
     return {
         "line": line,
         "col": col,
@@ -34,12 +35,14 @@ def _guard(tree: Path, ask: tuple[str, ...] = ()) -> None:
 
 
 def rec(module: str, base: bool, muts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Builds a campaign record for a module with its baseline result and mutants."""
     return {"module": module, "baseline_passed": base, "mutants": muts}
 
 
 def test_the_issue_is_built_from_the_edit_alone_with_a_summary_that_names_the_token(
     tmp_path: Path,
 ) -> None:
+    """The issue is built from the edit alone, names the changed token and round-trips via TOML."""
     _guard(tmp_path)
     (tmp_path / "pkg").mkdir()
     (tmp_path / "pkg" / "m.py").write_text(SOURCE)
@@ -56,6 +59,7 @@ def test_the_issue_is_built_from_the_edit_alone_with_a_summary_that_names_the_to
 
 
 def test_accept_takes_one_caught_mutant_per_module_with_a_clean_baseline(tmp_path: Path) -> None:
+    """Accept takes one caught mutant per module with a passing baseline, repeatably per seed."""
     _guard(tmp_path)
     (tmp_path / "pkg").mkdir()
     for name in ("a", "b", "c"):
@@ -71,6 +75,7 @@ def test_accept_takes_one_caught_mutant_per_module_with_a_clean_baseline(tmp_pat
 
 
 def test_sibling_test_follows_the_repo_convention() -> None:
+    """The sibling test path mirrors the module path under tests with a test_ file prefix."""
     assert (
         campaign.sibling_test("monitoring/metrics_format.py")
         == "tests/monitoring/test_metrics_format.py"
@@ -83,6 +88,7 @@ def test_sibling_test_follows_the_repo_convention() -> None:
 
 
 def test_the_ask_first_files_come_from_the_fixtures_own_permission_rules(tmp_path: Path) -> None:
+    """Ask-first files come from the fixture's edit permission rules; an issue on one guards it."""
     _guard(tmp_path, ("db/schema.sql", "engine/execution/exit_handler.py"))
     assert areas.ask_first_files(tmp_path) == {"db/schema.sql", "engine/execution/exit_handler.py"}
     (tmp_path / "db").mkdir()

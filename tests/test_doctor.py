@@ -11,6 +11,7 @@ from bench import doctor, layout, runner
 
 
 def _write(path: Path, rows: list[dict[str, object]]) -> None:
+    """Writes records as JSON lines plus one invalid line, creating parent directories."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(r) + "\n" for r in rows) + "not json\n")
 
@@ -18,6 +19,7 @@ def _write(path: Path, rows: list[dict[str, object]]) -> None:
 def test_audit_names_builds_that_are_gone_and_digests_that_changed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The audit names missing builds and changed model digests and skips files with no results."""
     monkeypatch.setattr(
         layout, "find_profile_dir", lambda h, v="v2": tmp_path if h.startswith("good") else None
     )
@@ -39,6 +41,7 @@ def test_audit_names_builds_that_are_gone_and_digests_that_changed(
 def test_a_matching_digest_and_present_build_are_reproducible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A present build and an unchanged digest leave nothing flagged as missing or changed."""
     monkeypatch.setattr(layout, "find_profile_dir", lambda h, v="v2": tmp_path)
     monkeypatch.setattr(runner, "model_digest", lambda m, port=11434: "")
     _write(
@@ -51,6 +54,7 @@ def test_a_matching_digest_and_present_build_are_reproducible(
 def test_main_exit_status_follows_missing_builds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The main command exits 1 and prints builds gone when a record's build is missing."""
     monkeypatch.setattr(layout, "find_profile_dir", lambda h, v="v2": None)
     monkeypatch.setattr(runner, "model_digest", lambda m, port=11434: "")
     _write(tmp_path / "r.jsonl", [{"fixture_tree_hash": "x" * 64, "model": "m"}])
@@ -76,6 +80,7 @@ def test_an_unreachable_ollama_is_unchecked_not_a_match(
 def test_unpinned_candidate_records_are_flagged_and_fail_only_in_strict_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """A candidate record without a variant hash is counted unpinned and fails only with strict."""
     monkeypatch.setattr(layout, "find_profile_dir", lambda h, v="v2": tmp_path)
     monkeypatch.setattr(runner, "model_digest", lambda m, port=11434: "d")
     base = {"fixture_tree_hash": "x" * 64, "model": "m", "model_digest": "d"}
@@ -92,6 +97,7 @@ def test_unpinned_candidate_records_are_flagged_and_fail_only_in_strict_mode(
 def test_audit_builds_reports_a_profile_tree_that_drifted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The build audit reports a profile tree that drifted, naming it with the reason."""
     for name in ("good", "drifted"):
         (tmp_path / "profiles" / name).mkdir(parents=True)
         (tmp_path / "profiles" / name / "MANIFEST.json").write_text("{}")
@@ -99,6 +105,7 @@ def test_audit_builds_reports_a_profile_tree_that_drifted(
     monkeypatch.setattr(runner, "load_profile", lambda _v, name: name)
 
     def check(name: str) -> None:
+        """Stands in for the fixture check; raises a drift error for the profile named drifted."""
         if name == "drifted":
             raise runner.DriftError("tree hash differs")
 
@@ -109,6 +116,7 @@ def test_audit_builds_reports_a_profile_tree_that_drifted(
 def test_doctor_fails_on_a_registry_problem_and_names_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Doctor exits 1 naming a registry problem, then exits 0 once the registry audit is clean."""
     monkeypatch.setattr(layout, "RESULTS", tmp_path)
     monkeypatch.setattr(
         doctor.registry, "audit", lambda: ["results/gate/x.jsonl: a candidate study"]

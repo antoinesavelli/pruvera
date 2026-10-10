@@ -24,6 +24,7 @@ from bench.rag import index  # noqa: E402
 def test_seed_writes_the_catalogue_profiles_and_splits_into_a_temporary_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Seeding writes issues, profiles and splits to a temp root; the first split stays frozen."""
     (tmp_path / "fixtures/paramo/versions/v2/tree").mkdir(parents=True)
     (tmp_path / "issues").mkdir()
     (tmp_path / "issues/_campaign.json").write_text("[]")
@@ -52,6 +53,7 @@ def test_seed_writes_the_catalogue_profiles_and_splits_into_a_temporary_root(
 def test_the_seed_command_writes_only_when_asked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The seed command does a dry run by default and writes issues only with the write flag."""
     assert seed.main([]) == 0 and "dry run" in capsys.readouterr().out
     monkeypatch.setattr(layout, "ROOT", tmp_path)
     monkeypatch.setattr(seed, "seed", lambda root: [make_issue()])
@@ -62,6 +64,7 @@ def test_the_seed_command_writes_only_when_asked(
 def test_the_areas_command_prints_and_optionally_writes_the_accepted_issues(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The areas command prints accepted issues from a campaign file, writing them only if asked."""
     (tmp_path / "opencode.json").write_text('{"permission": {"edit": {"*": "allow"}}}')
     (tmp_path / "pkg").mkdir()
     (tmp_path / "pkg/m.py").write_text("def f(x):\n    if x > 5:\n        return 1\n    return 0\n")
@@ -79,6 +82,7 @@ def test_the_areas_command_prints_and_optionally_writes_the_accepted_issues(
 
 
 def test_a_drop_file_lists_ids_and_a_drop_that_breaks_the_file_is_refused(tmp_path: Path) -> None:
+    """A drop file lists test ids, and a drop that breaks the file or misses it is refused."""
     listing = tmp_path / "drop.txt"
     listing.write_text("# comment\n\ntests/a.py::test_x  # why\ntests/a.py::C::test_y\n")
     assert droptests.load_ids(listing) == ["tests/a.py::test_x", "tests/a.py::C::test_y"]
@@ -93,6 +97,7 @@ def test_a_drop_file_lists_ids_and_a_drop_that_breaks_the_file_is_refused(tmp_pa
 
 
 def test_code_comparison_ignores_comments_in_python_and_survives_broken_tokens() -> None:
+    """Code comparison drops comments, survives broken tokens; restore check tells old from new."""
     assert restore._code_only("x = 1  # note\n\n", "m.py") == "x = 1\n\n"
     assert restore._code_only('s = """open\n', "m.py").startswith("s =")
     assert restore._holds("a: 1\nb: 2\n", "a: 1", "a: 9", "cfg.yaml")
@@ -102,6 +107,7 @@ def test_code_comparison_ignores_comments_in_python_and_survives_broken_tokens()
 def test_verify_helpers_apply_text_edits_and_name_tests_that_mention_a_module(
     tmp_path: Path,
 ) -> None:
+    """Verify helpers apply a text edit, refuse duplicates and find tests importing the module."""
     edit = schema.Edit("m.py", "old", "new")
     assert verify._apply_text("x old y", edit) == "x new y"
     assert verify._apply_text("old", schema.Edit("m.py", "old", "")) == ""
@@ -121,6 +127,7 @@ def test_verify_helpers_apply_text_edits_and_name_tests_that_mention_a_module(
 def test_a_profile_is_found_by_its_tree_hash_among_current_and_superseded_builds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A profile is found by tree hash among current and superseded builds, or None if absent."""
     for name, h in (("profiles", "aaa"), ("profiles.old-1", "bbb")):
         manifest = tmp_path / name / "full" / "MANIFEST.json"
         manifest.parent.mkdir(parents=True)
@@ -133,6 +140,7 @@ def test_a_profile_is_found_by_its_tree_hash_among_current_and_superseded_builds
 def test_the_docs_index_chunks_markdown_embeds_it_and_writes_two_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The docs index chunks Markdown only, embeds it and writes chunks and vectors files."""
     tree = tmp_path / "tree"
     (tree / "docs").mkdir(parents=True)
     (tree / "docs/a.md").write_text("x" * (index.CHUNK + 5))
@@ -142,6 +150,7 @@ def test_the_docs_index_chunks_markdown_embeds_it_and_writes_two_files(
     seen: list[int] = []
 
     def embed(texts: list[str]) -> Any:
+        """Fakes the embedder: records the batch size and returns a matrix of ones."""
         seen.append(len(texts))
         return np.ones((len(texts), 2), dtype=np.float32)
 
@@ -156,6 +165,7 @@ def test_the_docs_index_chunks_markdown_embeds_it_and_writes_two_files(
 
 
 def test_scrubbing_skips_git_internals_and_binary_files(tmp_path: Path) -> None:
+    """Scrubbing rewrites text files and leaves git internals and binary files untouched."""
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git/config").write_text("secret")
     (tmp_path / "blob.bin").write_bytes(b"\x00\x01secret")
@@ -170,12 +180,14 @@ def test_scrubbing_skips_git_internals_and_binary_files(tmp_path: Path) -> None:
 def test_the_build_command_prints_a_manifest_or_reports_the_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The build command prints the manifest and exits 0, or exits 1 with a message on failure."""
     argv = ["--repo", str(tmp_path), "--rev", "HEAD", "--version", "v9", "--out", str(tmp_path)]
     result = build.BuildResult(tmp_path, {"tree_hash": "abc"}, None)  # type: ignore[arg-type]
     monkeypatch.setattr(build, "build", lambda repo, rev, out: result)
     assert build.main(argv) == 0 and '"tree_hash": "abc"' in capsys.readouterr().out
 
     def fail(repo: Path, rev: str, out: Path) -> None:
+        """Stands in for the build and raises a build error saying a leak was found."""
         raise build.BuildError("leak found")
 
     monkeypatch.setattr(build, "build", fail)
@@ -185,6 +197,7 @@ def test_the_build_command_prints_a_manifest_or_reports_the_failure(
 def test_a_reference_copy_is_a_one_commit_repo_with_a_saved_manifest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A reference copy is a one-commit repo with a saved manifest; venv pinned only if present."""
     from bench import reference
 
     repo = tmp_path / "repo"
@@ -212,6 +225,7 @@ def test_a_reference_copy_is_a_one_commit_repo_with_a_saved_manifest(
 def test_generation3_issues_drop_out_cleanly_where_their_modules_are_absent(monkeypatch):
     # The public copy leaves out the two modules (their definitions are holdout answers).
     # Seeding there must lose exactly their issues and nothing else.
+    """Unimportable generation-3 modules drop only their own issues; skipped if already absent."""
     full = {i.id for i in seed.hand_issues()}
     gen3 = {i.id for i in seed.generation3_issues()}
     if not gen3:

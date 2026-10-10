@@ -8,6 +8,7 @@ from bench import stats
 
 
 def test_wilson_matches_known_values_and_handles_the_edges() -> None:
+    """`wilson` matches known values, gives (0, 1) for no data and widens with fewer trials."""
     lo, hi = stats.wilson(8, 10)
     assert round(lo, 3) == 0.49 and round(hi, 3) == 0.943
     assert stats.wilson(0, 0) == (0.0, 1.0)
@@ -17,6 +18,7 @@ def test_wilson_matches_known_values_and_handles_the_edges() -> None:
 
 
 def test_pass_hat_k_is_the_chance_that_k_tries_all_succeed() -> None:
+    """`pass_hat_k` averages each task's chance that k tries all pass; NaN with too few trials."""
     outcomes = {"a": [True, True, True, True], "b": [True, False, False, False]}
     assert stats.pass_hat_k(outcomes, 1) == (1.0 + 0.25) / 2
     assert stats.pass_hat_k(outcomes, 2) == (1.0 + 0.0) / 2
@@ -25,10 +27,12 @@ def test_pass_hat_k_is_the_chance_that_k_tries_all_succeed() -> None:
 
 
 def test_cluster_rate_counts_each_task_once() -> None:
+    """`cluster_rate` weights each task equally: nine passes on one task and one miss give 0.5."""
     assert stats.cluster_rate({"a": [True] * 9, "b": [False]}) == 0.5
 
 
 def test_bootstrap_diff_is_reproducible_and_brackets_a_clear_difference() -> None:
+    """Seeded `bootstrap_diff` brackets a clear gain, spans 0 for equal sets, NaN if none shared."""
     a = {f"t{i}": [False, False, False] for i in range(8)}
     b = {f"t{i}": [True, True, False] for i in range(8)}
     first = stats.bootstrap_diff(a, b, draws=500, seed=3)
@@ -41,6 +45,7 @@ def test_bootstrap_diff_is_reproducible_and_brackets_a_clear_difference() -> Non
 
 
 def test_min_detectable_effect_shrinks_with_more_trials() -> None:
+    """`min_detectable_effect` shrinks with more trials; 12 tasks at 3 trials is 0.3 to 0.4."""
     assert stats.min_detectable_effect(12, 3) > stats.min_detectable_effect(12, 12)
     assert 0.3 < stats.min_detectable_effect(12, 3) < 0.4, "12 questions x 3 cannot see +0.10"
 
@@ -57,6 +62,7 @@ def test_cluster_ci_is_wider_than_a_trial_level_interval_when_tasks_differ() -> 
 
 def test_fisher_greater_matches_a_hand_computed_case_and_the_degenerate_ones() -> None:
     # 0 of 10 vs 4 of 10: P(X >= 4) with 4 events among 20 = C(10,4)/C(20,4)
+    """`fisher_greater` matches a hand-computed tail and gives 1.0 for no events or fewer events."""
     assert abs(stats.fisher_greater(0, 10, 4, 10) - math.comb(10, 4) / math.comb(20, 4)) < 1e-12
     assert stats.fisher_greater(0, 10, 0, 10) == 1.0
     assert stats.fisher_greater(3, 10, 3, 10) > 0.5
@@ -66,6 +72,7 @@ def test_fisher_greater_matches_a_hand_computed_case_and_the_degenerate_ones() -
 
 
 def test_sign_test_is_exact_and_two_sided() -> None:
+    """`sign_test` returns exact two-sided p-values, and 1.0 for a tie or no data."""
     assert stats.sign_test(10, 0) == 2 / 2**10
     assert stats.sign_test(5, 5) == 1.0
     assert stats.sign_test(0, 0) == 1.0
@@ -73,6 +80,7 @@ def test_sign_test_is_exact_and_two_sided() -> None:
 
 
 def test_a_family_correction_past_the_draws_resolution_still_widens_the_interval() -> None:
+    """Each stricter alpha, even past the draws resolution, widens the `bootstrap_diff` interval."""
     a = {f"i{k}": [True] * 3 + [False] * 3 for k in range(13)}
     b = {f"i{k}": [True] * 2 + [False] * 4 for k in range(13)}
     widths = []

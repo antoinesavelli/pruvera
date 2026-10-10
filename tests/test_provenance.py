@@ -16,6 +16,7 @@ from bench.issues import score, trials
 
 
 def _art(tmp_path: Path) -> Path:
+    """Makes an artifact folder holding a diff patch and a transcript, and returns its path."""
     art = tmp_path / "abc"
     art.mkdir()
     (art / "diff.patch").write_text("diff\n")
@@ -24,6 +25,7 @@ def _art(tmp_path: Path) -> Path:
 
 
 def test_a_bundle_digest_changes_with_any_scorer_input(tmp_path: Path) -> None:
+    """A bundle digest changes when a scorer input changes, not when a non-input file is added."""
     art = _art(tmp_path)
     first = bundle.digest(art)
     assert bundle.verify(art, first) == "" and bundle.verify(art, "") == ""
@@ -35,6 +37,7 @@ def test_a_bundle_digest_changes_with_any_scorer_input(tmp_path: Path) -> None:
 
 
 def test_the_digest_covers_which_file_holds_the_bytes(tmp_path: Path) -> None:
+    """The same bytes under diff.patch and under status.txt give different bundle digests."""
     a, b = tmp_path / "a", tmp_path / "b"
     a.mkdir(), b.mkdir()
     (a / "diff.patch").write_text("x")
@@ -43,6 +46,7 @@ def test_the_digest_covers_which_file_holds_the_bytes(tmp_path: Path) -> None:
 
 
 def test_a_record_whose_bundle_changed_is_refused_by_the_scorer(tmp_path: Path) -> None:
+    """A record whose stored bundle digest no longer matches is refused by the scorer as changed."""
     art = _art(tmp_path)
     record = {"artifact": str(art), "artifact_sha256": "0" * 64, "label": "x"}
     with pytest.raises(score.ScoreError, match="changed since the trial ended"):
@@ -50,6 +54,7 @@ def test_a_record_whose_bundle_changed_is_refused_by_the_scorer(tmp_path: Path) 
 
 
 def test_a_rerun_of_an_experiment_skips_the_cells_already_recorded(tmp_path: Path) -> None:
+    """Cells already recorded for the same experiment are done; a blank id or no file gives none."""
     out = tmp_path / "o.jsonl"
     rows = [
         {"experiment_id": "e1", "label": "i1", "arm": "baseline", "repeat": 1},
@@ -70,6 +75,7 @@ def test_a_rerun_of_an_experiment_skips_the_cells_already_recorded(tmp_path: Pat
 def test_the_state_root_can_name_another_checkout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The state-root environment variable points results and fixtures paths at another checkout."""
     monkeypatch.setenv("AGENT_TESTING_STATE", str(tmp_path))
     try:
         fresh = importlib.reload(layout)
@@ -83,5 +89,6 @@ def test_the_state_root_can_name_another_checkout(
 
 
 def test_the_harness_stamp_names_a_commit_and_a_dirty_flag() -> None:
+    """The harness state is a non-empty commit id and a boolean dirty flag."""
     commit, dirty = runner.harness_state()
     assert commit and isinstance(dirty, bool)

@@ -38,12 +38,14 @@ def _plan() -> str:
 
 
 def _expect(*claims: str) -> None:
+    """Asserts that every claim string appears verbatim in the normalised PLAN text."""
     text = _plan()
     missing = [c for c in claims if c not in text]
     assert not missing, f"PLAN.md no longer says what the tracked results compute: {missing}"
 
 
 def _scored(*names: str) -> list[dict[str, Any]]:
+    """Loads and concatenates the scored trial rows of the named campaign files."""
     rows: list[dict[str, Any]] = []
     for name in names:
         rows += trials.load_rows(RESULTS / "issues" / f"{name}.scored.jsonl")
@@ -51,11 +53,13 @@ def _scored(*names: str) -> list[dict[str, Any]]:
 
 
 def _span(group: dict[str, Any]) -> str:
+    """Formats a group's rate and interval as `0.62 (0.40-0.80)`."""
     return f"{group['rate']:.2f} ({group['ci'][0]:.2f}-{group['ci'][1]:.2f})"
 
 
 @needs_results
 def test_the_campaign_figures_match_the_scored_files() -> None:
+    """PLAN's campaign counts, rates and kind intervals equal those recomputed from scored files."""
     rows = _scored("campaign-1", "campaign-2all")
     s = trials.summarise(rows)
     o, kinds, src = s["overall"], s["by_kind"], s["by_source"]
@@ -77,6 +81,7 @@ def test_the_campaign_figures_match_the_scored_files() -> None:
 
 @needs_results
 def test_the_shared_tree_table_matches_the_scope_campaigns() -> None:
+    """PLAN's shared-tree table gives the scoped counts the scope campaigns' scored files show."""
     named, quiet = _scored("scope-1"), _scored("scope-quiet-1")
     by_issue: dict[str, Counter[tuple[str, str]]] = {
         r["issue"].replace("quiet-", ""): Counter() for r in named + quiet
@@ -107,6 +112,7 @@ def test_the_shared_tree_table_matches_the_scope_campaigns() -> None:
 
 @needs_results
 def test_the_ledger_row_count_matches_the_looks_the_plan_counts() -> None:
+    """The ledger holds at least three looks of the shared-tree rule, and PLAN names three."""
     entries = ledger.read(RESULTS / "gate" / "ledger.jsonl")
     looks = [e for e in entries if ledger.variant_of(e["candidate"]) == "shared-tree-rule"]
     assert len(looks) >= 3  # the plan text names three; a later look is a plan update
@@ -129,11 +135,13 @@ def _calibration(name: str) -> dict[tuple[float, bool, int], dict[str, int]]:
 
 
 def _pct(counts: dict[str, int], verdict: str, gates: int = 200) -> str:
+    """Formats a verdict's count out of 200 gates as a percentage string such as 12.5%."""
     return f"{100 * counts[verdict] / gates:g}%"
 
 
 @needs_results
 def test_the_calibration_percentages_match_the_committed_outputs() -> None:
+    """PLAN's calibration percentages equal those in the committed calibration outputs."""
     real = _calibration("calibration-real-designs-2026-10-02.txt")
     uni, bi = (real[(0.0, b, 13)] for b in (False, True))
     gain_u, gain_b = (real[(0.1, b, 13)] for b in (False, True))
@@ -162,6 +170,7 @@ def test_the_calibration_percentages_match_the_committed_outputs() -> None:
 
 @needs_results
 def test_the_holdout_re_derivation_the_plan_cites_is_the_one_on_file() -> None:
+    """PLAN quotes the success rates, unsafe counts and verdict of the re-derivation on file."""
     d = json.loads(
         (RESULTS / "gate" / "shared-tree-rule-holdout.rederived-2026-10-02.json").read_text()
     )
@@ -178,6 +187,7 @@ def test_the_holdout_re_derivation_the_plan_cites_is_the_one_on_file() -> None:
 @needs_results
 @needs_catalogue
 def test_the_holdout_2_collateral_the_plan_cites_is_the_one_on_file() -> None:
+    """The holdout 2 re-derivation shows collateral in 4 trials of each arm, as PLAN says."""
     path = RESULTS / "gate" / "shared-tree-rule-holdout2.rederived-2026-10-02.json"
     safety = json.loads(path.read_text())["safety"]
     base, cand = safety["baseline"]["collateral"], safety["candidate"]["collateral"]
@@ -194,6 +204,7 @@ QUOTE = re.compile("(?P<w>" + WILSON + r")(?: \{(?P<c>[^}]*)\})?")
 
 
 def _spike() -> ModuleType:
+    """Loads the public-summary spike module from its file path and returns it."""
     path = ROOT / "spikes" / "public_summary.py"
     spec = importlib.util.spec_from_file_location("docs_public_summary", path)
     assert spec and spec.loader
@@ -204,6 +215,7 @@ def _spike() -> ModuleType:
 
 
 def _cells(line: str) -> list[str]:
+    """Splits one markdown table row into its stripped cell strings."""
     return [c.strip() for c in line.strip().strip("|").split("|")]
 
 
@@ -226,6 +238,7 @@ def _tables(text: str) -> list[tuple[list[str], list[list[str]]]]:
 
 
 def _prose(text: str) -> str:
+    """Returns the text with its markdown table lines removed."""
     return "\n".join(line for line in text.splitlines() if not line.startswith("|"))
 
 
@@ -274,10 +287,12 @@ def _readme_rates() -> list[tuple[str, str]]:
 
 
 def test_every_rate_the_summary_prints_has_an_issue_clustered_interval_beside_it() -> None:
+    """No Wilson interval in the public summary lacks an issue-clustered interval beside it."""
     assert _unpaired(SUMMARY.read_text()) == []
 
 
 def test_every_rate_the_readme_quotes_carries_the_clustered_interval_the_summary_prints() -> None:
+    """Each rate the README quotes has a braced clustered interval the summary prints for it."""
     quotes = _readme_rates()
     assert quotes, "the README quotes its rates as k/n [lo, hi] {issue-clustered}"
     assert [w for w, c in quotes if not c] == [], "README rates with no {...} interval after them"
@@ -291,12 +306,14 @@ def test_every_rate_the_readme_quotes_carries_the_clustered_interval_the_summary
 
 
 def test_the_readme_dates_the_summary_it_quotes() -> None:
+    """The README names the same generation date as the header of the public summary."""
     readme = re.search(r"summary generated (\d{4}-\d\d-\d\d)", " ".join(README.read_text().split()))
     summary = re.search(r"Generated (\d{4}-\d\d-\d\d) by", SUMMARY.read_text())
     assert readme and summary and readme[1] == summary[1]
 
 
 def _rows(outcomes: dict[str, list[bool]]) -> list[dict[str, Any]]:
+    """Builds scored rows from a map of issue to win flags, marking each fixed or swept."""
     return [
         {"issue": issue, "success": won, "outcome": "fixed" if won else "swept"}
         for issue, results in outcomes.items()
@@ -305,6 +322,7 @@ def _rows(outcomes: dict[str, list[bool]]) -> list[dict[str, Any]]:
 
 
 def test_the_clustered_interval_is_the_stats_helpers_and_the_same_every_time() -> None:
+    """The summary's clustered interval equals the stats helper's, seeded, and ignores row order."""
     spike = _spike()
     outcomes = {f"i{k}": [k % 3 != 0, k % 3 != 0, k % 2 == 0] for k in range(9)}
     rows = _rows(outcomes)
@@ -318,6 +336,7 @@ def test_the_clustered_interval_is_the_stats_helpers_and_the_same_every_time() -
 
 
 def test_the_clustered_interval_is_wider_than_wilson_when_an_issues_trials_move_together() -> None:
+    """Where each issue's trials all agree, the clustered interval is wider than the Wilson one."""
     spike = _spike()
     text = spike.clustered(_rows({f"i{k}": [k < 5] * 3 for k in range(10)}))
     lo, hi = map(float, re.findall(r"\d\.\d\d", text))
@@ -326,6 +345,7 @@ def test_the_clustered_interval_is_wider_than_wilson_when_an_issues_trials_move_
 
 
 def test_the_clustered_interval_says_n_a_where_it_would_mean_nothing() -> None:
+    """The clustered interval prints n/a for too few issues or for no spread across issues."""
     spike = _spike()
     assert spike.MIN_ISSUES == trials.MIN_CI_ISSUES, "the summary and the harness share one floor"
     assert spike.clustered(_rows({"a": [True, False]})) == "n/a, 1 issue"
@@ -336,12 +356,14 @@ def test_the_clustered_interval_says_n_a_where_it_would_mean_nothing() -> None:
 
 
 def test_a_cell_whose_issues_have_unequal_trials_is_marked_and_an_equal_one_is_not() -> None:
+    """A cell whose issues have unequal trial counts gets a dagger mark; an equal one does not."""
     spike = _spike()
     assert spike.clustered(_rows({"a": [True], "b": [False] * 4, "c": [True] * 4})).endswith(" †")
     assert "†" not in spike.clustered(_rows({f"i{k}": [k < 3] * 2 for k in range(6)}))
 
 
 def test_an_unsafe_interval_counts_the_unsafe_outcomes_not_the_wins() -> None:
+    """With the unsafe predicate, the interval counts unsafe outcomes, matching flipped wins."""
     spike = _spike()
     outcomes = {f"i{k}": [k < 2, k < 4, k < 6] for k in range(8)}
     flipped = {i: [not won for won in results] for i, results in outcomes.items()}
@@ -349,6 +371,7 @@ def test_an_unsafe_interval_counts_the_unsafe_outcomes_not_the_wins() -> None:
 
 
 def _study(directory: Path, name: str, rows: list[dict[str, Any]]) -> None:
+    """Writes a study's raw and scored JSONL files into a directory from the given rows."""
     raw = [
         {"trial_id": r["trial_id"], "outcome": "completed", "steps": 4, "fixture_version": "v2"}
         | {"seeded": False, "experiment_id": ""}
@@ -359,6 +382,7 @@ def _study(directory: Path, name: str, rows: list[dict[str, Any]]) -> None:
 
 
 def _trial(issue: str, model: str, won: bool, repeat: int = 1, **extra: Any) -> dict[str, Any]:
+    """Builds one scored trial row for an issue, model, win flag and repeat, with overrides."""
     row = {"trial_id": f"{model}-{issue}-{repeat}", "issue": issue, "model": model, "success": won}
     row |= {"kind": "logic_bug_caught_by_test", "expected": "fix", "answer_kind": "text"}
     row |= {"outcome": "fixed" if won else "missed", "secs": 10.0, "tool_calls": 3}
@@ -368,6 +392,7 @@ def _trial(issue: str, model: str, won: bool, repeat: int = 1, **extra: Any) -> 
 def test_a_generated_summary_pairs_every_wilson_interval_with_a_clustered_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """A summary of synthetic studies pairs each Wilson interval with a clustered one."""
     spike = _spike()
     monkeypatch.setattr(spike.registry, "holdout_issues", lambda root: {"1": frozenset({"h-1"})})
     monkeypatch.setattr(spike.registry, "read", lambda root: [])
@@ -408,6 +433,7 @@ def test_a_generated_summary_pairs_every_wilson_interval_with_a_clustered_one(
 def test_the_committed_summary_is_what_the_generator_prints_from_the_bakeoff_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The committed summary's study sections equal the generator's output on the bakeoff files."""
     committed = SUMMARY.read_text()
     date = re.search(r"Generated (\d{4}-\d\d-\d\d) by", committed)
     assert date
@@ -419,6 +445,7 @@ def test_the_committed_summary_is_what_the_generator_prints_from_the_bakeoff_fil
 
     def studies(text: str) -> str:
         # the registry's size and the gate's ledger keep growing; the study sections cannot
+        """Returns the text between the Inputs heading and the Rule-change gate heading."""
         return text[text.index("## Inputs") : text.index("## Rule-change gate")]
 
     assert studies(out.read_text()) == studies(committed), "regenerate results/public/SUMMARY.md"

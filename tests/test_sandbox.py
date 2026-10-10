@@ -27,6 +27,7 @@ _bwrap_works = bwrap_works
 
 
 def _ollama_up() -> bool:
+    """Returns True when a local Ollama server accepts a connection on its port, else False."""
     try:
         with socket.create_connection(("127.0.0.1", sandbox.OLLAMA_PORT), timeout=1):
             return True
@@ -36,6 +37,7 @@ def _ollama_up() -> bool:
 
 @pytest.fixture
 def spec(tmp_path: Path) -> Iterator[Spec]:
+    """Builds a temp base tree, overlay and xdg dirs, yields a no-network `Spec` and cleans up."""
     base = tmp_path / "base"
     (base / "pkg").mkdir(parents=True)
     (base / "existing.txt").write_text("original\n")
@@ -56,12 +58,14 @@ _sh = sh
 
 # ---------------------------------------------------------------- pure: argv construction
 def test_argv_isolates_net_unless_host(spec: Spec) -> None:
+    """The argv unshares the network unless the spec asks for host networking."""
     assert "--unshare-net" in sandbox.build_argv(spec, ["true"])
     host = Spec(**{**spec.__dict__, "net": "host"})
     assert "--unshare-net" not in sandbox.build_argv(host, ["true"])
 
 
 def test_argv_ollama_needs_proxy_and_bridges(spec: Spec, tmp_path: Path) -> None:
+    """An `ollama` net spec is refused without a proxy socket; with one the argv bridges it."""
     ollama = Spec(**{**spec.__dict__, "net": "ollama"})
     with pytest.raises(SandboxError):
         sandbox.build_argv(ollama, ["true"])
@@ -72,6 +76,7 @@ def test_argv_ollama_needs_proxy_and_bridges(spec: Spec, tmp_path: Path) -> None
 
 
 def test_argv_clears_env_and_allowlists_root(spec: Spec) -> None:
+    """The argv clears the environment, never binds the host root and mounts only the fixture."""
     argv = sandbox.build_argv(spec, ["true"])
     assert "--clearenv" in argv
     binds = [argv[i + 1] for i, a in enumerate(argv) if a == "--ro-bind"]
@@ -81,6 +86,7 @@ def test_argv_clears_env_and_allowlists_root(spec: Spec) -> None:
 
 
 def test_argv_overlay_over_base(spec: Spec) -> None:
+    """The argv overlays the writable upper and work dirs on the base at the workdir."""
     argv = sandbox.build_argv(spec, ["true"])
     i = argv.index("--overlay-src")
     assert argv[i + 1] == str(spec.base)
@@ -90,6 +96,7 @@ def test_argv_overlay_over_base(spec: Spec) -> None:
 
 
 def test_trial_env_ignores_host_env(spec: Spec, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The trial environment drops host variables and sets HOME, spec variables and no bytecode."""
     monkeypatch.setenv("AGENT_TEST_CANARY_SECRET", "s3cret")
     env = sandbox.trial_env(Spec(**{**spec.__dict__, "env": {"OPENCODE_X": "1"}}))
     assert "AGENT_TEST_CANARY_SECRET" not in env
@@ -98,6 +105,7 @@ def test_trial_env_ignores_host_env(spec: Spec, monkeypatch: pytest.MonkeyPatch)
 
 
 def test_check_layout_rejects_bad_layouts(spec: Spec, tmp_path: Path) -> None:
+    """A non-empty work dir, a missing xdg state dir or an upper equal to the base is refused."""
     sandbox.check_layout(spec)
     (spec.work / "junk").write_text("x")
     with pytest.raises(SandboxError, match="start empty"):
@@ -112,6 +120,7 @@ def test_check_layout_rejects_bad_layouts(spec: Spec, tmp_path: Path) -> None:
 
 
 def test_tree_hash_detects_drift(spec: Spec) -> None:
+    """The tree hash is stable, and a changed file or a stray cache directory counts as drift."""
     before = sandbox.tree_hash(spec.base)
     assert sandbox.tree_hash(spec.base) == before
     sandbox.verify_base(spec.base, before)
@@ -124,6 +133,7 @@ def test_tree_hash_detects_drift(spec: Spec) -> None:
 
 
 def test_overlay_changes_reads_upper(spec: Spec) -> None:
+    """Overlay changes lists files in the upper dir as written, with none deleted or unreadable."""
     (spec.upper / "added.txt").write_text("x")
     (spec.upper / "sub").mkdir()
     (spec.upper / "sub" / "m.py").write_text("y")
@@ -137,6 +147,7 @@ def test_overlay_changes_reads_upper(spec: Spec) -> None:
 # ---------------------------------------------------------------- real bwrap: the escape test
 @needs_bwrap
 def test_writes_land_in_overlay_and_base_is_untouched(spec: Spec) -> None:
+    """Creates, edits and deletes in the sandbox land in the overlay and leave the base intact."""
     before = sandbox.tree_hash(spec.base)
     result = _sh(
         spec,
@@ -153,6 +164,7 @@ def test_writes_land_in_overlay_and_base_is_untouched(spec: Spec) -> None:
 
 @needs_bwrap
 def test_host_filesystem_is_absent(spec: Spec) -> None:
+    """Host data directories, home, credentials and system paths are not visible in the sandbox."""
     home = str(Path.home())
     real = ["AIModels", "system-library", "harness", "trading", "archive", "ParamoLLC"]
     probes = [f"/mnt/ParamoStorage/{d}" for d in real]
@@ -184,6 +196,7 @@ def test_the_real_repo_path_inside_the_sandbox_is_the_base_not_the_host_repo(spe
 
 @needs_bwrap
 def test_host_canary_cannot_be_written_or_read(spec: Spec, tmp_path: Path) -> None:
+    """A host file can be neither overwritten nor read from the sandbox, and stays unchanged."""
     canary = tmp_path / "host_only_canary.txt"
     canary.write_text("untouched\n")
     result = _sh(spec, f"echo pwned > '{canary}'; cat '{canary}'")
@@ -194,6 +207,7 @@ def test_host_canary_cannot_be_written_or_read(spec: Spec, tmp_path: Path) -> No
 
 @needs_bwrap
 def test_system_dirs_are_read_only(spec: Spec) -> None:
+    """Writes to `/usr`, `/etc/hosts` and `/etc/passwd` fail in the sandbox and leave no file."""
     script = (
         "touch /usr/x 2>/dev/null; echo usr=$?; "
         "echo x >> /etc/hosts 2>/dev/null; echo hosts=$?; "
@@ -208,6 +222,7 @@ def test_system_dirs_are_read_only(spec: Spec) -> None:
 
 @needs_bwrap
 def test_ro_bind_cannot_be_written(spec: Spec, tmp_path: Path) -> None:
+    """A read-only bind shows its file in the sandbox but rejects writes, leaving the host file."""
     ro = tmp_path / "ro_dir"
     ro.mkdir()
     (ro / "f.txt").write_text("keep\n")
@@ -221,6 +236,7 @@ def test_ro_bind_cannot_be_written(spec: Spec, tmp_path: Path) -> None:
 def test_environment_and_processes_are_isolated(
     spec: Spec, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A host secret variable is absent in the sandbox, HOME is set and under 10 processes show."""
     monkeypatch.setenv("AGENT_TEST_CANARY_SECRET", "s3cret")
     result = _sh(spec, "env; echo PIDS=$(ls /proc | grep -c '^[0-9]')")
     assert "s3cret" not in result.stdout and "AGENT_TEST_CANARY_SECRET" not in result.stdout
@@ -231,6 +247,7 @@ def test_environment_and_processes_are_isolated(
 
 @needs_bwrap
 def test_python_bytecode_never_reaches_the_base(spec: Spec) -> None:
+    """Importing a module in the sandbox writes no bytecode cache and leaves the base unchanged."""
     before = sandbox.tree_hash(spec.base)
     result = _sh(spec, f"cd {sandbox.WORKDIR} && python3 -c 'import pkg.mod' && ls -A pkg")
     assert result.returncode == 0, result.stderr
@@ -246,11 +263,13 @@ _CONNECT = (
 
 
 def _connect(spec: Spec, host: str, port: int) -> str:
+    """Runs a one-shot TCP connect probe in the sandbox and returns CONNECTED or BLOCKED output."""
     return _sh(spec, f'python3 -c "{_CONNECT}" {host} {port}').stdout
 
 
 @needs_bwrap
 def test_net_none_blocks_everything(spec: Spec) -> None:
+    """With no network, connections to the local Ollama port and an external address are blocked."""
     assert "BLOCKED" in _connect(spec, "127.0.0.1", sandbox.OLLAMA_PORT)
     assert "BLOCKED" in _connect(spec, "1.1.1.1", 443)
 
@@ -258,6 +277,7 @@ def test_net_none_blocks_everything(spec: Spec) -> None:
 @needs_bwrap
 @pytest.mark.skipif(not _ollama_up(), reason="local Ollama not running")
 def test_net_ollama_reaches_only_ollama(spec: Spec) -> None:
+    """With Ollama net, the Ollama API answers while external and LAN addresses stay blocked."""
     ollama = Spec(**{**spec.__dict__, "net": "ollama"})
     version = _sh(
         ollama,
@@ -280,6 +300,7 @@ def test_net_ollama_reaches_only_ollama(spec: Spec) -> None:
 
 @needs_bwrap
 def test_remove_trial_dirs_handles_unreadable_workdir(spec: Spec) -> None:
+    """A work dir the kernel leaves behind after an overlay write is removed with the upper dir."""
     assert _sh(spec, f"echo a > {sandbox.WORKDIR}/a.txt").returncode == 0
     assert any(spec.work.iterdir()), "the kernel should have left its workdir behind"
     sandbox.remove_trial_dirs(spec.upper, spec.work)
@@ -287,6 +308,7 @@ def test_remove_trial_dirs_handles_unreadable_workdir(spec: Spec) -> None:
 
 
 def test_run_refuses_without_bwrap(spec: Spec, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A run with `bwrap` missing from the path is refused with a `SandboxError` naming bwrap."""
     monkeypatch.setattr(shutil, "which", lambda _name: None)
     with pytest.raises(SandboxError, match="bwrap"):
         sandbox.run(spec, ["true"])
@@ -295,6 +317,7 @@ def test_run_refuses_without_bwrap(spec: Spec, monkeypatch: pytest.MonkeyPatch) 
 @needs_bwrap
 @pytest.mark.skipif(not runner.OPENCODE.exists(), reason="opencode not installed")
 def test_real_opencode_runs_from_a_read_only_bind(spec: Spec) -> None:
+    """A read-only bound opencode binary prints its version in the sandbox and writes nothing."""
     binary = runner.OPENCODE.resolve()
     with_oc = Spec(**{**spec.__dict__, "ro_binds": ((binary, "/opt/bin/opencode"),)})
     result = _sh(with_oc, "opencode --version")
@@ -307,6 +330,7 @@ def test_real_opencode_runs_from_a_read_only_bind(spec: Spec) -> None:
 
 
 def test_argv_mounts_data_at_real_path_with_throwaway_writes(spec: Spec, tmp_path: Path) -> None:
+    """A data base is mounted at its real path via a temporary overlay, so writes are throwaway."""
     data = tmp_path / "data"
     data.mkdir()
     with_data = Spec(**{**spec.__dict__, "data_base": data})
@@ -320,6 +344,7 @@ def test_argv_mounts_data_at_real_path_with_throwaway_writes(spec: Spec, tmp_pat
 def test_data_slice_is_visible_at_the_real_path_and_writes_are_discarded(
     spec: Spec, tmp_path: Path
 ) -> None:
+    """The data slice is readable at its real path, writes are discarded, only three roots exist."""
     data = tmp_path / "data"
     (data / "backtesting data").mkdir(parents=True)
     (data / "backtesting data" / "f.txt").write_text("slice\n")
@@ -365,6 +390,7 @@ def _tiny_wheel(dest: Path) -> Path:
 def test_pip_install_into_the_read_only_venv_fails_and_changes_nothing(
     spec: Spec, tmp_path: Path
 ) -> None:
+    """A pip install into the read-only venv fails with a read-only error and changes nothing."""
     wheel = _tiny_wheel(tmp_path)
     binds = ((_FIXTURE_VENV, sandbox.VENV_DIR), (wheel, "/opt/zzprobe-1-py3-none-any.whl"))
     with_venv = Spec(**{**spec.__dict__, "ro_binds": binds})
@@ -382,6 +408,7 @@ def test_pip_install_into_the_read_only_venv_fails_and_changes_nothing(
 def test_limit_prefix_caps_memory_and_tasks_or_is_empty(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The limit prefix caps memory, swap and tasks, or is empty and warns without systemd-run."""
     sandbox.limit_prefix.cache_clear()
     monkeypatch.setattr(shutil, "which", lambda _n: None)
     assert sandbox.limit_prefix() == ()
@@ -400,6 +427,7 @@ def test_limit_prefix_caps_memory_and_tasks_or_is_empty(
 def test_the_host_side_environment_carries_only_what_systemd_run_needs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The host-side environment holds only the variables `systemd-run` needs, not secret keys."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "secret")
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
     env = sandbox._host_env()
@@ -408,6 +436,7 @@ def test_the_host_side_environment_carries_only_what_systemd_run_needs(
 
 
 def test_upper_exceeds_counts_bytes_and_entries_and_stops_early(tmp_path: Path) -> None:
+    """The size check flags too many bytes or entries, and an absent dir is under the cap."""
     (tmp_path / "d").mkdir()
     for i in range(5):
         (tmp_path / "d" / f"f{i}").write_bytes(b"x" * 100)
@@ -432,11 +461,13 @@ def test_a_directory_the_cap_cannot_read_counts_as_over_the_cap(tmp_path: Path) 
 
 
 def test_the_xdg_binds_are_measured_with_the_overlay(spec: Spec) -> None:
+    """The measured roots are the overlay upper dir plus the xdg config, data and state dirs."""
     assert spec.upper in sandbox.measured_roots(spec)
     assert {p.name for p in sandbox.measured_roots(spec)[1:]} == {"config", "data", "state"}
 
 
 def test_capped_output_keeps_a_bounded_amount_and_still_finishes(tmp_path: Path) -> None:
+    """Capped output keeps at most the cap and finishes; a timed-out process is killed."""
     flood = "import sys; sys.stdout.write('x' * 3_000_000); sys.stderr.write('err')"
     proc = subprocess.Popen(
         [sys.executable, "-c", flood],
@@ -458,12 +489,14 @@ def test_capped_output_keeps_a_bounded_amount_and_still_finishes(tmp_path: Path)
 def test_a_command_that_floods_stdout_in_the_sandbox_does_not_exhaust_harness_memory(
     spec: Spec,
 ) -> None:
+    """A command printing 80 MB in the sandbox gives at most `MAX_OUTPUT` of stdout and exits 0."""
     result = sandbox.run(spec, ["sh", "-c", "yes | head -c 80000000"], timeout=60)
     assert result.returncode == 0 and len(result.stdout) <= sandbox.MAX_OUTPUT
 
 
 @needs_bwrap
 def test_a_trial_cannot_create_a_nested_user_namespace(spec: Spec) -> None:
+    """A command in the sandbox cannot create a nested user namespace (`unshare --user` fails)."""
     result = _sh(
         spec, "unshare --user true >/dev/null 2>&1 && echo nested-ok || echo nested-denied"
     )
@@ -494,6 +527,7 @@ def test_fingerprint_is_the_documented_digest_of_paths_sizes_and_modes(tmp_path:
 def test_the_ollama_bridge_needs_socat_and_a_missing_one_is_named(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A missing `socat` is named in a `SandboxError` for Ollama net, but not for net none."""
     real = shutil.which
 
     def which(name: str, *a: Any, **k: Any) -> str | None:

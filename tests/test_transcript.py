@@ -8,10 +8,12 @@ from bench.transcript import Transcript
 
 
 def _event(kind: str, part: dict[str, object], ts: int = 1) -> str:
+    """Returns one JSON event line with the given kind, part and timestamp."""
     return json.dumps({"type": kind, "timestamp": ts, "part": part})
 
 
 def test_counts_tools_text_tokens_and_errors() -> None:
+    """A mixed stream gives the expected event, tool, error, step, token, cost and time counts."""
     lines = [
         _event("step_start", {}, 10),
         _event(
@@ -36,6 +38,7 @@ def test_counts_tools_text_tokens_and_errors() -> None:
 
 
 def test_silent_means_no_tool_and_no_text() -> None:
+    """A stream with only step events, and an empty transcript, both count as silent."""
     tr = Transcript().parse(_event("step_start", {}) + "\n" + _event("step_finish", {"tokens": {}}))
     assert tr.silent and tr.events == 2
     assert Transcript().silent
@@ -50,6 +53,7 @@ def test_an_event_with_a_non_object_part_does_not_kill_the_reader() -> None:
 
 
 def test_hostile_events_neither_kill_the_reader_nor_grow_without_bound() -> None:
+    """Malformed events are tolerated, a huge tool input is truncated and tools cap at 20000."""
     tr = Transcript()
     assert tr.feed('{"type": "tool_use", "part": {"state": "not a dict"}}')
     assert tr.feed('{"type": "step_finish", "part": {"tokens": {"total": "NaN"}, "cost": "x"}}')

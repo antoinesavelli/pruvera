@@ -16,6 +16,7 @@ NAME = re.compile(r"bench(?:\.\w+)+")
 
 
 def _imports(tree: ast.AST) -> set[str]:
+    """Returns the bench modules a parsed tree imports, naming each module of a package."""
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("bench"):
@@ -29,6 +30,7 @@ def _imports(tree: ast.AST) -> set[str]:
 
 
 def _named(doc: str) -> set[str]:
+    """Returns the bench module names listed in a docstring's Depends on paragraph."""
     match = DEPENDS.search(doc)
     text = match.group(1) if match else ""
     names = set(NAME.findall(BRACES.sub("", text)))
@@ -39,6 +41,7 @@ def _named(doc: str) -> set[str]:
 
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.relative_to(ROOT).as_posix())
 def test_the_depends_on_line_names_exactly_the_bench_modules_a_module_imports(path: Path) -> None:
+    """Each bench module's Depends on line names exactly the bench modules it imports."""
     tree = ast.parse(path.read_text())
     doc = ast.get_docstring(tree) or ""
     assert "Depends on" in doc, f"{path.name} has no `Depends on` line"
@@ -57,6 +60,7 @@ def test_the_depends_on_line_names_exactly_the_bench_modules_a_module_imports(pa
 
 
 def _logical_lines(path: Path) -> int:
+    """Counts a file's logical lines as its tokenizer NEWLINE tokens."""
     import io
     import tokenize
 
@@ -72,6 +76,7 @@ def test_no_harness_module_is_over_the_500_logical_line_ceiling() -> None:
 
 
 def _stems(paths: list[Path]) -> set[str]:
+    """Returns the set of file name stems of the given paths."""
     return {p.stem for p in paths}
 
 
@@ -81,6 +86,7 @@ def test_every_harness_module_is_named_in_the_module_tables() -> None:
     top = (ROOT / "README.md").read_text()
 
     def listed(stem: str, text: str) -> bool:
+        """Tells whether a module stem appears in backticks in the given text."""
         return re.search(rf"`{stem}(\.py)?`", text) is not None
 
     missing_in_bench = sorted(s for s in _stems(MODULES) if not listed(s, tables))

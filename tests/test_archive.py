@@ -11,6 +11,7 @@ from bench import archive, doctor, layout, runner
 
 
 def _results(tmp_path: Path) -> Path:
+    """Builds a results gate folder with one result, two companion files and a second result."""
     res = tmp_path / "results"
     (res / "gate").mkdir(parents=True)
     for name in ("a.jsonl", "a.scored.jsonl", "a.rederived-2026-10-02.json", "b.jsonl"):
@@ -21,6 +22,7 @@ def _results(tmp_path: Path) -> Path:
 
 
 def test_files_move_with_their_companions_and_leave_a_reason(tmp_path: Path) -> None:
+    """Archiving a result moves its companions to a dated folder and indexes the reason."""
     res = _results(tmp_path)
     moved = archive.archive([res / "gate" / "a.jsonl"], "build gone", res, day="2026-10-02")
     assert sorted(p.name for p in moved) == [
@@ -42,6 +44,7 @@ def test_files_move_with_their_companions_and_leave_a_reason(tmp_path: Path) -> 
 
 
 def test_a_file_named_with_its_companion_moves_once_and_a_cited_file_stays(tmp_path: Path) -> None:
+    """A file named with its companion moves once; a ledger-cited file is refused and stays."""
     res = _results(tmp_path)
     both = [res / "gate" / "a.jsonl", res / "gate" / "a.scored.jsonl"]
     assert len(archive.archive(both, "r", res, day="2026-10-02")) == 3
@@ -53,6 +56,7 @@ def test_a_file_named_with_its_companion_moves_once_and_a_cited_file_stays(tmp_p
 
 
 def test_nothing_is_overwritten_and_nothing_moves_twice(tmp_path: Path) -> None:
+    """A clash with an archived file raises and leaves no index line; re-archiving is refused."""
     res = _results(tmp_path)
     clash = res / "archive" / "2026-10-02" / "gate"
     clash.mkdir(parents=True)
@@ -68,6 +72,7 @@ def test_nothing_is_overwritten_and_nothing_moves_twice(tmp_path: Path) -> None:
 def test_the_doctor_audits_the_active_set_and_lists_the_archive_separately(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The doctor audits only the active results and lists archived files without auditing them."""
     monkeypatch.setattr(layout, "find_profile_dir", lambda h, v="v2": None)
     monkeypatch.setattr(runner, "model_digest", lambda m, port=11434: "")
     res = _results(tmp_path)
@@ -81,6 +86,7 @@ def test_the_doctor_audits_the_active_set_and_lists_the_archive_separately(
 
 
 def test_the_command_moves_the_named_files(tmp_path: Path) -> None:
+    """The archive command moves the files named on its command line and exits 0."""
     res = _results(tmp_path)
     argv = ["--results", str(res), "--reason", "r", str(res / "gate" / "b.jsonl")]
     assert archive.main(argv) == 0
@@ -88,6 +94,7 @@ def test_the_command_moves_the_named_files(tmp_path: Path) -> None:
 
 
 def test_a_file_a_registry_row_cites_stays_active_too(tmp_path: Path) -> None:
+    """A file cited by a registry row is refused for archiving and stays in place."""
     res = _results(tmp_path)
     (res / "registry.jsonl").write_text(
         json.dumps({"event": "started", "id": "e1", "out": "results/experiments/b.jsonl"}) + "\n"

@@ -14,6 +14,7 @@ from bench.fixture import build, pins
 
 @pytest.fixture
 def layout_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Builds a temp fixture layout with a git base, manifest, venv and data; returns its root."""
     root = tmp_path / "paramo"
     version = root / "versions" / "v9"
     tree = version / "tree"
@@ -32,6 +33,7 @@ def layout_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_pin_writes_git_hash_and_fingerprints_and_detects_a_later_change(
     layout_root: Path,
 ) -> None:
+    """Pinning stores the git hash and fingerprints, and a data change alters the fingerprint."""
     result = pins.pin("v9")
     version = layout_root / "versions" / "v9"
     manifest = json.loads((version / "MANIFEST.json").read_text())
@@ -44,6 +46,7 @@ def test_pin_writes_git_hash_and_fingerprints_and_detects_a_later_change(
 
 
 def test_git_state_hash_ignores_the_index_but_sees_config_hooks_and_refs(tmp_path: Path) -> None:
+    """The git state hash ignores the index but changes when a hook or a branch is added."""
     tree = tmp_path / "t"
     tree.mkdir()
     (tree / "a.txt").write_text("a\n")
@@ -61,6 +64,7 @@ def test_git_state_hash_ignores_the_index_but_sees_config_hooks_and_refs(tmp_pat
 def test_fingerprint_changes_with_a_size_a_name_or_a_mode_but_not_with_time(
     tmp_path: Path,
 ) -> None:
+    """The fingerprint changes with a file's size, mode or name, not its modification time."""
     d = tmp_path / "d"
     d.mkdir()
     (d / "f").write_text("12")
@@ -80,6 +84,7 @@ def test_fingerprint_changes_with_a_size_a_name_or_a_mode_but_not_with_time(
 def test_layout_reads_the_source_commit_from_the_manifest_and_builds_paths(
     layout_root: Path,
 ) -> None:
+    """Layout reads the source commit from the manifest and builds the version's paths."""
     (layout_root / "versions" / "v9" / "MANIFEST.json").write_text(
         json.dumps({"source_commit": "abc123"})
     )
@@ -135,7 +140,10 @@ def test_main_without_write_only_reports_drift_and_never_touches_the_pins(
 def test_the_pin_age_counts_days_commits_and_rule_files_behind_the_real_repo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Pin age counts commits behind and rule files changed; a missing repo gives an unknown age."""
+
     def git(*args: str) -> str:
+        """Runs git in the temp repo and returns its stripped standard output."""
         done = subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
         return done.stdout.decode().strip()
 

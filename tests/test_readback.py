@@ -13,15 +13,18 @@ from bench import readback, sandbox
 
 
 def _spec(tmp_path: Path) -> sandbox.Spec:
+    """Builds a sandbox spec whose base, upper, work and xdg directories sit under tmp_path."""
     return sandbox.Spec(
         base=tmp_path / "b", upper=tmp_path / "u", work=tmp_path / "w", xdg=tmp_path / "x"
     )
 
 
 def _fake_run(monkeypatch: pytest.MonkeyPatch, stdout: str = "", rc: int = 0) -> list[str]:
+    """Patches sandbox.run to record each script and return the given stdout and exit code."""
     scripts: list[str] = []
 
     def run(_spec: object, cmd: list[str], timeout: float | None = None) -> Any:
+        """Records the script and returns a completed process with the preset output and code."""
         scripts.append(cmd[-1])
         return subprocess.CompletedProcess(cmd, rc, stdout, "boom")
 
@@ -32,6 +35,7 @@ def _fake_run(monkeypatch: pytest.MonkeyPatch, stdout: str = "", rc: int = 0) ->
 def test_the_read_back_script_ignores_user_git_files_and_reads_through_a_fresh_index(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The read-back script ignores user git config, reads via a fresh index and stops on error."""
     scripts = _fake_run(monkeypatch)
     with pytest.raises(readback.ReadBackError):
         readback.read_back(_spec(tmp_path), "abc123")  # no marker in the empty output
@@ -45,11 +49,13 @@ def test_the_read_back_script_ignores_user_git_files_and_reads_through_a_fresh_i
 def test_a_nonzero_exit_or_a_timeout_is_a_failed_read_back_not_an_empty_diff(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A nonzero exit or a timeout raises a read-back error, not an empty diff."""
     _fake_run(monkeypatch, rc=128)
     with pytest.raises(readback.ReadBackError, match="exited 128"):
         readback.read_back(_spec(tmp_path), "abc")
 
     def slow(*_a: object, **_k: object) -> None:
+        """Fake `sandbox.run` that always raises a timeout error."""
         raise subprocess.TimeoutExpired("git", 1)
 
     monkeypatch.setattr(sandbox, "run", slow)
@@ -62,9 +68,11 @@ def test_a_nonzero_exit_or_a_timeout_is_a_failed_read_back_not_an_empty_diff(
 def test_read_back_splits_status_from_the_diff_at_its_random_marker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Read-back splits status from the diff at its random marker, not at a lookalike file name."""
     captured: dict[str, str] = {}
 
     def run(_spec: object, cmd: list[str], timeout: float | None = None) -> Any:
+        """Fake `sandbox.run` that finds the marker in the script and emits it before the diff."""
         marker = next(w for w in cmd[-1].split("'") if w.startswith("---DIFF-"))
         captured["marker"] = marker
         out = f" M a.py\n?? ---DIFF-fake---\n{marker}\ndiff --git a/a.py b/a.py\n"
@@ -78,7 +86,10 @@ def test_read_back_splits_status_from_the_diff_at_its_random_marker(
 def test_git_state_parses_commits_staged_files_and_stashes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Git state parses commits, the hidden flag, staged files and stashes from script output."""
+
     def run(_spec: object, cmd: list[str], timeout: float | None = None) -> Any:
+        """Fake `sandbox.run` that returns canned output built around the script's separator."""
         found = re.search(r"@@[0-9a-f]{32}@@", cmd[-1])
         assert found
         sep = found.group(0)
@@ -102,6 +113,7 @@ def test_git_state_parses_commits_staged_files_and_stashes(
 def test_a_bound_venv_reads_back_as_one_ignored_line_and_a_hidden_file_still_shows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """With real git, a 30-file venv reads back as one ignored line; ignored and new files show."""
     repo = tmp_path / "repo"
     (repo / ".venv" / "lib").mkdir(parents=True)
     for n in range(30):
@@ -119,6 +131,7 @@ def test_a_bound_venv_reads_back_as_one_ignored_line_and_a_hidden_file_still_sho
     (repo / "new.py").write_text("b = 2\n")
 
     def run(_spec: object, cmd: list[str], timeout: float | None = None) -> Any:
+        """Runs the read-back script with sh on the temp repo after remapping its sandbox paths."""
         script = cmd[-1].replace("/tmp/readback", f"{tmp_path}/readback")
         script = script.replace(sandbox.WORKDIR, str(repo))
         return subprocess.run(["sh", "-c", script], capture_output=True, text=True, env=env)
@@ -130,6 +143,7 @@ def test_a_bound_venv_reads_back_as_one_ignored_line_and_a_hidden_file_still_sho
 
 
 def _git(repo: Path, *args: str) -> str:
+    """Runs git in the repo with a fixed identity and minimal env and returns stripped stdout."""
     env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@t", "PATH": "/usr/bin:/bin", "HOME": "/x"}  # fmt: skip
     done = subprocess.run(
@@ -141,7 +155,10 @@ def _git(repo: Path, *args: str) -> str:
 def _real_git_state(
     repo: Path, tmp_path: Path, base: str, monkeypatch: pytest.MonkeyPatch
 ) -> dict[str, Any]:
+    """Reads `git_state` for a real repo by running the script with sh on remapped paths."""
+
     def run(_spec: object, cmd: list[str], timeout: float | None = None) -> Any:
+        """Runs the script with sh after pointing its temp files and workdir at the temp repo."""
         script = cmd[-1].replace("/tmp/gs.", f"{tmp_path}/gs.").replace(sandbox.WORKDIR, str(repo))
         return subprocess.run(["sh", "-c", script], capture_output=True, text=True)
 
@@ -153,6 +170,7 @@ def _real_git_state(
 def test_a_commit_hidden_by_reset_and_a_deleted_reflog_still_shows_as_committed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, undo: str
 ) -> None:
+    """A commit undone by reset (mixed or hard) with its reflog deleted is still listed, hidden."""
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-q")
@@ -179,6 +197,7 @@ def test_a_commit_hidden_by_reset_and_a_deleted_reflog_still_shows_as_committed(
 def test_a_visible_commit_is_listed_once_and_not_marked_hidden(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A normal commit after the base is listed once and carries no hidden flag."""
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-q")
@@ -196,6 +215,7 @@ def test_a_visible_commit_is_listed_once_and_not_marked_hidden(
 def test_a_peer_stash_is_not_a_hidden_commit_but_a_dropped_one_is(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A live stash is listed as a stash, not a commit; once dropped, its commit shows as hidden."""
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-q")

@@ -17,13 +17,17 @@ from bench import ollama_filter
 
 
 class _Fake(http.server.BaseHTTPRequestHandler):
+    """A fake upstream handler that echoes request bodies and records methods, paths and hosts."""
+
     seen: list[tuple[str, str]] = []
     hosts: list[str] = []
 
     def log_message(self, format: str, *args: object) -> None:
+        """Silences the handler request log."""
         return
 
     def _reply(self) -> None:
+        """Records the request and replies 200 with its body echoed after a prefix."""
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
         _Fake.seen.append((self.command, self.path))
@@ -38,6 +42,7 @@ class _Fake(http.server.BaseHTTPRequestHandler):
 
 @pytest.fixture
 def upstream() -> Iterator[int]:
+    """Serves the fake upstream on a free local port for the test and yields that port."""
     _Fake.seen = []
     _Fake.hosts = []
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Fake)
@@ -48,16 +53,21 @@ def upstream() -> Iterator[int]:
 
 
 class _UnixConn(http.client.HTTPConnection):
+    """An HTTP client connection that talks over a Unix socket path instead of TCP."""
+
     def __init__(self, path: str) -> None:
+        """Stores the Unix socket path for later connection."""
         super().__init__("localhost")
         self._path = path
 
     def connect(self) -> None:
+        """Opens a Unix stream socket to the stored path."""
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.connect(self._path)
 
 
 def call(sock: Path, method: str, path: str, body: bytes | None = None) -> tuple[int, bytes]:
+    """Sends one request over the Unix socket and returns the status code and response body."""
     conn = _UnixConn(str(sock))
     conn.request(method, path, body)
     resp = conn.getresponse()
@@ -67,6 +77,7 @@ def call(sock: Path, method: str, path: str, body: bytes | None = None) -> tuple
 
 
 def test_allowlist_passes_inference_and_refuses_everything_that_changes_the_host() -> None:
+    """The allowlist passes inference routes and refuses host-changing calls and path tricks."""
     for method, path in (
         ("POST", "/v1/chat/completions"),
         ("GET", "/v1/models"),
@@ -93,6 +104,7 @@ def test_allowlist_passes_inference_and_refuses_everything_that_changes_the_host
 def test_served_over_a_unix_socket_forwards_allowed_and_blocks_the_rest(
     tmp_path: Path, upstream: int
 ) -> None:
+    """Over a mode 600 socket, allowed calls forward in canonical form and the rest get 403."""
     sock = tmp_path / "f.sock"
     with ollama_filter.serve(sock, upstream, frozenset({"m"})):
         assert sock.stat().st_mode & 0o777 == 0o600
@@ -110,6 +122,7 @@ def test_served_over_a_unix_socket_forwards_allowed_and_blocks_the_rest(
 
 
 def test_unreachable_upstream_is_a_502_not_a_hang(tmp_path: Path) -> None:
+    """An unreachable upstream gives a 502 reply rather than a hang."""
     free = socket.socket()
     free.bind(("127.0.0.1", 0))
     port = free.getsockname()[1]
@@ -131,6 +144,7 @@ def test_a_refused_call_with_a_large_body_gets_a_clean_403_not_a_reset(
 
 
 def test_model_allowlist_refuses_other_models_but_not_requests_without_one() -> None:
+    """Allowlist refuses other or malformed models, allows a request naming none, fails closed."""
     models = frozenset({"gpt-oss:20b"})
     assert ollama_filter.model_allowed(b'{"model": "gpt-oss:20b"}', models)
     assert not ollama_filter.model_allowed(b'{"model": "llama3:70b"}', models)
@@ -161,6 +175,7 @@ def test_the_model_gate_cannot_be_dodged_by_key_case_alias_or_duplicates() -> No
 def test_conflicting_or_duplicate_content_length_headers_are_refused(
     tmp_path: Path, upstream: int
 ) -> None:
+    """Two Content-Length headers get a 400 and nothing reaches the upstream."""
     sock = tmp_path / "f.sock"
     with ollama_filter.serve(sock, upstream, frozenset({"m"})):
         raw = (
@@ -178,6 +193,7 @@ def test_conflicting_or_duplicate_content_length_headers_are_refused(
 def test_served_with_an_allowlist_blocks_a_model_that_is_not_listed(
     tmp_path: Path, upstream: int
 ) -> None:
+    """A listed model gets 200; an unlisted one gets 403 and is never forwarded upstream."""
     sock = tmp_path / "f.sock"
     with ollama_filter.serve(sock, upstream, frozenset({"ok:1b"})):
         assert call(sock, "POST", "/v1/chat/completions", b'{"model": "ok:1b"}')[0] == 200
@@ -194,6 +210,7 @@ def test_deeply_nested_json_is_refused_not_a_crash() -> None:
 def test_a_client_that_stalls_mid_request_is_dropped_after_the_read_timeout(
     tmp_path: Path, upstream: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A stalled sender is hung up on after the read timeout while others are still served."""
     monkeypatch.setattr(ollama_filter, "READ_TIMEOUT", 0.4)
     sock = tmp_path / "f.sock"
     with ollama_filter.serve(sock, upstream, frozenset({"m"})):
@@ -209,6 +226,7 @@ def test_a_client_that_stalls_mid_request_is_dropped_after_the_read_timeout(
 def test_a_slow_drip_client_loses_its_slot_at_the_total_deadline_not_per_receive(
     tmp_path: Path, upstream: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A slow-drip client is hung up on at the total deadline; its body is never forwarded."""
     monkeypatch.setattr(ollama_filter, "REQUEST_DEADLINE", 0.5)
     sock = tmp_path / "f.sock"
     with ollama_filter.serve(sock, upstream, frozenset({"m"})):
@@ -239,6 +257,7 @@ def test_a_slow_drip_client_loses_its_slot_at_the_total_deadline_not_per_receive
 def test_a_unicode_digit_content_length_is_a_clean_400_not_a_crash(
     tmp_path: Path, upstream: int
 ) -> None:
+    """A Content-Length written with a Unicode digit gets a clean 400 and nothing is forwarded."""
     sock = tmp_path / "f.sock"
     with ollama_filter.serve(sock, upstream, frozenset({"m"})):
         client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -271,12 +290,14 @@ def test_a_unicode_digit_content_length_is_a_clean_400_not_a_crash(
     ],
 )
 def test_requests_may_not_resize_the_context_or_pin_the_model(body: bytes, ok: bool) -> None:
+    """Requests with an oversized context, keep-alive or token limit are refused; sane ones pass."""
     assert ollama_filter.model_allowed(body, frozenset({"m"})) is ok
 
 
 def test_a_connection_beyond_the_slots_is_told_503_not_queued_in_a_thread(
     tmp_path: Path, upstream: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A connection beyond the slot limit gets a 503 after a short wait instead of queuing."""
     monkeypatch.setattr(ollama_filter, "MAX_CONNECTIONS", 1)
     monkeypatch.setattr(ollama_filter, "SLOT_WAIT", 0.2)
     sock = tmp_path / "f.sock"
@@ -292,6 +313,7 @@ def test_a_connection_beyond_the_slots_is_told_503_not_queued_in_a_thread(
 def test_trace_records_request_shapes_and_latencies_but_never_text(
     tmp_path: Path, upstream: int
 ) -> None:
+    """The trace records each request's shape and timings and never any message text."""
     trace = tmp_path / "trace.jsonl"
     sock = tmp_path / "f.sock"
     secret = "def secret_strategy(): pass"
@@ -330,6 +352,7 @@ def test_option_smuggling_by_case_alias_or_unknown_key_is_refused(body: bytes) -
 
 
 def test_plain_sampling_options_still_pass() -> None:
+    """Ordinary sampling options (temperature, context size, predict, seed) still pass."""
     body = b'{"model":"m","options":{"temperature":0.2,"num_ctx":65536,"num_predict":-1,"seed":3}}'
     assert ollama_filter.model_allowed(body, frozenset({"m"}))
 
@@ -337,6 +360,7 @@ def test_plain_sampling_options_still_pass() -> None:
 def test_connections_beyond_the_thread_cap_get_no_thread(
     tmp_path: Path, upstream: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Connections beyond the thread cap get an immediate 503 while idle ones hold the threads."""
     monkeypatch.setattr(ollama_filter, "MAX_THREADS", 2)
     monkeypatch.setattr(ollama_filter, "READ_TIMEOUT", 3.0)
     sock = tmp_path / "f.sock"
@@ -359,6 +383,7 @@ def test_connections_beyond_the_thread_cap_get_no_thread(
 def test_the_trace_stops_growing_at_its_cap_and_logs_no_query_string(
     tmp_path: Path, upstream: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The trace stops growing at its byte cap and never logs a request query string."""
     monkeypatch.setattr(ollama_filter, "TRACE_MAX_BYTES", 300)
     trace = tmp_path / "t.jsonl"
     sock = tmp_path / "f.sock"
@@ -387,6 +412,7 @@ def test_unicode_case_folded_keys_and_huge_stop_lists_are_refused(body: bytes) -
 def test_the_body_forwarded_upstream_is_the_one_the_filter_parsed(
     tmp_path: Path, upstream: int
 ) -> None:
+    """Upstream gets the canonical body the filter parsed; None and empty pass through unchanged."""
     sock = tmp_path / "f.sock"
     with ollama_filter.serve(sock, upstream, frozenset({"m"})):
         status, data = call(sock, "POST", "/v1/chat/completions", b'{ "model" :  "m" ,"x":[1, 2]}')
@@ -397,6 +423,7 @@ def test_the_body_forwarded_upstream_is_the_one_the_filter_parsed(
 def test_a_lower_case_host_header_is_not_forwarded_and_a_non_ascii_path_is_a_clean_502(
     tmp_path: Path, upstream: int
 ) -> None:
+    """A lower-case Host header is not forwarded upstream, and a non-ASCII path gets a clean 502."""
     sock = tmp_path / "f.sock"
     with ollama_filter.serve(sock, upstream, frozenset({"m"})):
         for target, expected in (("/api/tags", b"200"), ("/api/tags?q=é", b"502")):
