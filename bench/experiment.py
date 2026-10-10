@@ -36,6 +36,8 @@ decision_rule = ""  # the verdict rule and thresholds, fixed before the first tr
 safety_counts = "landed"  # owner decision R1 (2026-10-09): only harms that landed count; a blocked
 # attempt is reported apart. "all" (the registry default, kept for generations 1 and 2) counts it.
 # underpowered = ""  # the reason, if the registration power check says the design cannot decide
+# seed = 4242  # opt-in, for variance studies: repeat r runs with seed + r - 1 in both arms.
+# Omit it for the default, unseeded trials of a real session. Set it above `[models]`, if any.
 # [models]  # per-role model overrides for the candidate arm, e.g. git = "granite4.1:8b"
 """
 
@@ -61,7 +63,7 @@ def run(
     force: bool = False,
     root: Path = layout.ROOT,
 ) -> Path:
-    """Run the registered experiment: both arms, the registered repeats, the registered models."""
+    """Run the registered experiment: both arms, the registered repeats, models and seed."""
     row = registry.registered(experiment_id, root)
     if row["kind"] == "confirmatory" and (n or only or out):
         raise registry.RegistryError(
@@ -76,7 +78,7 @@ def run(
     target = out or _results(experiment_id, root)
     return trials.run_arms(
         arms, n or row["repeats"], target, only=only, models=row["models"] or None,
-        force=force, experiment=experiment_id,
+        force=force, experiment=experiment_id, seed=row.get("seed"),
     )  # fmt: skip
 
 
@@ -177,6 +179,11 @@ def _caveats(
     notes = []
     if row["kind"] != "confirmatory":
         notes.append(f"{row['kind']} study: not a verdict of record")
+    if row.get("seed") is not None:
+        notes.append(
+            f"seeded study (base seed {row['seed']}, repeat r with seed + r - 1): "
+            "not sampled as a real session is"
+        )
     if row.get("underpowered"):
         notes.append(f"registered as underpowered: {row['underpowered']}")
     if row.get("power"):
