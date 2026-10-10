@@ -35,7 +35,10 @@ DOCUMENTED = (
 def test_seed_without_write_is_a_dry_run_that_touches_nothing(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Seeding without `--write` exits 0, reports a dry run and never calls the seeder."""
+
     def boom(_root: Path) -> list[object]:
+        """Stand-in seeder that raises `AssertionError` if it is called."""
         raise AssertionError("seed() must not run without --write")
 
     monkeypatch.setattr(seed, "seed", boom)
@@ -46,6 +49,7 @@ def test_seed_without_write_is_a_dry_run_that_touches_nothing(
 def test_seed_with_write_runs_the_seeder_and_reports_counts(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
+    """With `--write` the seeder runs and `main` exits 0, reporting how many issues were written."""
     monkeypatch.setattr(seed, "seed", lambda _root: [object(), object()])
     monkeypatch.setattr(layout, "ROOT", tmp_path)
     assert seed.main(["--write"]) == 0

@@ -35,6 +35,7 @@ def test_seed_code_and_the_committed_catalogue_agree_for_every_hand_issue() -> N
 
 
 def test_mutant_issue_builds_the_planted_edit_from_a_campaign_record(tmp_path: Path) -> None:
+    """A killed campaign mutant becomes a test-detected issue, and a survivor a review-only one."""
     tree = tmp_path / "t"
     (tree / "utils").mkdir(parents=True)
     (tree / "utils" / "m.py").write_text("a = 1\nif x > 5:\n    y = 2\n")
@@ -78,6 +79,7 @@ def test_mutant_issue_builds_the_planted_edit_from_a_campaign_record(tmp_path: P
 
 # ------------------------------------------------------------------ mine
 def test_category_maps_drop_reasons_to_categories_without_keeping_diff_text() -> None:
+    """Drop reasons map to coarse categories, and an unknown reason falls back to other."""
     assert mine.category("diff is ciphertext or binary") == "ciphertext"
     assert mine.category("does not apply: no hunk") == "does_not_apply"
     assert mine.category("scrub token in text") == "scrub_token"
@@ -85,6 +87,7 @@ def test_category_maps_drop_reasons_to_categories_without_keeping_diff_text() ->
 
 
 def test_kept_paths_lists_files_but_not_git(tmp_path: Path) -> None:
+    """Lists the relative paths of the files in a tree and leaves out the .git directory."""
     (tmp_path / "a").mkdir()
     (tmp_path / "a" / "x.py").write_text("")
     (tmp_path / ".git").mkdir()
@@ -94,6 +97,7 @@ def test_kept_paths_lists_files_but_not_git(tmp_path: Path) -> None:
 
 @pytest.fixture
 def mining(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Builds a small tree with one ask-first file and stubs the miner's git and rule lookups."""
     tree = tmp_path / "tree"
     (tree / "engine").mkdir(parents=True)
     (tree / "engine" / "a.py").write_text("x = 1\n")
@@ -114,6 +118,7 @@ def mining(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _cand(commit: str, source: str) -> miner.Candidate:
+    """Builds a mining candidate for one commit that changes x = 1 to x = 2 in the given file."""
     edit = Edit(source, "x = 1", "x = 2")
     return miner.Candidate(commit, (source,), ("tests/t.py",), (edit,), 2)
 
@@ -121,6 +126,7 @@ def _cand(commit: str, source: str) -> miner.Candidate:
 def test_mine_sorts_every_selected_commit_into_a_verdict_and_writes_the_list(
     mining: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Mining gives each selected commit a verdict, writes the list file and honours a limit."""
     sels = [miner.Selected(c, ("engine/a.py",), ("tests/t.py",), 3) for c in ("c1", "c2", "c3")]
     monkeypatch.setattr(miner, "select", lambda *_a: sels)
     outcomes = {
@@ -143,6 +149,7 @@ def test_mine_sorts_every_selected_commit_into_a_verdict_and_writes_the_list(
 def test_accept_skips_a_file_a_catalogued_issue_already_plants_into(
     mining: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Accepting skips a commit whose source file a catalogued issue already plants into."""
     planted = make_issue(id="mut-a-1", edits=(Edit("engine/a.py", "x", "y"),))
     schema.write(mine.ROOT / "issues", planted)
     rows = [
@@ -158,6 +165,7 @@ def test_accept_skips_a_file_a_catalogued_issue_already_plants_into(
 def test_accept_writes_a_fix_in_an_ask_first_file_as_an_ask_first_issue(
     mining: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Accepting a fix in an ask-first file writes an ask-first issue that protects that file."""
     row = {
         "commit": "c9",
         "verdict": "caught_assertion",
@@ -177,6 +185,7 @@ def test_accept_writes_a_fix_in_an_ask_first_file_as_an_ask_first_issue(
 def test_reevaluate_and_accept_write_only_what_the_rules_allow(
     mining: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Reevaluate updates verdicts; accept writes one issue per file, skipping a rejected commit."""
     rows = [
         {
             "commit": "c1",
@@ -228,13 +237,16 @@ def test_reevaluate_and_accept_write_only_what_the_rules_allow(
 def test_mine_main_dispatches_to_reevaluate_accept_and_mine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The mine entry point routes the reevaluate, accept and limit flags to the matching call."""
     seen: list[str] = []
 
     def accept(n: int, verdict: str) -> list[str]:
+        """Stands in for `mine.accept` and records the count and verdict it is called with."""
         seen.append(f"accept{n}:{verdict}")
         return []
 
     def run_mine(limit: int | None = None) -> list[dict[str, object]]:
+        """Stands in for `mine.mine` and records the limit it is called with."""
         seen.append(f"mine{limit}")
         return []
 
@@ -249,6 +261,7 @@ def test_mine_main_dispatches_to_reevaluate_accept_and_mine(
 
 # ------------------------------------------------------------------ read audit plugin
 def test_the_read_audit_logs_a_missing_data_path_once_per_test(tmp_path: Path) -> None:
+    """The read audit logs a missing data path once per test and ignores other missing paths."""
     log = tmp_path / "log.jsonl"
     code = (
         "import audit_reads as a\n"
@@ -267,6 +280,7 @@ def test_the_read_audit_logs_a_missing_data_path_once_per_test(tmp_path: Path) -
 
 # ------------------------------------------------------------------ campaign
 def test_sample_is_deterministic_and_kind_balanced() -> None:
+    """A seeded sample repeats, takes at most per_kind mutants of an operator and can return all."""
     source = "a = 1 < 2\nb = 3 > 4\nc = True\nd = [1, 2, 3, 4, 5]\ne = x[1] + 2\n"
     first = campaign.sample(source, 7, per_kind=1)
     assert first == campaign.sample(source, 7, per_kind=1)
@@ -280,6 +294,7 @@ def test_sample_is_deterministic_and_kind_balanced() -> None:
 def test_evaluate_marks_mutants_killed_or_survived_and_skips_a_red_baseline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Evaluate marks each mutant killed or survived and returns none when the baseline fails."""
     tree = tmp_path / "t"
     (tree / "utils").mkdir(parents=True)
     (tree / "utils" / "m.py").write_text("ok = 1 < 2\n")
@@ -288,6 +303,7 @@ def test_evaluate_marks_mutants_killed_or_survived_and_skips_a_red_baseline(
     def fake(
         _env: Any, _args: Any, overrides: dict[str, str] | None = None, **_k: Any
     ) -> check.Result:
+        """Fake pytest run: the baseline passes and a mutant containing `<=` fails one test."""
         if overrides is None:
             return check.Result(0)
         return (
@@ -306,6 +322,7 @@ def test_evaluate_marks_mutants_killed_or_survived_and_skips_a_red_baseline(
 def test_campaign_main_writes_one_record_per_module(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The campaign command writes one record per module to the campaign file and prints kills."""
     monkeypatch.setattr(layout, "ROOT", tmp_path)
     monkeypatch.setattr(
         campaign, "evaluate", lambda env, m, t, seed=1: {"module": m, "mutants": [{"killed": True}]}
@@ -320,6 +337,7 @@ def test_campaign_main_writes_one_record_per_module(
 def test_shebangs_point_at_the_trial_path_and_the_pth_puts_the_tree_on_the_path(
     tmp_path: Path,
 ) -> None:
+    """Shebang rewriting fixes host and stale scripts once; the .pth puts the tree on the path."""
     venv = tmp_path / "venv"
     (venv / "bin").mkdir(parents=True)
     (venv / "lib" / "python3.12" / "site-packages").mkdir(parents=True)
@@ -339,6 +357,7 @@ def test_shebangs_point_at_the_trial_path_and_the_pth_puts_the_tree_on_the_path(
 def test_venv_build_refuses_without_uv_or_over_an_existing_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Building a venv is refused when uv is missing or the target directory already exists."""
     monkeypatch.setattr(shutil, "which", lambda _n: None)
     with pytest.raises(fixture_venv.VenvError, match="uv not found"):
         fixture_venv.build(tmp_path, tmp_path / "v")
@@ -351,10 +370,12 @@ def test_venv_build_refuses_without_uv_or_over_an_existing_directory(
 def test_venv_build_runs_each_step_and_reports_a_failing_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A build stops at the first failing command and raises an error carrying its stderr."""
     monkeypatch.setattr(shutil, "which", lambda _n: "/usr/bin/uv")
     ran: list[list[str]] = []
 
     def fake_run(cmd: list[str], **_k: Any) -> subprocess.CompletedProcess[str]:
+        """Records each command and fails the second one with the stderr text boom."""
         ran.append(cmd)
         return subprocess.CompletedProcess(cmd, 1 if len(ran) == 2 else 0, "", "boom")
 
@@ -370,6 +391,7 @@ def test_venv_build_runs_each_step_and_reports_a_failing_one(
 def test_cli_check_reports_the_fixture_and_the_preflight_and_trial_runs_one(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Check reports fixture and preflight status; trial and replay forward their options."""
     fx = runner.Fixture("v", Path("/x"), {"tree_hash": "", "fixture_base_commit": ""})
     monkeypatch.setattr(runner, "load_profile", lambda _v, _p: fx)
     monkeypatch.setattr(runner, "check_fixture", lambda _fx: None)
@@ -381,6 +403,7 @@ def test_cli_check_reports_the_fixture_and_the_preflight_and_trial_runs_one(
     seen: dict[str, Any] = {}
 
     def fake_trial(_fx: Any, spec: runner.TrialSpec, *_a: Any, **kw: Any) -> dict[str, Any]:
+        """Stands in for `runner.run_trial`, recording the spec and force flag."""
         seen.update(spec=spec, force=kw.get("force"))
         return {
             "trial_id": "t",
@@ -419,6 +442,7 @@ def test_cli_check_reports_the_fixture_and_the_preflight_and_trial_runs_one(
 def test_verify_main_stamps_proofs_only_for_issues_that_pass(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Verify stamps proofs only on passing issues, and a failing issue fails the run."""
     good = Edit("p/m.py", "a", "b")
     issues = {
         "x-1": schema.Issue(
@@ -454,6 +478,7 @@ def test_verify_main_stamps_proofs_only_for_issues_that_pass(
 def test_the_index_chunks_docs_embeds_them_and_writes_the_arrays(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The index chunks docs but not code or an answer key, embeds them and writes the arrays."""
     np = pytest.importorskip("numpy")
     from bench.rag import index
 
@@ -469,19 +494,26 @@ def test_the_index_chunks_docs_embeds_them_and_writes_the_arrays(
     assert all(c["text"].startswith("docs/a.md\n") for c in chunks)
 
     class Resp:
+        """Fake `urlopen` response whose read returns n fixed embeddings as JSON."""
+
         def __init__(self, n: int) -> None:
+            """Stores the number of embeddings to return."""
             self.n = n
 
         def __enter__(self) -> Resp:
+            """Returns the response itself as the context value."""
             return self
 
         def __exit__(self, *_a: object) -> None:
+            """Does nothing on exit and lets any exception propagate."""
             return None
 
         def read(self) -> bytes:
+            """Returns a JSON body holding n copies of the embedding [3.0, 4.0]."""
             return json.dumps({"embeddings": [[3.0, 4.0]] * self.n}).encode()
 
     def fake_open(req: Any, timeout: int = 0) -> Resp:
+        """Fake `urlopen` returning a response sized to the number of request inputs."""
         return Resp(len(json.loads(req.data)["input"]))
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_open)
@@ -494,6 +526,7 @@ def test_the_index_chunks_docs_embeds_them_and_writes_the_arrays(
 
 
 def test_reseeding_keeps_a_measured_difficulty_and_proof(tmp_path: Path) -> None:
+    """Reseeding keeps an issue's measured difficulty and proof; a fresh catalogue gets none."""
     catalogue = tmp_path / "issues"
     hand = seed.hand_issues()[0]
     schema.write(catalogue, dataclasses.replace(hand, difficulty="hard", proven_on="v2"))

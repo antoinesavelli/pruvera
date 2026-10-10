@@ -39,6 +39,7 @@ PY""")
 
 
 def _defined(path: Path, suffix: str = "", prefix: str = "") -> list[str]:
+    """Returns the top-level class and function names in a file that match a prefix and a suffix."""
     tree = ast.parse(path.read_text())
     return [
         n.name
@@ -75,6 +76,7 @@ NAMES = stub_names()
 )
 @pytest.mark.skipif(NAMES is None, reason="the fixture's one strategy stub is not present")
 def test_kept_strategies_register_and_the_stub_is_inert_but_valid() -> None:
+    """In the built fixture the kept strategies register and the stub scans empty and validates."""
     assert NAMES is not None
     out = check.run_cmd(ENV, SCRIPT.substitute(NAMES))
     assert out.passed, out.tail
@@ -97,6 +99,7 @@ def test_kept_strategies_register_and_the_stub_is_inert_but_valid() -> None:
 
 
 def test_stub_names_are_read_from_the_stub_files(tmp_path: Path) -> None:
+    """Stub names are read from the stub files, and with no stub present the lookup returns None."""
     (tmp_path / "config/trading/strategies").mkdir(parents=True)
     (tmp_path / "engine/screener").mkdir(parents=True)
     assert stub_names(tmp_path) is None, "no stub: nothing to check"

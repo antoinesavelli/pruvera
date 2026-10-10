@@ -23,6 +23,7 @@ CONFIG = {
 
 
 def _events(tools: list[tuple[str, dict[str, Any], str, str]], text: str) -> str:
+    """Builds a JSON-lines transcript of tool calls with status and error, then text and finish."""
     lines = []
     for tool, inp, status, err in tools:
         state = {"status": status, "input": inp, "error": err, "output": err}
@@ -33,6 +34,7 @@ def _events(tools: list[tuple[str, dict[str, Any], str, str]], text: str) -> str
 
 
 def _record(tmp_path: Path, env: str, i: int, events: str) -> dict[str, Any]:
+    """Writes a transcript to a new dir and returns a trial record for the given side and index."""
     adir = tmp_path / f"{env}-{i}"
     adir.mkdir()
     (adir / "transcript.jsonl").write_text(events)
@@ -49,6 +51,7 @@ def _record(tmp_path: Path, env: str, i: int, events: str) -> dict[str, Any]:
 
 
 def test_compare_finds_a_one_sided_error_and_normalises_paths(tmp_path: Path) -> None:
+    """A tool error seen only on the fixture side is reported, and workdir paths are stripped."""
     good = _events([("glob", {}, "completed", "")], f"{sandbox.WORKDIR}/utils/x.py:3")
     broken = _events(
         [("glob", {}, "error", "ripgrep execution failed")], f"{sandbox.WORKDIR}/utils/x.py:3"
@@ -72,6 +75,7 @@ def test_compare_finds_a_one_sided_error_and_normalises_paths(tmp_path: Path) ->
 
 
 def test_command_head_reduces_bash_and_keeps_other_tools() -> None:
+    """`command_head` reduces a bash call to its leading command and returns other tools by name."""
     bash = {
         "tool": "bash",
         "input": {"command": f'bash -lc "cd {sandbox.WORKDIR} && git status --porcelain"'},
@@ -81,6 +85,7 @@ def test_command_head_reduces_bash_and_keeps_other_tools() -> None:
 
 
 def _git_source(tmp_path: Path) -> Path:
+    """Creates a one-file git repo with a single commit and returns its path."""
     source = tmp_path / "src"
     (source / "pkg").mkdir(parents=True)
     (source / "pkg" / "m.py").write_text("X = 1\n")
@@ -94,6 +99,7 @@ needs_bwrap = needs_bwrap_marker
 
 
 def _reference(tmp_path: Path, source: Path, script: str, spec: runner.TrialSpec) -> dict[str, Any]:
+    """Runs the reference runner on a source repo with a fake agent script; returns its record."""
     cfg = tmp_path / "real.json"
     cfg.write_text(json.dumps(CONFIG))
     return reference.run_reference(
@@ -111,6 +117,7 @@ def _reference(tmp_path: Path, source: Path, script: str, spec: runner.TrialSpec
 
 @needs_bwrap
 def test_reference_runner_uses_a_disposable_copy_and_records_the_same_shape(tmp_path: Path) -> None:
+    """A reference run edits a disposable copy, records the usual shape and spares the source."""
     source = _git_source(tmp_path)
     hooks = (runner.Hook("dirty", "pkg/m.py", "# dirt\n"),)
     spec = runner.TrialSpec(agent="a", model="m", prompt="p", label="t1", hooks=hooks, net="none")
@@ -155,10 +162,12 @@ def test_the_reference_agent_is_sandboxed_like_a_fixture_agent(
 
 @needs_bwrap
 def test_a_killed_or_failed_reference_trial_still_leaves_no_copy_behind(tmp_path: Path) -> None:
+    """A reference trial whose pre-run check raises propagates the error and leaves no copy."""
     source = _git_source(tmp_path)
     spec = runner.TrialSpec(agent="a", model="m", prompt="p", net="none")
 
     def blocked(force: bool = False) -> list[Any]:
+        """Stands in for the pre-run check and always raises `RuntimeError`."""
         raise RuntimeError("blocked")
 
     cfg = tmp_path / "real.json"
@@ -178,6 +187,7 @@ def test_a_killed_or_failed_reference_trial_still_leaves_no_copy_behind(tmp_path
 
 
 def test_discard_removes_a_stale_prepared_copy_including_unreadable_dirs(tmp_path: Path) -> None:
+    """`discard` removes a stale prepared copy with an unreadable subdir; an absent one is fine."""
     stale = tmp_path / "ref-source"
     locked = stale / "tree" / "locked"
     locked.mkdir(parents=True)
@@ -191,6 +201,7 @@ def test_discard_removes_a_stale_prepared_copy_including_unreadable_dirs(tmp_pat
 def _rec(
     side: str, label: str, calls: int, secs: float, ok: bool = True, err: int = 0
 ) -> dict[str, Any]:
+    """Builds a minimal trial record for a side and task with calls, seconds, outcome and errors."""
     return {
         "environment": side,
         "label": label,
@@ -202,6 +213,7 @@ def _rec(
 
 
 def test_effects_call_equal_sides_equivalent_and_a_2x_gap_different() -> None:
+    """`effects` calls equal sides equivalent and a 2x gap in tool calls different."""
     same = [
         _rec(s, f"t{i}", 4 + (i % 2), 10.0) for i in range(8) for s in ("fixture", "reference")
     ] * 2
@@ -216,6 +228,7 @@ def test_effects_call_equal_sides_equivalent_and_a_2x_gap_different() -> None:
 
 
 def test_effects_with_no_shared_tasks_say_no_data() -> None:
+    """`effects` gives the verdict no data when no task appears on both sides."""
     eff = compare.effects([_rec("fixture", "a", 3, 1.0), _rec("reference", "b", 3, 1.0)])
     assert eff["tool_calls"]["verdict"] == "no data"
 
@@ -235,6 +248,7 @@ def test_paired_effect_reports_a_consistent_per_task_gap_the_pooled_ratio_can_hi
 
 @needs_bwrap
 def test_sweep_removes_every_stale_reference_copy_and_leaves_other_trials(tmp_path: Path) -> None:
+    """`sweep` removes every stale reference copy, even unreadable ones, and keeps other dirs."""
     for name in ("ref-source", "ref-abc123"):
         locked = tmp_path / name / "work" / "locked"
         locked.mkdir(parents=True)
@@ -247,6 +261,7 @@ def test_sweep_removes_every_stale_reference_copy_and_leaves_other_trials(tmp_pa
 
 
 def test_a_reference_transcript_keeps_the_shape_of_the_run_and_none_of_the_code() -> None:
+    """Sanitising keeps the transcript shape but swaps code for lengths and truncates the rest."""
     long_code = "def secret_strategy():\n" + "    x = 1\n" * 500
     state = {
         "status": "completed",
@@ -272,6 +287,7 @@ def test_a_reference_transcript_keeps_the_shape_of_the_run_and_none_of_the_code(
 
 
 def test_tool_output_survives_only_as_a_not_found_flag() -> None:
+    """Tool output survives sanitising only as the flag `not found`, when the output says so."""
     event = {"type": "tool_use", "part": {"tool": "bash", "state": {"output": "sh: x: not found"}}}
     assert json.loads(sanitize_transcript(json.dumps(event)))["part"]["state"]["output"] == (
         "not found"
@@ -279,6 +295,7 @@ def test_tool_output_survives_only_as_a_not_found_flag() -> None:
 
 
 def test_prepare_pins_the_copy_once_so_later_drift_is_visible(tmp_path: Path) -> None:
+    """A pinned reference copy passes the fixture check; a later file edit raises `DriftError`."""
     source = _git_source(tmp_path)
     dest = tmp_path / "ref"
     tree = dest / "tree"
@@ -293,6 +310,7 @@ def test_prepare_pins_the_copy_once_so_later_drift_is_visible(tmp_path: Path) ->
 
 
 def test_sigterm_during_a_reference_run_still_runs_the_cleanup() -> None:
+    """SIGTERM in `cleanup_on_signals` still runs the cleanup, then exits 128 plus the signal."""
     cleaned = []
     with pytest.raises(SystemExit) as exc:
         with reference.cleanup_on_signals():
@@ -328,6 +346,7 @@ def test_a_reference_transcript_is_a_whitelist_not_a_blacklist() -> None:
 
 
 def test_a_reference_trial_keeps_no_diff_status_or_repo_state(tmp_path: Path) -> None:
+    """With redaction, repo artifacts hold an empty diff, no file names or code, a change count."""
     run = runner._Run(status=" M real.py\n", diff="+ secret code\n", changes={"written": ["a"]})
     runner._write_repo_artifacts(tmp_path, run, redact=True)
     assert (tmp_path / "diff.patch").read_text() == ""

@@ -36,17 +36,20 @@ REAL = {
 
 
 def _real(tmp_path: Path) -> Path:
+    """Writes the sample real opencode config to a file under `tmp_path` and returns its path."""
     path = tmp_path / "opencode.json"
     path.write_text(json.dumps(REAL))
     return path
 
 
 def _inline_models(asm: agentconfig.Assembly) -> dict[str, Any]:
+    """Returns the inline config's ollama models mapping from an assembly."""
     models: dict[str, Any] = asm.inline["provider"]["ollama"]["models"]
     return models
 
 
 def test_a_trial_is_unseeded_by_default(tmp_path: Path) -> None:
+    """With no seed the assembly has seed None, only the agent model inline and no env seed."""
     asm = agentconfig.assemble("git", "m", _real(tmp_path))
     assert asm.seed is None
     assert asm.inline == {"agent": {"git": {"model": "ollama/m"}}}
@@ -56,6 +59,7 @@ def test_a_trial_is_unseeded_by_default(tmp_path: Path) -> None:
 def test_a_seed_goes_in_the_options_of_every_ollama_model_the_trial_can_reach(
     tmp_path: Path,
 ) -> None:
+    """A seed is set in the options of every ollama model, listed or under test, and in the env."""
     asm = agentconfig.assemble("git", "m", _real(tmp_path), seed=4242)
     assert asm.seed == 4242
     # `m` is the model under test and is not listed in the real config; `a` and `b` are listed.
@@ -67,6 +71,7 @@ def test_a_seed_goes_in_the_options_of_every_ollama_model_the_trial_can_reach(
 
 
 def test_a_seed_does_not_change_the_global_config_or_its_parity(tmp_path: Path) -> None:
+    """A seeded assembly keeps the same global config, deviations and hash, and passes parity."""
     plain = agentconfig.assemble("git", "m", _real(tmp_path))
     seeded = agentconfig.assemble("git", "m", _real(tmp_path), seed=7)
     assert seeded.config == plain.config and seeded.deviations == plain.deviations
@@ -77,6 +82,7 @@ def test_a_seed_does_not_change_the_global_config_or_its_parity(tmp_path: Path) 
 def test_the_inline_seed_lays_over_the_global_models_and_keeps_their_other_options(
     tmp_path: Path,
 ) -> None:
+    """Merging the inline config over the global one adds the seed and keeps other model options."""
     asm = agentconfig.assemble("git", "m", _real(tmp_path), seed=7)
     merged = runner.merge(asm.config, asm.inline)
     models = merged["provider"]["ollama"]["models"]
@@ -86,6 +92,7 @@ def test_the_inline_seed_lays_over_the_global_models_and_keeps_their_other_optio
 
 
 def test_seed_zero_is_a_seed_not_no_seed(tmp_path: Path) -> None:
+    """A seed of 0 is recorded as a seed in the assembly and the model options, not as no seed."""
     asm = agentconfig.assemble("git", "m", _real(tmp_path), seed=0)
     assert asm.seed == 0 and _inline_models(asm)["m"]["options"] == {"seed": 0}
 
@@ -93,6 +100,7 @@ def test_seed_zero_is_a_seed_not_no_seed(tmp_path: Path) -> None:
 @pytest.mark.parametrize("bad", [-1, 2**31, True, 1.5, "7"])
 def test_a_seed_that_would_not_be_one_is_refused(bad: Any, tmp_path: Path) -> None:
     # -1 is Ollama's "random": recording it as a seed would be false.
+    """Out-of-range, boolean, float and string seeds are refused by `assemble` and `check_seed`."""
     with pytest.raises(ValueError, match="seed"):
         agentconfig.assemble("git", "m", _real(tmp_path), seed=bad)
     with pytest.raises(ValueError, match="seed"):
@@ -100,6 +108,7 @@ def test_a_seed_that_would_not_be_one_is_refused(bad: Any, tmp_path: Path) -> No
 
 
 def test_check_seed_accepts_none_and_the_bounds() -> None:
+    """Seed checking accepts None, 0, 1 and the upper bound 2**31-1."""
     for fine in (None, 0, 1, 2**31 - 1):
         agentconfig.check_seed(fine)
 
@@ -111,9 +120,11 @@ class _FakeOllama(http.server.BaseHTTPRequestHandler):
     bodies: list[dict[str, Any]]
 
     def log_message(self, *_args: object) -> None:
+        """Silences the request log of the fake server."""
         return
 
     def do_POST(self) -> None:
+        """Stores the JSON request body and answers with a short streamed chat completion."""
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         self.bodies.append(json.loads(body))
         base = {"id": "x", "object": "chat.completion.chunk", "created": 1, "model": "m"}
@@ -130,6 +141,7 @@ class _FakeOllama(http.server.BaseHTTPRequestHandler):
 
 @pytest.fixture
 def fake_ollama() -> Iterator[tuple[int, list[dict[str, Any]]]]:
+    """Serves a fake Ollama on a free local port; yields the port and recorded request bodies."""
     bodies: list[dict[str, Any]] = []
     handler = type("Handler", (_FakeOllama,), {"bodies": bodies})
     with socket.socket() as probe:
@@ -200,6 +212,7 @@ needs_opencode = pytest.mark.skipif(
 def test_opencode_sends_the_seed_with_every_chat_request_when_one_is_set(
     tmp_path: Path, fake_ollama: tuple[int, list[dict[str, Any]]]
 ) -> None:
+    """Real opencode in the sandbox sends the seed with every chat request when one is set."""
     port, bodies = fake_ollama
     _ask_opencode(tmp_path, port, 4242)
     chats = [b for b in bodies if "messages" in b]
@@ -211,6 +224,7 @@ def test_opencode_sends_the_seed_with_every_chat_request_when_one_is_set(
 def test_opencode_sends_no_seed_when_none_is_set(
     tmp_path: Path, fake_ollama: tuple[int, list[dict[str, Any]]]
 ) -> None:
+    """Real opencode in the sandbox sends no seed in any chat request when none is set."""
     port, bodies = fake_ollama
     _ask_opencode(tmp_path, port, None)
     chats = [b for b in bodies if "messages" in b]

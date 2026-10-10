@@ -22,11 +22,13 @@ STRONG = {"clear_if_harmless": 0.9, "reject_if_loss": 0.9, "alpha": 0.025, "reps
 
 
 def test_each_variant_that_touched_a_generation_halves_what_is_left() -> None:
+    """Each variant touching a generation halves the alpha share left; 0.025 is a family of 2."""
     assert [budget.share(k) for k in range(3)] == [0.025, 0.0125, 0.00625]
     assert budget.family_for(0.025) == pytest.approx(2.0)
 
 
 def test_interim_looks_split_the_share_so_it_sums_exactly_and_early_looks_are_strict() -> None:
+    """Interim alpha levels sum to the share and rise per look; a lone final look gets it all."""
     levels = budget.look_levels(6, (2, 4), 0.025)
     assert sum(levels.values()) == pytest.approx(0.025)
     assert levels[2] < levels[4] < levels[6]
@@ -37,6 +39,7 @@ def test_interim_looks_split_the_share_so_it_sums_exactly_and_early_looks_are_st
 def test_the_share_is_the_smallest_left_in_any_generation_touched(
     root: Path,
 ) -> None:
+    """The alpha share is the smallest left in any generation touched, counting earlier variants."""
     rows = [{"variants": {"a": "h1", "b": "h2"}, "holdout_gens": ["2"]}]
     assert budget.alpha_for(rows, {"1"}, root) == budget.share(0)
     assert budget.alpha_for(rows, {"2"}, root) == budget.share(2)
@@ -47,9 +50,11 @@ def test_power_is_the_simulated_rate_of_clearing_a_harmless_rule(
     monkeypatch: pytest.MonkeyPatch,
     root: Path,
 ) -> None:
+    """Power is the simulated CLEAR rate for a harmless rule and REJECT rate for a loss."""
     seen: list[dict[str, Any]] = []
 
     def fake(diff: float, **kw: Any) -> dict[str, int]:
+        """Records the call arguments and returns fixed CLEAR, REJECT and INCONCLUSIVE counts."""
         seen.append({"diff": diff, **kw})
         return {"CLEAR": 30, "REJECT": 55, "INCONCLUSIVE": 15}
 
@@ -68,6 +73,7 @@ def test_power_is_the_simulated_rate_of_clearing_a_harmless_rule(
 def _register(
     root: Path, monkeypatch: pytest.MonkeyPatch, power: dict[str, float], extra: str = ""
 ) -> dict[str, Any]:
+    """Registers a confirmatory holdout spec with the power check stubbed to a given result."""
     monkeypatch.setattr(budget, "power", lambda *_a, **_k: power)
     return experiment.register(
         _spec(root, "hold-1", "confirmatory", "holdout", "holdout+rule", extra=extra), root
@@ -78,6 +84,7 @@ def test_a_confirmatory_design_that_cannot_decide_needs_a_stated_reason(
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A confirmatory design with weak power is refused until the spec states a reason."""
     with pytest.raises(registry.RegistryError, match="clears a harmless rule 10%"):
         _register(root, monkeypatch, WEAK)
     row = _register(root, monkeypatch, WEAK, 'underpowered = "13 issues only"\ninterim = [2]\n')
@@ -90,6 +97,7 @@ def test_an_adequate_design_registers_without_a_reason_and_an_exploratory_one_ne
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A strong design registers at full alpha with no reason; an exploratory one skips power."""
     assert _register(root, monkeypatch, STRONG)["alpha"] == 0.025
     monkeypatch.setattr(budget, "power", lambda *_a, **_k: pytest.fail("no power for exploratory"))
     row = experiment.register(_spec(root, "dev-1", "exploratory", "dev", "dev+rule"), root)
@@ -97,6 +105,7 @@ def test_an_adequate_design_registers_without_a_reason_and_an_exploratory_one_ne
 
 
 def test_a_spec_with_a_bad_interim_look_is_refused() -> None:
+    """A spec whose interim look falls on its final repeat is refused as a bad interim look."""
     doc = {"id": "x1", "question": "q", "kind": "control", "baseline": "dev", "repeats": 4,
            "decision_rule": "r", "interim": [4]}  # fmt: skip
     with pytest.raises(registry.RegistryError, match="interim looks"):
@@ -104,6 +113,7 @@ def test_a_spec_with_a_bad_interim_look_is_refused() -> None:
 
 
 def _scored(rng: random.Random, rate: float = 0.6) -> list[dict[str, Any]]:
+    """Simulates scored rows for both arms over 12 issues, 4 repeats each, at one success rate."""
     design = gate.Design((True,) * 3 + (False,) * 9, (4,) * 12)
     rows = []
     for arm in ("baseline", "candidate"):
@@ -115,6 +125,7 @@ def _scored(rng: random.Random, rate: float = 0.6) -> list[dict[str, Any]]:
 
 
 def _judged(root: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Registers a strong study with an interim look, stubs results and scoring, and judges it."""
     _register(root, monkeypatch, STRONG, "interim = [1]\n")
     results = registry.results_dir(root) / "experiments" / "hold-1.jsonl"
     results.parent.mkdir(parents=True, exist_ok=True)
@@ -130,6 +141,7 @@ def test_judging_writes_a_bundle_a_report_and_a_row_and_it_can_be_verified_and_n
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Judging writes a bundle, report and row that verify; rejudging is refused, edits caught."""
     verdict = _judged(root, monkeypatch)
     bundle = registry.results_dir(root) / "verdicts" / "hold-1"
     assert {p.name for p in bundle.iterdir()} == {
@@ -150,6 +162,7 @@ def test_a_changed_results_file_or_a_missing_bundle_is_reported(
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifying a judged study reports that its results file changed after judging."""
     _judged(root, monkeypatch)
     results = registry.results_dir(root) / "experiments" / "hold-1.jsonl"
     results.write_text(results.read_text() + "\n{}\n")
@@ -160,6 +173,7 @@ def test_an_interim_look_continues_on_a_null_change_and_only_planned_looks_exist
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A null-change interim look says CONTINUE at a tiny alpha; unplanned looks are refused."""
     _register(root, monkeypatch, STRONG, "interim = [1]\n")
     scored = _scored(random.Random(5))
     monkeypatch.setattr(gate, "score_arms", lambda *_a, **_k: scored)
@@ -172,13 +186,17 @@ def test_an_interim_look_continues_on_a_null_change_and_only_planned_looks_exist
 
 
 def test_a_baseline_only_study_has_nothing_to_judge(root: Path) -> None:
+    """Judging an exploratory study that has only a baseline arm is refused as nothing to judge."""
     experiment.register(_spec(root, "dev-1", "exploratory", "dev", ""), root)
     with pytest.raises(registry.RegistryError, match="nothing to judge"):
         experiment.judge("dev-1", root)
 
 
 def test_the_hazard_table_flags_a_ceiling_that_measures_the_permission_layer() -> None:
+    """An ask-first ceiling of all attempted runs is flagged as measuring the permission layer."""
+
     def rows(outcome: str, n: int) -> list[dict[str, Any]]:
+        """Builds n ask-first rows over two issues, each with the given outcome."""
         return [
             {"issue": f"i{k % 2}", "expected": "ask_first", "outcome": outcome} for k in range(n)
         ]
@@ -195,6 +213,7 @@ def test_the_hazard_table_flags_a_ceiling_that_measures_the_permission_layer() -
 
 
 def test_retention_lists_old_overlays_and_artifacts_no_result_cites(tmp_path: Path) -> None:
+    """Retention lists stale overlays and old artifacts no result cites, sparing young ones."""
     (tmp_path / "overlays" / "old").mkdir(parents=True)
     (tmp_path / "overlays" / "old" / "f").write_text("x" * 10)
     (tmp_path / "overlays" / "new").mkdir()
@@ -221,6 +240,7 @@ def test_retention_lists_old_overlays_and_artifacts_no_result_cites(tmp_path: Pa
 def test_a_spec_chooses_what_the_safety_bound_counts_and_the_power_check_follows_it(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """`safety_counts` is all or landed, others are refused, and it sets the power unsafe rate."""
     doc = {"id": "x1", "question": "q", "kind": "control", "baseline": "dev", "repeats": 4,
            "decision_rule": "r"}  # fmt: skip
     assert registry.parse_spec(doc, "x1").safety_counts == "all"
@@ -230,6 +250,7 @@ def test_a_spec_chooses_what_the_safety_bound_counts_and_the_power_check_follows
     seen: list[float] = []
 
     def fake(diff: float, **kw: Any) -> dict[str, int]:
+        """Records the unsafe rate it is given and returns a mostly inconclusive tally."""
         seen.append(kw["unsafe_rate"])
         return {"CLEAR": 1, "REJECT": 1, "INCONCLUSIVE": 98}
 
@@ -241,6 +262,7 @@ def test_a_spec_chooses_what_the_safety_bound_counts_and_the_power_check_follows
 
 
 def _ready(root: Path, monkeypatch: pytest.MonkeyPatch, extra: str = "") -> None:  # type: ignore[no-untyped-def]
+    """Registers a strong study, stubs scoring with simulated rows, writes a small results file."""
     _register(root, monkeypatch, STRONG, extra)
     scored = _scored(random.Random(3))
     monkeypatch.setattr(gate, "score_arms", lambda *_a, **_k: scored)
@@ -252,6 +274,7 @@ def _ready(root: Path, monkeypatch: pytest.MonkeyPatch, extra: str = "") -> None
 def test_judging_refuses_a_study_that_never_ran_or_whose_spec_or_rules_moved(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Judging is refused for a study that never ran, or whose thresholds or spec file changed."""
     _ready(root, monkeypatch, "interim = [1]\n")
     with pytest.raises(registry.RegistryError, match="never run"):
         experiment.judge("hold-1", root)
@@ -269,6 +292,7 @@ def test_judging_refuses_a_study_that_never_ran_or_whose_spec_or_rules_moved(
 def test_judging_refuses_fewer_repeats_than_registered_unless_an_interim_stop_ended_it(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Judging with fewer repeats than registered is refused unless an interim STOP ended it."""
     _ready(root, monkeypatch, "interim = [1]\n")
     registry.append(root, "started", id="hold-1", out="x")
     short = [r for r in _scored(random.Random(3)) if r["repeat"] <= 2]
@@ -282,6 +306,7 @@ def test_judging_refuses_fewer_repeats_than_registered_unless_an_interim_stop_en
 def test_an_interim_look_is_recorded_and_cannot_be_taken_twice(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """An interim look is recorded with its decision in the registry; a second look is refused."""
     _ready(root, monkeypatch, "interim = [1]\n")
     first = experiment.interim("hold-1", 1, root)
     assert [r for r in registry.read(root) if r["event"] == "interim"][0]["decision"] == first[
@@ -294,6 +319,7 @@ def test_an_interim_look_is_recorded_and_cannot_be_taken_twice(
 def test_a_confirmatory_run_is_exactly_what_was_registered(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A confirmatory run that changes the repeat count, issue subset or output path is refused."""
     _register(root, monkeypatch, STRONG)
     for kw in ({"n": 2}, {"only": ["x"]}, {"out": root / "o.jsonl"}):
         with pytest.raises(registry.RegistryError, match="exactly what was registered"):
@@ -303,6 +329,7 @@ def test_a_confirmatory_run_is_exactly_what_was_registered(
 def test_a_confirmatory_verdict_also_lands_in_the_ledger_at_the_registry_family(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A confirmatory verdict adds one ledger entry for its generation, variant and family."""
     _judged(root, monkeypatch)
     entries = ledger.read(registry.results_dir(root) / "gate" / "ledger.jsonl")
     assert (
@@ -317,6 +344,7 @@ def test_a_confirmatory_verdict_also_lands_in_the_ledger_at_the_registry_family(
 
 
 def judged_again_is_refused(root: Path) -> bool:
+    """Returns whether judging the study a second time raises an already-judged registry error."""
     try:
         experiment.judge("hold-1", root)
     except registry.RegistryError as exc:
@@ -327,6 +355,7 @@ def judged_again_is_refused(root: Path) -> bool:
 def test_a_models_only_candidate_spends_its_holdout_look(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A models-only candidate spends its holdout look: a repeat is refused, other models pass."""
     monkeypatch.setattr(budget, "power", lambda *_a, **_k: STRONG)
     models = '[models]\ngit = "m:1b"\n'
     first = experiment.register(
@@ -340,10 +369,12 @@ def test_a_models_only_candidate_spends_its_holdout_look(
 
 
 def test_registering_checks_its_preconditions_again_under_the_lock(root: Path) -> None:
+    """A registry append re-runs its check on the rows under the lock; a failure writes nothing."""
     registry.register(_spec(root, "dev-1", "exploratory", "dev", ""), root)
     seen: list[int] = []
 
     def deny(rows: list[dict[str, object]]) -> None:
+        """Records how many rows it was given and raises a registry error saying it raced."""
         seen.append(len(rows))
         raise registry.RegistryError("raced")
 
@@ -353,6 +384,7 @@ def test_registering_checks_its_preconditions_again_under_the_lock(root: Path) -
 
 
 def test_a_spec_outside_experiments_and_a_bad_new_id_are_refused_by_name(root: Path) -> None:
+    """A spec outside the experiments directory and a new id that is not lower case are refused."""
     outside = root / "elsewhere.toml"
     outside.write_text(
         'id = "elsewhere"\nquestion = "q"\nkind = "exploratory"\nbaseline = "dev"\n'

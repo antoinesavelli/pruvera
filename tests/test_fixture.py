@@ -32,6 +32,7 @@ TOKENS = "G | \\b0\\.913\\b | 0.XXX\nG | \\b0\\.4821\\b | 0.XXXX\n"
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
+    """Builds a one-commit git repo from the synthetic `FILES` and returns its path."""
     src = tmp_path / "src"
     src.mkdir()
     git(src, "init", "-q", "-b", "main")
@@ -45,6 +46,7 @@ def repo(tmp_path: Path) -> Path:
 
 # ---------------------------------------------------------------- denylist
 def test_glob_semantics() -> None:
+    """Denylist globs (`**`, stems, `*.key`, `?`) exclude exactly the paths they match."""
     rules = ["docs/research/**", "**/*secret_strategy*", "data/**", "*.key", "a/?/b.txt"]
     paths = [
         "docs/research/x/y.md",
@@ -68,12 +70,14 @@ def test_glob_semantics() -> None:
 
 
 def test_load_rules_strips_comments(tmp_path: Path) -> None:
+    """Loading denylist rules drops comment lines, blank lines and trailing notes."""
     f = tmp_path / "d.txt"
     f.write_text("# header\n\ndocs/**  # trailing note\nplain\n  # indented comment\n")
     assert denylist.load_rules(f) == ["docs/**", "plain"]
 
 
 def test_module_names_map_paths_to_importable_modules() -> None:
+    """A Python path maps to a dotted module name (`__init__.py` to its package), others to None."""
     assert denylist.module_name("pkg/sub/__init__.py") == "pkg.sub"
     assert denylist.module_name("pkg/mod.py") == "pkg.mod"
     assert denylist.module_name("README.md") is None
@@ -81,6 +85,7 @@ def test_module_names_map_paths_to_importable_modules() -> None:
 
 # ---------------------------------------------------------------- export
 def test_export_uses_private_index_and_leaves_source_untouched(repo: Path, tmp_path: Path) -> None:
+    """Export reads the commit: staged work is not copied and the source index stays unchanged."""
     (repo / "wip.txt").write_text("uncommitted peer work\n")
     git(repo, "add", "wip.txt")
     staged_before = git(repo, "diff", "--cached", "--name-only")
@@ -92,6 +97,7 @@ def test_export_uses_private_index_and_leaves_source_untouched(repo: Path, tmp_p
 
 
 def test_export_refuses_nonempty_destination(repo: Path, tmp_path: Path) -> None:
+    """Exporting into a non-empty destination directory raises `ExportError`."""
     dest = tmp_path / "out"
     dest.mkdir()
     (dest / "x").write_text("x")
@@ -100,6 +106,7 @@ def test_export_refuses_nonempty_destination(repo: Path, tmp_path: Path) -> None
 
 
 def test_ciphertext_detection(tmp_path: Path) -> None:
+    """Files starting with the ciphertext header are listed and plain files are not."""
     (tmp_path / "ok.txt").write_text("plain")
     (tmp_path / "bad.bin").write_bytes(export.CIPHERTEXT_HEADER + b"\x01\x02")
     assert export.ciphertext_files(tmp_path) == ["bad.bin"]
@@ -107,12 +114,14 @@ def test_ciphertext_detection(tmp_path: Path) -> None:
 
 # ---------------------------------------------------------------- scrub
 def _rules(tmp_path: Path, text: str) -> list[scrub.Rule]:
+    """Writes the given token-rule text to a file and returns the loaded scrub rules."""
     f = tmp_path / "tokens.txt"
     f.write_text(text)
     return scrub.load_rules(f)
 
 
 def test_global_and_contextual_rules(tmp_path: Path) -> None:
+    """A global rule always rewrites; a contextual one only when the window rule matches nearby."""
     rules = _rules(
         tmp_path,
         "G | \\b0\\.913\\b | 0.XXX\nC | knob | (=|>=)\\s*0\\.15\\b | \\1 0.XX\n"
@@ -127,6 +136,7 @@ def test_global_and_contextual_rules(tmp_path: Path) -> None:
 
 
 def test_python_code_is_never_rewritten(tmp_path: Path) -> None:
+    """Scrubbing Python rewrites comments and docstrings but keeps code values, flagged as stops."""
     rules = _rules(tmp_path, "G | \\b0\\.4821\\b | 0.XXXX\n")
     src = (
         '"""Doc 0.4821."""\nY = 0.4821  # from 0.4821\n'
@@ -139,6 +149,7 @@ def test_python_code_is_never_rewritten(tmp_path: Path) -> None:
 
 
 def test_residue_finds_leftovers(tmp_path: Path) -> None:
+    """Residue returns the lines still matching a rule; an unknown rule kind raises `ValueError`."""
     rules = _rules(tmp_path, "G | \\b0\\.913\\b | 0.XXX\n")
     assert scrub.residue("a\nb 0.913\n", rules) == [2]
     with pytest.raises(ValueError):
@@ -146,6 +157,7 @@ def test_residue_finds_leftovers(tmp_path: Path) -> None:
 
 
 def test_contextual_rules_need_exactly_one_window_rule(tmp_path: Path) -> None:
+    """A contextual rule needs exactly one window rule: none or two raise `ValueError`."""
     contextual = "C | knob | 0\\.15 | 0.XX\n"
     with pytest.raises(ValueError, match="need a W rule"):
         _rules(tmp_path, contextual)
@@ -156,6 +168,7 @@ def test_contextual_rules_need_exactly_one_window_rule(tmp_path: Path) -> None:
 
 
 def test_docstrings_pairs_each_scope_with_its_docstring_statement() -> None:
+    """The docstring finder pairs module, class, method and async scopes with their docstrings."""
     src = "\n".join(
         [
             '"""Mod."""',
@@ -186,6 +199,7 @@ def test_docstrings_pairs_each_scope_with_its_docstring_statement() -> None:
 
 
 def test_is_text_rejects_binary() -> None:
+    """Text detection accepts plain text and rejects bytes with a NUL or invalid UTF-8."""
     assert scrub.is_text(b"plain")
     assert not scrub.is_text(b"\x00\x01")
     assert not scrub.is_text(b"\xff\xfe\xfa")
@@ -193,6 +207,7 @@ def test_is_text_rejects_binary() -> None:
 
 # ---------------------------------------------------------------- end to end
 def _write_inputs(tmp_path: Path) -> dict[str, Path]:
+    """Writes a stub tree, denylist and token file and returns their paths and an allowlist path."""
     stubs = tmp_path / "stubs"
     (stubs / "config" / "strategies").mkdir(parents=True)
     (stubs / "config" / "strategies" / "secret_strategy.py").write_text("STUB_KNOB_VALUE = 1\n")
@@ -204,6 +219,7 @@ def _write_inputs(tmp_path: Path) -> dict[str, Path]:
 
 
 def test_build_end_to_end(repo: Path, tmp_path: Path) -> None:
+    """A build omits denied paths, stubs and scrubs files, drops dependents and writes reports."""
     p = _write_inputs(tmp_path)
     allow = p["allow"]
     allow.write_text("config/keep.py\n")  # the one deliberate code value (Y = 0.4821)
@@ -227,6 +243,7 @@ def test_build_end_to_end(repo: Path, tmp_path: Path) -> None:
 
 
 def test_build_fails_on_unapproved_code_value(repo: Path, tmp_path: Path) -> None:
+    """A build with a code value not on the allowlist fails with `BuildError` naming one stop."""
     p = _write_inputs(tmp_path)
     with pytest.raises(build.BuildError, match="stops=1"):
         build.build(
@@ -235,6 +252,7 @@ def test_build_fails_on_unapproved_code_value(repo: Path, tmp_path: Path) -> Non
 
 
 def test_build_is_deterministic(repo: Path, tmp_path: Path) -> None:
+    """Building the same commit twice gives the same tree hash and fixture base commit."""
     p = _write_inputs(tmp_path)
     p["allow"].write_text("config/keep.py\n")
     a = build.build(repo, "HEAD", tmp_path / "a", p["deny"], p["tok"], p["stubs"], p["allow"], None)
@@ -244,6 +262,7 @@ def test_build_is_deterministic(repo: Path, tmp_path: Path) -> None:
 
 
 def test_identifier_leaks_reports_names_defined_only_in_excluded_files(tmp_path: Path) -> None:
+    """A name defined only in excluded files but used in the tree is reported unless provided."""
     tree = tmp_path / "tree"
     tree.mkdir()
     (tree / "kept.py").write_text("def kept_function_name():\n    pass\n")
@@ -254,6 +273,7 @@ def test_identifier_leaks_reports_names_defined_only_in_excluded_files(tmp_path:
 
 
 def test_string_literals_are_redacted_but_numeric_code_is_not(tmp_path: Path) -> None:
+    """String literals are scrubbed; numeric code, even inside an f-string, stays and is a stop."""
     rules = _rules(tmp_path, "G | \\b0\\.4821\\b | 0.XXXX\n")
     src = 'MSG = "seed was 0.4821 then"\nY = 0.4821\nZ = f"value {0.4821}"\n'
     out = scrub.scrub_text(src, rules, is_python=True)
@@ -262,6 +282,7 @@ def test_string_literals_are_redacted_but_numeric_code_is_not(tmp_path: Path) ->
 
 
 def test_patch_rule_edits_only_its_own_file(tmp_path: Path) -> None:
+    """A patch rule rewrites matching text only in the file it names, leaving other files alone."""
     rules = _rules(tmp_path, "P | tests/test_a.py | (KNOB\\s*==\\s*)0\\.75\\b | \\g<1>0.25\n")
     src = "assert c.KNOB == 0.75\n"
     hit = scrub.scrub_text(src, rules, is_python=True, path="tests/test_a.py")
@@ -270,6 +291,7 @@ def test_patch_rule_edits_only_its_own_file(tmp_path: Path) -> None:
 
 
 def test_dependent_files_cascade_to_a_fixpoint(tmp_path: Path) -> None:
+    """Dropping a module drops its importers and theirs, to a fixpoint; unrelated files stay."""
     files = {
         "pkg/a.py": "from pkg import b\n",
         "pkg/b.py": "import gone.thing\n",
@@ -285,6 +307,7 @@ def test_dependent_files_cascade_to_a_fixpoint(tmp_path: Path) -> None:
 
 
 def test_droptests_removes_named_tests_and_classes_and_stays_valid(tmp_path: Path) -> None:
+    """Dropping removes named tests and classes with decorators; a missing test or file raises."""
     from bench.fixture import droptests
 
     (tmp_path / "tests").mkdir()
@@ -312,6 +335,7 @@ def test_droptests_removes_named_tests_and_classes_and_stays_valid(tmp_path: Pat
 
 
 def _mini_tree(tmp_path: Path) -> Path:
+    """Builds a small tree with a paths module of data-dir constants and a smoke data slice."""
     tree = tmp_path / "tree"
     (tree / "config").mkdir(parents=True)
     (tree / "config" / "__init__.py").write_text("")
@@ -339,6 +363,7 @@ def _mini_tree(tmp_path: Path) -> Path:
 
 @pytest.mark.skipif(not sandbox_ok(), reason="unprivileged bwrap unavailable")
 def test_dataslice_places_slice_dirs_at_the_constants_they_stand_in_for(tmp_path: Path) -> None:
+    """A data slice puts dirs at their constants, skips absent ones, refuses an existing out dir."""
     from bench.fixture import dataslice
 
     tree = _mini_tree(tmp_path)
@@ -356,6 +381,7 @@ def test_dataslice_places_slice_dirs_at_the_constants_they_stand_in_for(tmp_path
 
 
 def test_rewrite_shebangs_and_tree_pth(tmp_path: Path) -> None:
+    """Shebangs naming the host venv are rewritten to the sandbox python; a tree `.pth` is added."""
     from bench.fixture import venv
 
     root = tmp_path / "venv"
@@ -374,6 +400,7 @@ def test_rewrite_shebangs_and_tree_pth(tmp_path: Path) -> None:
 
 
 def test_a_denylist_stem_excludes_the_directory_it_names_and_everything_under_it() -> None:
+    """A stem rule excludes a matching directory and everything under it; near misses stay."""
     rule = ["**/*secret_strategy*"]
     inside = [
         "tests/scripts/analysis/secret_strategy/core/__init__.py",
@@ -386,6 +413,7 @@ def test_a_denylist_stem_excludes_the_directory_it_names_and_everything_under_it
 
 
 def test_a_built_version_is_never_rebuilt_in_place(tmp_path: Path) -> None:
+    """Building into a directory that already holds a manifest raises `BuildError`."""
     (tmp_path / "MANIFEST.json").write_text("{}")
     with pytest.raises(build.BuildError, match="never rebuilt in place"):
         build.build(tmp_path / "repo", "HEAD", tmp_path)

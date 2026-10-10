@@ -46,6 +46,7 @@ def mentions(text: str, stem: str) -> bool:
 
 
 def _day(text: str | None) -> date | None:
+    """Parses an ISO date string, or returns None for empty or missing text."""
     return date.fromisoformat(text) if text else None
 
 
@@ -76,6 +77,7 @@ def stale(plan: str, agents: str, stems: list[str], committed: date) -> list[str
 
 
 def _git(*args: str) -> str | None:
+    """Runs git in the repo root and returns its stripped output, or None if git fails."""
     try:
         done = subprocess.run(
             ["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=True
@@ -105,6 +107,7 @@ DAY = date(2026, 10, 9)
 
 
 def test_the_newest_generation_is_found_from_file_names() -> None:
+    """The newest split generation is read from profile file names; an unnumbered one is 1."""
     names = [
         "tune.toml",
         "holdout.toml",
@@ -120,11 +123,13 @@ def test_the_newest_generation_is_found_from_file_names() -> None:
 
 
 def test_a_mention_must_be_the_whole_profile_name() -> None:
+    """A profile counts as mentioned only as a whole word, not inside `dev30` or `xdev3`."""
     assert mentions("the `dev3` set", "dev3") and mentions("**holdout3**'s look", "holdout3")
     assert not mentions("dev30 and xdev3 and dev3_old", "dev3")
 
 
 def test_the_status_dates_are_read_from_the_right_place() -> None:
+    """PLAN.md gives its first Status date and AGENTS.md the first date under its Status section."""
     assert plan_status(PLAN_TEXT) == DAY
     assert plan_status("**Status 2026-10-09: x.** Status 2026-12-01: y.") == DAY
     assert plan_status("no dated status here") is None
@@ -133,11 +138,13 @@ def test_the_status_dates_are_read_from_the_right_place() -> None:
 
 
 def test_a_current_plan_has_no_problems() -> None:
+    """A plan naming every profile with Status dates not before the commit date has no problems."""
     assert stale(PLAN_TEXT, AGENTS_TEXT, ["dev3", "holdout3", "tune3"], DAY) == []
     assert stale(PLAN_TEXT, AGENTS_TEXT, ["dev3"], date(2026, 10, 8)) == []
 
 
 def test_a_stale_plan_is_reported_for_each_rule() -> None:
+    """A stale plan reports a missing profile and each outdated or undated Status separately."""
     later = date(2026, 10, 10)
     problems = stale(PLAN_TEXT, AGENTS_TEXT, ["dev3", "tune4"], later)
     assert len(problems) == 3
@@ -152,6 +159,7 @@ def test_a_stale_plan_is_reported_for_each_rule() -> None:
 
 @needs_catalogue
 def test_plan_and_agents_are_not_behind_the_newest_issue_split() -> None:
+    """In the repo, PLAN.md names the newest committed split and both docs are dated after it."""
     if _git("rev-parse", "--is-shallow-repository") != "false":
         pytest.skip("a shallow or absent git history has no trustworthy commit dates")
     generation, stems = newest_generation(_committed_profiles())

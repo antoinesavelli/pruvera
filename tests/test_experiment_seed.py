@@ -32,10 +32,12 @@ BASE = {
 
 
 def parse(**extra: Any) -> registry.Spec:
+    """Parses a spec document made of the base fields plus any extra overrides."""
     return registry.parse_spec({**BASE, **extra}, "s-1")
 
 
 def test_a_spec_is_unseeded_unless_it_sets_a_seed() -> None:
+    """A spec has no seed unless it sets one, and seed 0 counts as a seed."""
     assert parse().seed is None
     assert parse(seed=4242).seed == 4242
     assert parse(seed=0).seed == 0, "seed 0 is a seed, not a missing one"
@@ -43,11 +45,13 @@ def test_a_spec_is_unseeded_unless_it_sets_a_seed() -> None:
 
 @pytest.mark.parametrize("bad", [-1, True, "7", 1.5, 2**31])
 def test_a_seed_that_is_not_one_is_refused_at_parse_time(bad: Any) -> None:
+    """A seed that is negative, boolean, a string, a float or too large is refused at parse time."""
     with pytest.raises(registry.RegistryError, match="seed"):
         parse(seed=bad)
 
 
 def test_every_repeat_of_a_seeded_study_must_get_a_valid_seed() -> None:
+    """A seed is refused if any repeat, including longer safety repeats, would pass the maximum."""
     top = agentconfig.MAX_SEED
     assert parse(seed=top - 3).seed == top - 3  # repeats = 4: the last repeat gets exactly `top`
     with pytest.raises(registry.RegistryError, match="seed"):
@@ -59,12 +63,14 @@ def test_every_repeat_of_a_seeded_study_must_get_a_valid_seed() -> None:
 
 
 def test_the_seed_of_a_repeat_is_the_base_plus_the_repeat_less_one() -> None:
+    """The seed of a repeat is the base plus the repeat minus one, and no base gives no seed."""
     assert registry.trial_seed(None, 3) is None
     assert [registry.trial_seed(4242, r) for r in (1, 2, 3)] == [4242, 4243, 4244]
     assert registry.trial_seed(0, 1) == 0
 
 
 def test_a_registration_records_its_seed_or_that_it_has_none(root: Path) -> None:
+    """A registration stores its seed, or None when unseeded, and the registry still verifies."""
     seeded = registry.register(
         _spec(root, "seeded-1", "exploratory", "dev", "", extra="seed = 4242\n"), root
     )
@@ -75,11 +81,13 @@ def test_a_registration_records_its_seed_or_that_it_has_none(root: Path) -> None
 
 
 def _authorize(root: Path, name: str, seed: int | None) -> str:
+    """Authorizes a run of the named study with the given seed against a results path under root."""
     out = root / "results" / "experiments" / f"{name}.jsonl"
     return registry.authorize(name, {"b": "dev"}, None, out, root, seed=seed)
 
 
 def test_a_run_must_use_the_registered_seed(root: Path) -> None:
+    """Authorizing a run with another seed, or none, than the registered one is refused."""
     registry.register(_spec(root, "s-1", "exploratory", "dev", "", extra="seed = 4242\n"), root)
     assert _authorize(root, "s-1", 4242) == "s-1"
     for wrong in (7, None):
@@ -88,6 +96,7 @@ def test_a_run_must_use_the_registered_seed(root: Path) -> None:
 
 
 def test_a_study_registered_without_a_seed_cannot_be_run_seeded(root: Path) -> None:
+    """A study registered without a seed runs unseeded but is refused when run with a seed."""
     registry.register(_spec(root, "p-1", "exploratory", "dev", ""), root)
     assert _authorize(root, "p-1", None) == "p-1"
     with pytest.raises(registry.RegistryError, match="seed differs"):
@@ -97,6 +106,7 @@ def test_a_study_registered_without_a_seed_cannot_be_run_seeded(root: Path) -> N
 def test_a_study_registered_before_seeds_existed_still_runs_unseeded(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A row from before seeds existed, with no seed key, still authorizes an unseeded run."""
     registry.register(_spec(root, "old-1", "exploratory", "dev", ""), root)
     rows = registry.read(root)
     # a row written before the field existed has no `seed` key at all
@@ -109,6 +119,7 @@ def test_a_study_registered_before_seeds_existed_still_runs_unseeded(
 
 
 def test_a_seeded_run_without_a_registration_is_refused(root: Path) -> None:
+    """A seeded run with no registered experiment is refused; an unseeded one is authorized."""
     out = root / "o.jsonl"
     with pytest.raises(registry.RegistryError, match="seeded run needs a registered experiment"):
         registry.authorize("", {"baseline": "dev"}, None, out, root, seed=4242)
@@ -116,11 +127,13 @@ def test_a_seeded_run_without_a_registration_is_refused(root: Path) -> None:
 
 
 def test_the_spec_template_offers_a_seed_but_does_not_set_one(root: Path) -> None:
+    """The new-spec template shows a commented `seed` line and does not set a seed."""
     text = experiment.new("fresh-1", root).read_text()
     assert "# seed = " in text and "seed" not in tomllib.loads(text)
 
 
 def test_a_verdict_says_when_its_study_was_seeded() -> None:
+    """A confirmatory verdict notes a seeded study with its base seed, and nothing if unseeded."""
     row = {"kind": "confirmatory", "seed": 4242}
     noted = experiment._caveats(row, {}, [])
     assert any("seeded study (base seed 4242" in n and "real session" in n for n in noted)
@@ -132,6 +145,7 @@ IDS = ("mut-helpers-60", "hand-injection-comment")  # catalogue issues, as in te
 
 
 def _fixture(name: str) -> runner.Fixture:
+    """Builds a stand-in runner fixture with a missing path, an empty manifest and two issue ids."""
     manifest = {"tree_hash": "", "fixture_base_commit": ""}
     return runner.Fixture(name, Path("/nonexistent"), manifest, issue_ids=IDS)
 
@@ -140,6 +154,7 @@ def _fixture(name: str) -> runner.Fixture:
 def test_run_hands_the_registered_seed_to_the_campaign(
     root: Path, monkeypatch: pytest.MonkeyPatch, extra: str, expected: int | None
 ) -> None:
+    """`experiment.run` passes the registered seed, or None, on to the campaign runner."""
     registry.register(_spec(root, "e-1", "exploratory", "dev", "", extra=extra), root)
     seen: dict[str, Any] = {}
     monkeypatch.setattr(runner, "load_profile", lambda _v, p: _fixture(p))
@@ -152,11 +167,13 @@ class Recorder:
     """Stands in for runner.run_trial: remembers each cell and the seed it was asked to use."""
 
     def __init__(self) -> None:
+        """Starts with an empty list of recorded cells."""
         self.cells: list[tuple[str, str, int, int | None]] = []
 
     def __call__(
         self, _fx: Any, spec: runner.TrialSpec, _a: Path, _t: Path, out: Path, **_k: Any
     ) -> dict[str, Any]:
+        """Records a trial cell and seed, appends a completed row to the output and returns it."""
         self.cells.append((spec.label, spec.arm, spec.repeat, spec.seed))
         row = {"label": spec.label, "arm": spec.arm, "repeat": spec.repeat, "outcome": "completed"}
         with out.open("a") as fh:
@@ -166,9 +183,11 @@ class Recorder:
 
 @pytest.fixture
 def recorder(monkeypatch: pytest.MonkeyPatch) -> tuple[Recorder, list[dict[str, Any]]]:
+    """Patches the trial runner, preflight wait and authorization; returns the recorder and asks."""
     rec, asked = Recorder(), []
 
     def authorize(experiment_id: str, *_a: Any, **kw: Any) -> str:
+        """Records the experiment id and keywords it is asked about and returns the id."""
         asked.append({"experiment": experiment_id, **kw})
         return experiment_id
 
@@ -182,6 +201,7 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> tuple[Recorder, list[dict[str, 
 def test_each_repeat_gets_its_own_seed_and_the_arms_share_it(
     recorder: tuple[Recorder, list[dict[str, Any]]], tmp_path: Path
 ) -> None:
+    """Each repeat of a seeded campaign gets base plus repeat minus one, shared by both arms."""
     rec, asked = recorder
     arms = {"baseline": _fixture("b"), "candidate": _fixture("c")}
     trials.run_arms(arms, 3, tmp_path / "o.jsonl", experiment="e-1", seed=100)
@@ -197,6 +217,7 @@ def test_each_repeat_gets_its_own_seed_and_the_arms_share_it(
 def test_an_unseeded_campaign_sends_no_seed(
     recorder: tuple[Recorder, list[dict[str, Any]]], tmp_path: Path
 ) -> None:
+    """An unseeded campaign asks authorization with no seed and runs every trial with no seed."""
     rec, asked = recorder
     trials.run_arms({"a": _fixture("a")}, 2, tmp_path / "o.jsonl", experiment="e-1")
     assert asked[0]["seed"] is None and {c[3] for c in rec.cells} == {None}
@@ -206,6 +227,7 @@ def test_an_unseeded_campaign_sends_no_seed(
 def test_a_resumed_campaign_gives_the_remaining_repeat_the_seed_it_would_have_had(
     recorder: tuple[Recorder, list[dict[str, Any]]], tmp_path: Path
 ) -> None:
+    """A resumed seeded campaign runs only the missing repeat with the seed it would have had."""
     rec, _ = recorder
     out = tmp_path / "o.jsonl"
     trials.run_arms({"a": _fixture("a")}, 2, out, experiment="e-1", seed=100)

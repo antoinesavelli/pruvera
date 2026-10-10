@@ -31,6 +31,7 @@ NEEDLES = (
 
 
 def _sandbox_skips(terminalreporter: pytest.TerminalReporter) -> list[str]:
+    """Returns ids of skipped tests whose skip reason names a missing sandbox, fixture or tool."""
     found = []
     for report in terminalreporter.stats.get("skipped", []):
         reason = str(report.longrepr[-1]) if isinstance(report.longrepr, tuple) else ""
@@ -40,6 +41,7 @@ def _sandbox_skips(terminalreporter: pytest.TerminalReporter) -> list[str]:
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
+    """Writes a loud banner with the count when any sandbox-dependent tests were skipped."""
     skipped = _sandbox_skips(terminalreporter)
     if skipped:
         terminalreporter.write_sep(
@@ -49,6 +51,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Turns a green exit into a failure when sandbox tests skipped and the require env var is 1."""
     reporter = session.config.pluginmanager.get_plugin("terminalreporter")
     if os.environ.get("AGENT_TESTING_REQUIRE_SANDBOX") == "1" and reporter is not None:
         if _sandbox_skips(reporter) and exitstatus == 0:
@@ -84,6 +87,7 @@ def _allow_uncapped_trials(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _profile(root: Path, name: str, ids: list[str]) -> None:
+    """Writes an issues profile TOML with a description and the given issue ids under the root."""
     path = root / "issues" / "profiles" / f"{name}.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f'description = "{name}"\nissues = {json.dumps(ids)}\n')

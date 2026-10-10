@@ -13,6 +13,7 @@ from tests.test_gate import ISSUES, rows
 
 
 def test_set_of_reads_the_issue_set_from_the_profile_name() -> None:
+    """Profile names give their issue set: holdout, tune, or full for any other name."""
     assert ledger.set_of("holdout") == "holdout"
     assert ledger.set_of("holdout+shorter-rules") == "holdout"
     assert ledger.set_of("tune@hist") == "tune"
@@ -20,12 +21,14 @@ def test_set_of_reads_the_issue_set_from_the_profile_name() -> None:
 
 
 def test_variant_and_base_are_read_from_the_profile_name() -> None:
+    """Profile names split into a `+variant` and a base, with an `@` suffix ignored."""
     assert ledger.variant_of("holdout+rules-after@hist") == "rules-after"
     assert ledger.variant_of("tune") == "" and ledger.base_of("tune+x@hist") == "tune"
     assert ledger.base_of("full") == "full"
 
 
 def test_family_counts_distinct_variants_per_baseline_whatever_the_profile_set() -> None:
+    """Family size counts distinct variants per baseline; re-judging and renames add none."""
     entries = [
         {"baseline": "tune", "candidate": "tune+a"},
         {"baseline": "tune", "candidate": "tune+a"},
@@ -40,6 +43,7 @@ def test_family_counts_distinct_variants_per_baseline_whatever_the_profile_set()
 
 
 def test_a_variant_is_judged_on_holdout_issues_once_under_any_profile_name() -> None:
+    """A variant gets one holdout look under any profile name; a new issue generation resets it."""
     entries = [
         {
             "baseline": "holdout",
@@ -59,6 +63,7 @@ def test_a_variant_is_judged_on_holdout_issues_once_under_any_profile_name() -> 
 
 
 def test_variant_hash_ties_a_verdict_to_the_text_it_judged(tmp_path: Path) -> None:
+    """A variant hash is stable, 16 characters, changes with the text and is empty if absent."""
     (tmp_path / "v" / "files").mkdir(parents=True)
     (tmp_path / "v" / "files" / "AGENTS.md").write_text("rule one\n")
     first = ledger.variant_hash(tmp_path, "v")
@@ -69,6 +74,7 @@ def test_variant_hash_ties_a_verdict_to_the_text_it_judged(tmp_path: Path) -> No
 
 
 def test_the_ledger_is_append_only_and_readable(tmp_path: Path) -> None:
+    """The ledger reads empty when absent, appends entries in order and stamps each with a date."""
     path = tmp_path / "gate" / "ledger.jsonl"
     assert ledger.read(path) == []
     ledger.record(path, {"candidate": "a"})
@@ -78,6 +84,7 @@ def test_the_ledger_is_append_only_and_readable(tmp_path: Path) -> None:
 
 
 def test_a_larger_family_widens_the_interval_and_can_withhold_a_clear() -> None:
+    """A bigger family widens the success interval at both ends for the same trial data."""
     near = {k: 4 / 6 - 1 / 6 for k in ISSUES}  # a small real loss that one test just tolerates
     base, cand = rows("baseline", ISSUES), rows("candidate", near)
     single = gate.decide(base, cand, family=1)
@@ -88,6 +95,7 @@ def test_a_larger_family_widens_the_interval_and_can_withhold_a_clear() -> None:
 
 
 def test_bootstrap_alpha_sets_the_interval_level() -> None:
+    """A smaller `alpha` gives a wider bootstrap interval for the same data."""
     a = {f"i{k}": [True, False, True, False] for k in range(12)}
     b = {f"i{k}": [True, True, False, False] for k in range(12)}
     _, lo95, hi95 = stats.bootstrap_diff(a, b, draws=500)
@@ -96,6 +104,7 @@ def test_bootstrap_alpha_sets_the_interval_level() -> None:
 
 
 def _stub_scoring(monkeypatch: pytest.MonkeyPatch, issues: dict[str, float] | None = None) -> None:
+    """Patches the gate to score both arms at equal rates and to expose one stub holdout issue."""
     rates = issues or ISSUES
     monkeypatch.setattr(
         gate, "score_arms", lambda *_a: rows("baseline", rates) + rows("candidate", rates)
@@ -106,11 +115,13 @@ def _stub_scoring(monkeypatch: pytest.MonkeyPatch, issues: dict[str, float] | No
 def test_judge_widens_by_the_ledger_and_records_the_verdict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Judging sizes the family from the ledger and records the verdict; no ledger, no record."""
     seen: dict[str, Any] = {}
     _stub_scoring(monkeypatch)
     real = gate.decide
 
     def spy(*args: Any, **kw: Any) -> dict[str, Any]:
+        """Records the keyword arguments of `gate.decide`, then calls the real one."""
         seen.update(kw)
         return real(*args, **kw)
 
@@ -146,11 +157,13 @@ def test_judging_trials_that_include_a_holdout_issue_uses_the_holdout_look(
 
 
 def test_the_test_suite_cannot_reach_the_real_ledger() -> None:
+    """The gate ledger path differs from the real results ledger, so tests cannot write to it."""
     real = layout.ROOT / "results" / "gate" / "ledger.jsonl"
     assert gate.LEDGER != real, "conftest must redirect the ledger to a temp file"
 
 
 def test_a_variant_prompt_that_starts_with_a_dash_is_refused(tmp_path: Path) -> None:
+    """A variant prompt prefix starting with a dash is refused, as it would read as an option."""
     from bench.issues import plant
 
     (tmp_path / "variant.toml").write_text('[prompt]\nprefix = "--help "\n')
@@ -159,6 +172,7 @@ def test_a_variant_prompt_that_starts_with_a_dash_is_refused(tmp_path: Path) -> 
 
 
 def test_a_variant_model_role_no_trial_selects_is_refused(tmp_path: Path) -> None:
+    """A variant setting a model role no trial selects is refused; a selected role is accepted."""
     from bench.issues import plant
 
     (tmp_path / "variant.toml").write_text('[models]\nverify = "x:1b"\ncoder = "y:2b"\n')
@@ -169,6 +183,7 @@ def test_a_variant_model_role_no_trial_selects_is_refused(tmp_path: Path) -> Non
 
 
 def test_the_family_counts_every_distinct_variant_on_every_split() -> None:
+    """The family counts each distinct variant across all split generations; a repeat is not new."""
     entries = [
         {"baseline": "tune", "candidate": "tune+a"},
         {"baseline": "holdout2", "candidate": "holdout2+b"},
@@ -181,6 +196,7 @@ def test_the_family_counts_every_distinct_variant_on_every_split() -> None:
 def _entry(
     variant: str, verdict: str, vhash: str, holdout: bool = True, pinned: bool = True
 ) -> dict[str, object]:
+    """Builds a holdout ledger entry for a variant with hash, verdict, holdout and pinned flags."""
     return {
         "candidate": f"holdout2+{variant}",
         "variant_hash": vhash,
@@ -191,6 +207,7 @@ def _entry(
 
 
 def test_clearance_needs_a_clear_holdout_verdict_for_the_files_as_they_are_now() -> None:
+    """Clearance is empty only for a CLEAR holdout verdict on the current text; else a reason."""
     entries = [
         _entry("a", "INCONCLUSIVE", "h1"),
         _entry("b", "CLEAR", "h2"),
@@ -209,6 +226,7 @@ def test_clearance_needs_a_clear_holdout_verdict_for_the_files_as_they_are_now()
 def test_the_clear_command_exits_zero_only_for_a_cleared_variant(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The `gate clear` command exits 0 only for a cleared variant; unjudged or changed gives 1."""
     (tmp_path / "variants" / "v" / "files").mkdir(parents=True)
     (tmp_path / "variants" / "v" / "files" / "AGENTS.md").write_text("rule\n")
     monkeypatch.setattr(layout, "ROOT", tmp_path)
@@ -222,6 +240,7 @@ def test_the_clear_command_exits_zero_only_for_a_cleared_variant(
 
 
 def test_a_byte_identical_copy_under_a_new_name_does_not_get_a_fresh_holdout_look() -> None:
+    """A variant with the hash of a rejected one gets no fresh holdout look under a new name."""
     entries = [
         {
             "candidate": "holdout2+a",
@@ -238,6 +257,7 @@ def test_a_byte_identical_copy_under_a_new_name_does_not_get_a_fresh_holdout_loo
 
 
 def test_a_variant_directory_with_a_symlink_is_refused(tmp_path: Path) -> None:
+    """A variant directory with a symlink is refused by both the hash and the file listing."""
     from bench.issues import plant
 
     (tmp_path / "v" / "files").mkdir(parents=True)
@@ -250,6 +270,7 @@ def test_a_variant_directory_with_a_symlink_is_refused(tmp_path: Path) -> None:
 
 
 def test_variant_text_with_a_scrub_token_is_refused_at_build_time(tmp_path: Path) -> None:
+    """A scrub token in variant text is refused by line; a bad token rule never echoes its text."""
     from bench.issues import plant
 
     tokens = tmp_path / "tokens.txt"
@@ -269,6 +290,7 @@ def test_variant_text_with_a_scrub_token_is_refused_at_build_time(tmp_path: Path
 def test_judge_refuses_trials_whose_variant_files_changed_since_they_ran(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Judging refuses candidate trials whose variant hash differs from the variant files now."""
     (tmp_path / "variants" / "v" / "files").mkdir(parents=True)
     (tmp_path / "variants" / "v" / "files" / "AGENTS.md").write_text("rule\n")
     monkeypatch.setattr(layout, "ROOT", tmp_path)
@@ -286,6 +308,7 @@ def test_judge_refuses_trials_whose_variant_files_changed_since_they_ran(
 def test_a_verdict_says_whether_every_candidate_trial_carried_the_variant_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A verdict is pinned only if every candidate trial has the variant hash; it is ledgered."""
     _stub_scoring(monkeypatch)
     monkeypatch.setattr(ledger, "variant_hash", lambda _d, v: "abc" if v else "")
     results = tmp_path / "r.jsonl"
@@ -297,6 +320,7 @@ def test_a_verdict_says_whether_every_candidate_trial_carried_the_variant_hash(
 
 
 def test_a_malformed_token_regex_is_reported_by_line_without_its_text(tmp_path: Path) -> None:
+    """A malformed token regex raises `ValueError` naming its line, not its text or regex error."""
     from bench.fixture import scrub
 
     tokens = tmp_path / "t.txt"

@@ -13,6 +13,7 @@ ENV = {"PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": "/dev/null", "HOME": "/none
 
 
 def test_text_raw_and_run_agree_and_stdin_and_env_are_honoured(tmp_path: Path) -> None:
+    """The text, raw and run helpers agree on one repo and honour the given stdin and env."""
     gitutil.text(tmp_path, "init", "-q", "-b", "main", env=ENV)
     assert gitutil.text(tmp_path, "symbolic-ref", "--short", "HEAD", env=ENV) == "main"
     (tmp_path / "a.txt").write_text("x\n")
@@ -25,6 +26,7 @@ def test_text_raw_and_run_agree_and_stdin_and_env_are_honoured(tmp_path: Path) -
 
 
 def test_a_failing_command_raises_unless_the_caller_checks_for_itself(tmp_path: Path) -> None:
+    """A failing git command raises CalledProcessError with stderr unless check is turned off."""
     with pytest.raises(subprocess.CalledProcessError) as caught:
         gitutil.text(tmp_path, "rev-parse", "HEAD", env=ENV)
     assert b"not a git repository" in caught.value.stderr
