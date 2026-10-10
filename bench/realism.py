@@ -25,6 +25,8 @@ VERIFY_TAIL = "Final line exactly `VERIFY: PASS` or `VERIFY: FAIL`."
 
 @dataclass(frozen=True)
 class Task:
+    """One task of the realism study: agent, model, prompt and any seeded hooks."""
+
     label: str
     agent: str
     model: str
@@ -180,6 +182,7 @@ def _run_study_locked(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the study unless --report, then print the comparisons of its records."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--n", type=int, default=3)
     ap.add_argument("--out", type=Path, default=layout.RESULTS / "realism" / "study.jsonl")

@@ -27,6 +27,7 @@ _PATHS = re.compile(
 
 
 def load(results: Path) -> list[dict[str, Any]]:
+    """The records of a results file."""
     return read_jsonl(results)
 
 
@@ -36,6 +37,7 @@ def normalise(text: str) -> str:
 
 
 def transcript(record: dict[str, Any]) -> Transcript:
+    """The parsed transcript of a record's stored artifact."""
     path = layout.artifact_dir(record["artifact"]) / "transcript.jsonl"
     return Transcript().parse(path.read_text())
 

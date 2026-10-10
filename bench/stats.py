@@ -65,6 +65,7 @@ def bootstrap_diff(
     rng = random.Random(seed)
 
     def rate(results: Sequence[bool]) -> float:
+        """One task's success rate, drawn from its Jeffreys posterior."""
         k, n = sum(results), len(results)
         return rng.betavariate(k + 0.5, n - k + 0.5)
 
@@ -101,11 +102,15 @@ def bootstrap_ratio(
     rng = random.Random(seed)
 
     def mean(values: Sequence[float]) -> float:
+        """The mean of a resample of `values`, drawn with replacement."""
         drawn = [values[rng.randrange(len(values))] for _ in values]
         return sum(drawn) / len(drawn)
 
     def ratio(picked: list[str], resample: bool) -> float:
+        """The summed task means of `num` over those of `den` for the picked tasks; NaN if 0."""
+
         def m(vals: Sequence[float]) -> float:
+            """A task's mean: of a resample of its trials, or the plain mean."""
             return mean(vals) if resample else sum(vals) / len(vals)
 
         top = sum(m(num[t]) for t in picked)

@@ -349,6 +349,7 @@ def status(root: Path = layout.ROOT) -> list[dict[str, Any]]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """The command line for studies; a refused call prints why and returns 1."""
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("new").add_argument("id")

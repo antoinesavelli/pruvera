@@ -287,13 +287,17 @@ def _trace(
 def make_handler(
     upstream_port: int, models: frozenset[str] = frozenset(), trace: Path | None = None
 ) -> type[http.server.BaseHTTPRequestHandler]:
+    """A request handler class that vets each request and relays allowed ones to Ollama."""
     slots = threading.BoundedSemaphore(MAX_CONNECTIONS)  # a trial cannot hold unbounded memory
 
     class Handler(http.server.BaseHTTPRequestHandler):
+        """Vets each request, relays an allowed one to Ollama and refuses everything else."""
+
         protocol_version = "HTTP/1.0"  # one request per connection; bodies end at close
         timeout = READ_TIMEOUT  # a client that stops sending frees its slot
 
         def log_message(self, format: str, *args: object) -> None:
+            """Log nothing."""
             return
 
         def _refuse(self, code: int, why: str) -> None:
@@ -308,6 +312,7 @@ def make_handler(
         def handle(self) -> None:
             # The slot is taken before the request line and headers are read: a client that
             # trickles headers holds a slot (and times out) instead of an unbounded thread.
+            """Take a connection slot (503 if none), start the receive deadline, then serve."""
             if not slots.acquire(timeout=SLOT_WAIT):
                 with contextlib.suppress(OSError):
                     self.wfile.write(b"HTTP/1.0 503 Busy\r\nContent-Length: 0\r\n\r\n")
@@ -387,12 +392,14 @@ class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
             raise
 
     def process_request_thread(self, request: Any, client_address: Any) -> None:
+        """Serve the connection, then free its thread slot."""
         try:
             super().process_request_thread(request, client_address)
         finally:
             self._thread_slots.release()
 
     def get_request(self) -> tuple[socket.socket, tuple[str, int]]:
+        """Accept a connection; the client address is a dummy, as a unix socket has none."""
         request, _ = super().get_request()
         return request, ("unix", 0)  # the base handler indexes client_address
 

@@ -70,5 +70,6 @@ def report(state: Path = layout.STATE) -> dict[str, Any]:
 
 
 def main() -> int:
+    """Print the retention report as JSON."""
     print(json.dumps(report(), indent=1))
     return 0

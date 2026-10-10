@@ -37,22 +37,27 @@ def artifact_dir(recorded: str | Path) -> Path:
 
 
 def version_dir(version: str = VERSION) -> Path:
+    """The directory of a fixture version."""
     return FIXTURES / "versions" / version
 
 
 def tree(version: str = VERSION) -> Path:
+    """A version's source tree: the read-only base trials run on."""
     return version_dir(version) / "tree"
 
 
 def venv(version: str = VERSION) -> Path:
+    """A version's virtualenv, bound into trials."""
     return FIXTURES / "venv" / version
 
 
 def data_root() -> Path:
+    """The root of the data slice for the current data version."""
     return FIXTURES / "data" / DATA_VERSION / "root"
 
 
 def rag_dir(version: str = VERSION) -> Path:
+    """A version's docs index directory."""
     return FIXTURES / "rag" / version
 
 

@@ -87,6 +87,8 @@ class PreflightError(RuntimeError):
 
 @dataclass(frozen=True)
 class Problem:
+    """One reason a trial should not start now: a stable code and a message."""
+
     code: str  # stable id: agent_running, bench_running, gpu_busy, gpu_unreadable, ollama_down
     message: str
 
@@ -205,6 +207,7 @@ def gpu_utilization() -> int | None:
 
 
 def ollama_reachable(port: int = 11434) -> bool:
+    """Whether something accepts connections on the local Ollama port."""
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=2):
             return True

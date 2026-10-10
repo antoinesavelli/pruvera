@@ -35,6 +35,7 @@ def seed_arg(text: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """The command line: `trial`, `check` and `replay`."""
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     tr = sub.add_parser("trial", help="run one trial")
@@ -72,6 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run one trial, check the fixture and preflight, or replay a kept trial's diff."""
     args = build_parser().parse_args(argv)
     fx = runner.load_profile(args.version, args.profile)
     if args.cmd == "replay":

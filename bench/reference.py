@@ -118,6 +118,7 @@ def cleanup_on_signals() -> Iterator[None]:
     """Turn SIGTERM and SIGHUP into SystemExit so `finally` blocks (real-code cleanup) run."""
 
     def bail(signum: int, _frame: object) -> None:
+        """Exit with 128 plus the signal number, so `finally` blocks run."""
         raise SystemExit(128 + signum)
 
     previous = {sig: signal.signal(sig, bail) for sig in (signal.SIGTERM, signal.SIGHUP)}

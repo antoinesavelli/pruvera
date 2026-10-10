@@ -76,6 +76,7 @@ def gpu_residency(model: str) -> str:
 
 @functools.cache
 def opencode_version() -> str:
+    """The installed opencode's version, or an empty string if it is not installed."""
     if not OPENCODE.exists():
         return ""
     done = subprocess.run(

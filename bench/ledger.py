@@ -59,6 +59,7 @@ def variant_hash(variants_dir: Path, variant: str) -> str:
 
 
 def read(path: Path) -> list[dict[str, Any]]:
+    """The ledger's entries; none if the file does not exist."""
     if not path.exists():
         return []
     return read_jsonl(path)
@@ -95,6 +96,7 @@ def check_holdout(
 
 
 def record(path: Path, entry: dict[str, Any]) -> None:
+    """Append an entry to the ledger, stamped with today's date."""
     entry = {**entry, "date": time.strftime("%Y-%m-%d")}
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as fh:
