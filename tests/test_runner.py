@@ -390,7 +390,60 @@ def test_the_record_says_trials_are_unseeded_and_carries_the_model_parameters(
 ) -> None:
     monkeypatch.setattr(runner, "model_parameters", lambda *_a, **_k: "temperature 1")
     rec, _ = _run(fx, tmp_path, cfg, f"echo '{EVENT}'")
-    assert rec["seeded"] is False and rec["model_parameters"] == "temperature 1"
+    assert rec["seeded"] is False and rec["seed"] is None
+    assert rec["model_parameters"] == "temperature 1"
+
+
+# The scripted agent echoes the config it was handed as its one text event.
+SHOW_CONFIG = (
+    'esc=$(printf %s "$OPENCODE_CONFIG_CONTENT" | sed \'s/\\\\/\\\\\\\\/g; s/"/\\\\"/g\'); '
+    'echo "{\\"type\\":\\"text\\",\\"timestamp\\":1,\\"part\\":{\\"text\\":\\"$esc\\"}}"'
+)
+
+
+def test_an_unseeded_trial_hands_the_agent_no_seed(
+    fx: runner.Fixture, tmp_path: Path, cfg: Path
+) -> None:
+    rec, _ = _run(fx, tmp_path, cfg, SHOW_CONFIG)
+    assert rec["outcome"] == "completed" and "seed" not in rec["final_text"]
+
+
+def test_a_seeded_trial_hands_the_agent_the_seed_and_records_it(
+    fx: runner.Fixture, tmp_path: Path, cfg: Path
+) -> None:
+    rec, _ = _run(fx, tmp_path, cfg, SHOW_CONFIG, seed=4242)
+    assert rec["seeded"] is True and rec["seed"] == 4242
+    seen = json.loads(rec["final_text"])
+    assert seen["provider"]["ollama"]["models"]["m"]["options"] == {"seed": 4242}
+    assert seen["agent"] == {"a": {"model": "ollama/m"}}
+    assert rec["experiment"]["inline"] == {}, "the seed is not an experiment's inline config"
+
+
+def test_seed_zero_is_recorded_as_a_seed(fx: runner.Fixture, tmp_path: Path, cfg: Path) -> None:
+    rec, _ = _run(fx, tmp_path, cfg, f"echo '{EVENT}'", seed=0)
+    assert rec["seeded"] is True and rec["seed"] == 0
+
+
+@pytest.mark.parametrize("bad", [-1, 2**31, True])
+def test_a_bad_seed_is_refused_before_anything_is_built(
+    fx: runner.Fixture, tmp_path: Path, cfg: Path, bad: Any
+) -> None:
+    spec = TrialSpec(agent="a", model="m", prompt="p", net="none", seed=bad)
+    with pytest.raises(ValueError, match="seed"):
+        runner.check_experiment(spec)
+    with pytest.raises(ValueError, match="seed"):
+        runner.run_trial(
+            fx,
+            spec,
+            tmp_path / "artifacts",
+            tmp_path / "trials",
+            tmp_path / "trials.jsonl",
+            agent_argv=["true"],
+            config_source=cfg,
+            check=lambda force=False: [],
+        )
+    assert not (tmp_path / "trials" / spec.trial_id).exists()
+    assert not (tmp_path / "trials.jsonl").exists()
 
 
 def test_experiment_binds_are_an_allowlist_not_a_denylist(tmp_path: Path) -> None:
