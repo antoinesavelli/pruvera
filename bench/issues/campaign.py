@@ -46,6 +46,7 @@ def evaluate(env: check.Env, module: str, test_file: str, seed: int = 1) -> dict
     mutants = sample(source, seed)
 
     def one(m: mutate.Mutant) -> dict[str, Any]:
+        """One mutant's result: its fields, whether the tests now fail, and the first failures."""
         res = check.run_pytest(env, [test_file], {module: mutate.apply(source, m)})
         return {**asdict(m), "killed": not res.passed, "failed": list(res.failed[:3])}
 
