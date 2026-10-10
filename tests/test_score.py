@@ -792,7 +792,7 @@ def test_an_oversized_python_file_is_neither_parsed_nor_tokenised_and_is_not_a_r
     from bench.issues import restore
 
     huge = "x = 1\n" * 300_000
-    assert restore._same_ast(huge, huge) is False
+    assert restore.same_ast(huge, huge) is False
     iss = make_issue(detector="review_only", edits=(Edit("pkg/m.py", "x = 1", "x = 2"),))
     assert not score.restored(iss, {"pkg/m.py": huge}, Path("/nonexistent"))
 

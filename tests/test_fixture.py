@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -152,6 +153,36 @@ def test_contextual_rules_need_exactly_one_window_rule(tmp_path: Path) -> None:
         _rules(tmp_path, contextual + "W | one\nW | two\n")
     rules = _rules(tmp_path, contextual + "W | secret_strategy\n")
     assert [r.kind for r in rules] == ["C"] and rules[0].window is not None
+
+
+def test_docstrings_pairs_each_scope_with_its_docstring_statement() -> None:
+    src = "\n".join(
+        [
+            '"""Mod."""',
+            "",
+            "class C:",
+            '    """Cls."""',
+            "",
+            "    def m(self):",
+            '        """Meth',
+            '        more."""',
+            "",
+            "    async def n(self):",
+            '        """Async."""',
+            "",
+            "def f():",
+            '    x = "not a docstring"',
+            "    return x",
+            "",
+        ]
+    )
+    found = scrub.docstrings(ast.parse(src))
+    assert sorted((type(scope).__name__, doc.lineno, doc.end_lineno) for scope, doc in found) == [
+        ("AsyncFunctionDef", 11, 11),
+        ("ClassDef", 4, 4),
+        ("FunctionDef", 7, 8),
+        ("Module", 1, 1),
+    ]
 
 
 def test_is_text_rejects_binary() -> None:

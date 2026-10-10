@@ -17,6 +17,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 CONTEXT_WINDOW = 2  # lines either side of a contextual match where the W rule must match
+Scope = ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef  # what has a docstring
 
 
 @dataclass(frozen=True)
@@ -116,20 +117,27 @@ def _matches(rules: list[Rule], lines: list[str], i: int, line: str) -> bool:
     return any(_applies(rule, lines, i) and rule.pattern.search(line) for rule in rules)
 
 
-def _docstring_lines(tree: ast.AST) -> set[int]:
-    """The line numbers of module, class and function docstrings: the prose that may be redacted."""
-    prose: set[int] = set()
+def docstrings(tree: ast.AST) -> list[tuple[Scope, ast.Expr]]:
+    """Each module, class and function in `tree` that has a docstring, with that statement."""
+    found: list[tuple[Scope, ast.Expr]] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+        if not isinstance(node, Scope):
             continue
         first = node.body[0] if node.body else None
-        is_doc = (
+        if (
             isinstance(first, ast.Expr)
             and isinstance(first.value, ast.Constant)
             and isinstance(first.value.value, str)
-        )
-        if is_doc and first is not None:
-            prose.update(range(first.lineno, (first.end_lineno or first.lineno) + 1))
+        ):
+            found.append((node, first))
+    return found
+
+
+def _docstring_lines(tree: ast.AST) -> set[int]:
+    """The line numbers of module, class and function docstrings: the prose that may be redacted."""
+    prose: set[int] = set()
+    for _, doc in docstrings(tree):
+        prose.update(range(doc.lineno, (doc.end_lineno or doc.lineno) + 1))
     return prose
 
 
