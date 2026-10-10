@@ -3,7 +3,8 @@
 `run` sends each issue's delegation prompt to its role's agent on the profile fixture; `score`
 grades every recorded trial against its issue (detector, diff, final text); `report` groups by
 kind, model and issue source with intervals that resample issues, and pass^k. Trials are unseeded,
-so repeats are the control.
+so repeats are the control; a registered study may set a base seed, and repeat r then runs with
+`registry.trial_seed`, so the repeats still differ.
 Depends on: bench.{layout,runner,preflight,reference,registry,sandbox,stats,jsonl},
 bench.issues.{tasks,score,schema,check}.
 """
@@ -48,6 +49,7 @@ def run_arms(
     wait: float = 180.0,
     force: bool = False,
     experiment: str = "",
+    seed: int | None = None,
 ) -> Path:
     """`n` trials per issue per arm, arms alternating with the order flipped each repeat."""
     # GPU warmth and drift then hit all arms alike. Every arm must plant the same issues.
@@ -61,9 +63,9 @@ def run_arms(
     profiles = {name: fx.profile for name, fx in arms.items()}
     out.parent.mkdir(parents=True, exist_ok=True)
     with preflight.session_lock():
-        experiment = registry.authorize(experiment, profiles, models, out)
+        experiment = registry.authorize(experiment, profiles, models, out, seed=seed)
         reference.sweep(layout.OVERLAYS)  # a killed realism run may have left a real-code export
-        return _run_arms_locked(arms, n, out, ids, issues, models, wait, force, experiment)
+        return _run_arms_locked(arms, n, out, ids, issues, models, wait, force, experiment, seed)
 
 
 def _arm_task(issue: schema.Issue, fx: runner.Fixture, models: dict[str, str] | None) -> tasks.Task:
@@ -99,6 +101,7 @@ def _run_arms_locked(
     wait: float,
     force: bool,
     experiment: str = "",
+    seed: int | None = None,
 ) -> Path:
     """Run each (issue, arm, repeat) cell not yet in `out`, reversing order on odd repeats."""
     done = _done_cells(out, experiment)
@@ -122,6 +125,7 @@ def _run_arms_locked(
                     repeat=rep + 1,
                     timeout=600,
                     hang_seconds=240,
+                    seed=registry.trial_seed(seed, rep + 1),
                 )
                 runner.run_trial(
                     arms[arm], spec, layout.ARTIFACTS, layout.OVERLAYS, out, force=force

@@ -7,7 +7,10 @@ every generation it touches, abandoned or not. A candidate run (a `+variant` pro
 model override) must name a registered experiment: `authorize` refuses it otherwise and refuses a
 run that no longer matches what was registered. `retro` rows record studies that ran before the
 registry existed: they spend looks and are never confirmatory. The legacy gate ledger is read as
-spent looks too. Depends on: bench.{gitutil,jsonl,layout,ledger}, bench.issues.schema; git.
+spent looks too. A spec may set a base `seed` (unseeded otherwise, as a real session is): repeat r
+then runs with `trial_seed` = seed + r - 1, a seeded run must name a registered experiment, and
+`authorize` refuses a seed that differs from the registered one.
+Depends on: bench.{agentconfig,gitutil,jsonl,layout,ledger}, bench.issues.schema; git.
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from bench import gitutil, layout, ledger
+from bench import agentconfig, gitutil, layout, ledger
 from bench.issues import schema
 from bench.jsonl import read_jsonl
 
@@ -58,6 +61,7 @@ class Spec:
     underpowered: str = ""  # why a design that cannot decide is run anyway
     safety_repeats: int = 0  # repeats of each safety issue when larger than `repeats`
     safety_counts: str = "all"  # "landed": a blocked attempt is reported, not counted as unsafe
+    seed: int | None = None  # base sampling seed (repeat r runs with seed + r - 1); None: unseeded
 
 
 def results_dir(root: Path = layout.ROOT) -> Path:
@@ -141,6 +145,32 @@ def _interim(doc: dict[str, Any], stem: str) -> tuple[int, ...]:
     return tuple(sorted(set(looks)))
 
 
+def _seed(doc: dict[str, Any], stem: str) -> int | None:
+    """The spec's base seed (None if unseeded); each repeat's seed must be one a sampler takes."""
+    seed = doc.get("seed")
+    if seed is None:
+        return None
+    try:
+        agentconfig.check_seed(seed)
+    except ValueError as exc:
+        raise RegistryError(f"{stem}: {exc}") from None
+    repeats = max(int(doc["repeats"]), int(doc.get("safety_repeats", 0)))
+    if seed + repeats - 1 > agentconfig.MAX_SEED:
+        raise RegistryError(
+            f"{stem}: seed {seed} with {repeats} repeats runs past the largest seed "
+            f"{agentconfig.MAX_SEED} (repeat r runs with seed + r - 1)"
+        )
+    return int(seed)
+
+
+def trial_seed(base: int | None, repeat: int) -> int | None:
+    """The sampling seed of 1-based `repeat` in a study seeded `base`; None when unseeded."""
+    # A single seed for every repeat would make them near-copies of one sample (the same seed on
+    # the same prompt gave the same answer), so the study's variance would be hidden, not measured.
+    # Repeat 1 uses the base itself, so `bench.cli trial --seed <base>` replays it.
+    return None if base is None else base + repeat - 1
+
+
 def parse_spec(doc: dict[str, Any], stem: str) -> Spec:
     """A spec from its TOML table; the id must be the file's name."""
     missing = [
@@ -163,7 +193,7 @@ def parse_spec(doc: dict[str, Any], stem: str) -> Spec:
         doc["id"], doc["question"], doc["kind"], doc["baseline"], str(doc.get("candidate", "")),
         doc["repeats"], doc["decision_rule"], models, _interim(doc, stem),
         str(doc.get("underpowered", "")), int(doc.get("safety_repeats", 0)),
-        _counts(doc, stem),
+        _counts(doc, stem), _seed(doc, stem),
     )  # fmt: skip
 
 
@@ -287,7 +317,7 @@ def register(
         candidate=spec.candidate, repeats=spec.repeats, models=spec.models, variants=variants,
         holdout_gens=sorted(gens), spec_sha256=sha, spec_commit=commit, harness_commit=head,
         harness_dirty=dirty, interim=list(spec.interim), underpowered=spec.underpowered,
-        safety_repeats=spec.safety_repeats, safety_counts=spec.safety_counts,
+        safety_repeats=spec.safety_repeats, safety_counts=spec.safety_counts, seed=spec.seed,
         **(extra(spec, gens) if extra else {}),
     )  # fmt: skip
 
@@ -350,25 +380,45 @@ def rel(path: Path, root: Path) -> str:
     return resolved.relative_to(base).as_posix() if resolved.is_relative_to(base) else str(path)
 
 
+def _refuse_unregistered(
+    profiles: Mapping[str, str], models: Mapping[str, str] | None, seed: int | None
+) -> None:
+    """RegistryError for a candidate or seeded run that names no registered experiment."""
+    if bool(models) or any(ledger.variant_of(p) for p in profiles.values()):
+        raise RegistryError(
+            "a candidate run (a +variant profile or a model override) needs a registered "
+            "experiment: python3 -m bench.experiment run <id>"
+        )
+    if seed is not None:
+        raise RegistryError(
+            "a seeded run needs a registered experiment: python3 -m bench.experiment run <id>"
+        )
+
+
+def _check_seed(row: dict[str, Any], seed: int | None) -> None:
+    """The run's base seed must be the registered one (a row from before seeds has none)."""
+    if seed != row.get("seed"):
+        raise RegistryError(
+            f"{row['id']}: the seed differs from the registered one ({row.get('seed')!r})"
+        )
+
+
 def authorize(
     experiment: str,
     profiles: Mapping[str, str],
     models: Mapping[str, str] | None,
     out: Path,
     root: Path = layout.ROOT,
+    seed: int | None = None,
 ) -> str:
-    """Let a run start: a candidate run needs a live, unchanged registration. Returns the id."""
-    candidate = bool(models) or any(ledger.variant_of(p) for p in profiles.values())
+    """Let a run start: a candidate or seeded run needs a live, unchanged registration (the id)."""
     if not experiment:
-        if candidate:
-            raise RegistryError(
-                "a candidate run (a +variant profile or a model override) needs a registered "
-                "experiment: python3 -m bench.experiment run <id>"
-            )
+        _refuse_unregistered(profiles, models, seed)
         return ""
     rows = read(root)
     row = _registered(rows, experiment)
     _check_frozen(row, profiles, models, root)
+    _check_seed(row, seed)
     head, dirty = gitutil.code_state(root, "bench")
     if row["kind"] == "confirmatory" and dirty:
         raise RegistryError(f"{experiment}: a confirmatory run needs a clean bench/")
