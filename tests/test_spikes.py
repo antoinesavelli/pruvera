@@ -123,3 +123,10 @@ def test_every_interval_the_readme_quotes_is_in_the_public_summary() -> None:
     assert quoted, "the README quotes its rates in the summary's k/n [lo, hi] form"
     missing = sorted(set(q for q in quoted if q not in summary.read_text()))
     assert missing == [], f"README rates not printed by spikes/public_summary.py: {missing}"
+
+
+def test_the_cost_report_passes_its_own_checks(capsys: pytest.CaptureFixture[str]) -> None:
+    spike = _load("cost_report")
+    assert spike.self_test() == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) > 10 and not [line for line in lines if line.startswith("FAIL")]
