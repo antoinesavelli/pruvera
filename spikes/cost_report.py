@@ -634,7 +634,7 @@ def missing_rows(raw: dict[str, dict[str, Any]], trials: Sequence[Trial]) -> lis
 
     def absent(key: str, empty_too: bool = False) -> str:
         gone = sum(1 for r in recs if key not in r or (empty_too and not r[key]))
-        return f"absent in {gone} of {n}"
+        return f"{gone} of {n}"
 
     def count(test: Callable[[Trial], bool]) -> int:
         return sum(1 for t in trials if test(t))
@@ -643,13 +643,13 @@ def missing_rows(raw: dict[str, dict[str, Any]], trials: Sequence[Trial]) -> lis
     return [
         [
             "`timestamp`",
-            f"none of {n}",
+            f"all {n}",
             f"dates here are the day of the trial's artifact directory; "
             f"{count(lambda t: t.day is None)} trials have no such directory and no date",
         ],
         [
             "`kind`",
-            f"none of {n}",
+            f"all {n}",
             f"from the scored row; {count(lambda t: t.kind == NO_KIND)} trials have none",
         ],
         ["`phases`", absent("phases"), phases_note(recs)],
@@ -660,7 +660,7 @@ def missing_rows(raw: dict[str, dict[str, Any]], trials: Sequence[Trial]) -> lis
             "cannot show whether that is none used or none recorded: token means leave them out "
             "and count them",
         ],
-        ["`gpu`", absent("gpu", empty_too=True), gpu_note(recs, trials)],
+        ["`gpu` (absent or empty)", absent("gpu", empty_too=True), gpu_note(recs, trials)],
         [
             "`answer_kind`",
             absent("answer_kind"),
@@ -671,7 +671,11 @@ def missing_rows(raw: dict[str, dict[str, Any]], trials: Sequence[Trial]) -> lis
             absent("environment"),
             "seen: " + ", ".join(f"{k} {v}" for k, v in environments.most_common()),
         ],
-        ["`model_digest`", absent("model_digest", empty_too=True), digest_note(recs)],
+        [
+            "`model_digest` (absent or empty)",
+            absent("model_digest", empty_too=True),
+            digest_note(recs),
+        ],
     ]
 
 
@@ -744,7 +748,7 @@ def render(trials: Sequence[Trial], census: Census, raw: dict[str, dict[str, Any
     cells = {k[0]: c for k, c in summarise_by(trials, "model").items()}
     out = [BEGIN, "", "## Cost and throughput", "", *census_lines(census, trials), ""]
     out += ["### Fields missing from older records", ""]
-    out += table(["field", "missing from", "consequence"], missing_rows(raw, trials))
+    out += table(["field", "absent from", "consequence"], missing_rows(raw, trials))
     out += model_tables(cells) + kind_tables(trials)
     out += ["### Definitions and cautions", "", NOTES + END]
     return "\n".join(out)
