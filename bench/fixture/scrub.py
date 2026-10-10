@@ -21,6 +21,8 @@ CONTEXT_WINDOW = 2  # lines either side of a contextual match where the W rule m
 
 @dataclass(frozen=True)
 class Rule:
+    """One redaction rule of the token file (kind G, C or P): where it applies, its replacement."""
+
     kind: str  # "G" global, "C" contextual, "P" one-file code patch (owner-approved)
     context: re.Pattern[str] | None
     pattern: re.Pattern[str]
@@ -31,6 +33,8 @@ class Rule:
 
 @dataclass
 class Result:
+    """A redacted text, each change made, and the lines where real code matched and was spared."""
+
     text: str
     changes: list[tuple[int, str, str]] = field(
         default_factory=list

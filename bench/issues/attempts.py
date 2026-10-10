@@ -203,6 +203,8 @@ def _strip_prefix(words: list[str]) -> list[str]:
 
 
 class Parsed(NamedTuple):
+    """Every simple command found in a shell string, and its redirect targets."""
+
     commands: list[list[str]]
     redirects: set[str]
 

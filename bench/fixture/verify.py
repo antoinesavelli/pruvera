@@ -15,6 +15,8 @@ from bench.fixture import denylist, export, scrub
 
 @dataclass
 class Report:
+    """The acceptance findings for a built tree; it passes when every field is empty."""
+
     ciphertext: list[str] = field(default_factory=list)
     denylisted: list[str] = field(default_factory=list)
     residue: dict[str, list[int]] = field(default_factory=dict)

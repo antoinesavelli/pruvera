@@ -70,6 +70,8 @@ def embed(text: str) -> np.ndarray:
 
 
 class Index:
+    """The prebuilt docs index (chunks and unit-norm vectors) that `search_docs` queries."""
+
     def __init__(self, directory: Path) -> None:
         self.chunks: list[dict[str, str]] = json.loads((directory / "chunks.json").read_text())
         self.vectors = np.load(directory / "vectors.npy")

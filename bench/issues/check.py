@@ -36,6 +36,8 @@ class Env:
 
 @dataclass(frozen=True)
 class Result:
+    """One check run: exit code, failing tests with reasons, and the tail of the output."""
+
     rc: int
     failed: tuple[str, ...] = field(default_factory=tuple)
     tail: str = ""

@@ -27,6 +27,8 @@ WORDS = {"True": "False", "False": "True"}
 
 @dataclass(frozen=True)
 class Mutant:
+    """A single-token mutation: where the token sits, what it was and what replaces it."""
+
     line: int
     col: int
     old: str
