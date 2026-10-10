@@ -31,6 +31,8 @@ class BuildError(RuntimeError):
 
 @dataclass
 class BuildResult:
+    """A finished fixture build: the tree, its manifest, the acceptance report and the leaks."""
+
     tree: Path
     manifest: dict[str, object]
     report: verify.Report

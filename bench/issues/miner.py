@@ -27,6 +27,8 @@ CONTEXT = 5
 
 @dataclass(frozen=True)
 class Selected:
+    """A fix commit worth inverting: its source files, the tests that cover them and its size."""
+
     commit: str
     sources: tuple[str, ...]
     tests: tuple[str, ...]
@@ -35,6 +37,8 @@ class Selected:
 
 @dataclass(frozen=True)
 class Candidate:
+    """A fix commit inverted into planting edits (fixed to buggy text), with its detector tests."""
+
     commit: str
     sources: tuple[str, ...]
     tests: tuple[str, ...]
@@ -44,6 +48,8 @@ class Candidate:
 
 @dataclass
 class Verdict:
+    """How a planted candidate fared against its tests: the kind, the failing tests, notes."""
+
     # caught_assertion | caught_exception | survived | not_applicable | baseline_red
     kind: str
     failed: tuple[str, ...] = ()
@@ -133,6 +139,8 @@ def source_diff(repo: Path, commit: str, sources: tuple[str, ...]) -> bytes:
 
 @dataclass(frozen=True)
 class Hunk:
+    """One modification hunk of a unified diff: the file, and its text before and after."""
+
     file: str
     before: str  # context + removed lines: the pre-fix code
     after: str  # context + added lines: the code the fixture holds
