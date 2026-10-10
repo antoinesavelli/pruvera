@@ -1,7 +1,7 @@
 """Command line for the trial runner: run one trial, check a fixture version, replay a diff.
 
-Depends on: bench.{runner,preflight,layout,reference}, bench.fixture.pins; the layout under
-fixtures/paramo/.
+Depends on: bench.{runner,preflight,layout,reference,agentconfig}, bench.fixture.pins; the layout
+under fixtures/paramo/.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import json
 import sys
 from pathlib import Path
 
-from bench import layout, preflight, reference, runner
+from bench import agentconfig, layout, preflight, reference, runner
 from bench.fixture import pins
 
 
@@ -20,6 +20,18 @@ def parse_hook(text: str) -> runner.Hook:
     kind, _, rest = text.partition(":")
     path, _, content = rest.partition(":")
     return runner.Hook(kind, path, (content + "\n") if content else "# seeded by the trial\n")
+
+
+def seed_arg(text: str) -> int:
+    """A `--seed` value: an integer a sampler takes as a seed (see `agentconfig.check_seed`)."""
+    try:
+        seed = int(text)
+        agentconfig.check_seed(seed)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"seed must be an integer from 0 to {agentconfig.MAX_SEED}, not {text!r}"
+        ) from None
+    return seed
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--hang-seconds", type=float, default=240.0)
     tr.add_argument("--force", action="store_true", help="run despite preflight problems")
     tr.add_argument("--wait", type=float, default=0.0, help="seconds to wait for the GPU to idle")
+    tr.add_argument(
+        "--seed",
+        type=seed_arg,
+        default=None,
+        help="sampling seed, for variance studies; omit it for an unseeded trial, like a real one",
+    )
     tr.add_argument(
         "--keep-overlay", action="store_true", help="keep the overlay even if completed"
     )
@@ -77,6 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         timeout=args.timeout,
         hang_seconds=args.hang_seconds,
         keep_overlay=args.keep_overlay,
+        seed=args.seed,
     )
     if args.wait:
         preflight.wait_clear(args.wait)
