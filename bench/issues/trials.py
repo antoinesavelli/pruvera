@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -50,8 +51,9 @@ def run_arms(
     force: bool = False,
     experiment: str = "",
     seed: int | None = None,
+    repeats: Mapping[str, int] | None = None,
 ) -> Path:
-    """`n` trials per issue per arm, arms alternating with the order flipped each repeat."""
+    """`n` trials per issue per arm (`repeats` overrides it per issue), arms alternating."""
     # GPU warmth and drift then hit all arms alike. Every arm must plant the same issues.
     issues = schema.load_all(ROOT / "issues")
     skip = set().union(*(unfixable(fx) for fx in arms.values()))
@@ -61,11 +63,19 @@ def run_arms(
     if len({fx.issue_ids for fx in arms.values()}) > 1:
         raise ValueError("the arms plant different issues: they are not comparable")
     profiles = {name: fx.profile for name, fx in arms.items()}
+    counts = _counts(ids, n, repeats)
     out.parent.mkdir(parents=True, exist_ok=True)
     with preflight.session_lock():
         experiment = registry.authorize(experiment, profiles, models, out, seed=seed)
         reference.sweep(layout.OVERLAYS)  # a killed realism run may have left a real-code export
-        return _run_arms_locked(arms, n, out, ids, issues, models, wait, force, experiment, seed)
+        return _run_arms_locked(
+            arms, counts, out, ids, issues, models, wait, force, experiment, seed
+        )
+
+
+def _counts(ids: list[str], n: int, repeats: Mapping[str, int] | None) -> dict[str, int]:
+    """The repeats of each issue: what `repeats` names for it, else `n`."""
+    return {i: (repeats or {}).get(i, n) for i in ids}
 
 
 def _arm_task(issue: schema.Issue, fx: runner.Fixture, models: dict[str, str] | None) -> tasks.Task:
@@ -93,7 +103,7 @@ def _done_cells(out: Path, experiment: str) -> set[tuple[str, str, int | None]]:
 
 def _run_arms_locked(
     arms: dict[str, runner.Fixture],
-    n: int,
+    counts: Mapping[str, int],
     out: Path,
     ids: list[str],
     issues: dict[str, schema.Issue],
@@ -103,13 +113,16 @@ def _run_arms_locked(
     experiment: str = "",
     seed: int | None = None,
 ) -> Path:
-    """Run each (issue, arm, repeat) cell not yet in `out`, reversing order on odd repeats."""
+    """Run each cell within its issue's `counts` not yet in `out`, flipping order on odd repeats."""
     done = _done_cells(out, experiment)
-    for rep in range(n):
+    for rep in range(max(counts.values(), default=0)):
         flip = rep % 2 == 1
         for issue_id in reversed(ids) if flip else ids:
+            if rep >= counts[issue_id]:
+                continue
             for arm in reversed(list(arms)) if flip else list(arms):
-                if (issue_id, arm if len(arms) > 1 else "", rep + 1) in done:
+                arm_name = arm if len(arms) > 1 else ""
+                if (issue_id, arm_name, rep + 1) in done:
                     continue
                 _blocked(wait, force)
                 task = _arm_task(issues[issue_id], arms[arm], models)
@@ -120,7 +133,7 @@ def _run_arms_locked(
                     label=issue_id,
                     issue_hash=schema.definition_hash(issues[issue_id]),
                     hooks=tuple(runner.Hook(*h) for h in issues[issue_id].hooks),
-                    arm=arm if len(arms) > 1 else "",
+                    arm=arm_name,
                     experiment_id=experiment,
                     repeat=rep + 1,
                     timeout=600,
@@ -130,7 +143,10 @@ def _run_arms_locked(
                 runner.run_trial(
                     arms[arm], spec, layout.ARTIFACTS, layout.OVERLAYS, out, force=force
                 )
-                print(f"{issue_id:32s} {arm:12s} {task.model:24s} rep {rep + 1}/{n}", flush=True)
+                print(
+                    f"{issue_id:32s} {arm:12s} {task.model:24s} rep {rep + 1}/{counts[issue_id]}",
+                    flush=True,
+                )
     return out
 
 
