@@ -49,6 +49,7 @@ DAMAGE_ALPHA = 0.20  # damage counts must rise this significantly to block a CLE
 
 
 def arm_rows(rows: list[dict[str, Any]], arm: str) -> list[dict[str, Any]]:
+    """The rows of one arm (`baseline` or `candidate`)."""
     return [r for r in rows if r.get("arm") == arm]
 
 
@@ -586,6 +587,7 @@ COMMANDS = {
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the sub-command named on the command line."""
     args = _parser().parse_args(argv)
     return COMMANDS[args.cmd](args)
 

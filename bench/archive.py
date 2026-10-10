@@ -81,6 +81,7 @@ def archive(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Move the given results files to the archive under a reason; print where each went."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("files", nargs="+", type=Path)
     ap.add_argument("--results", type=Path, default=layout.RESULTS)

@@ -41,6 +41,8 @@ def _bounded_input(value: object) -> object:
 
 @dataclass
 class Transcript:
+    """What a trial's event stream amounted to: text, tool use, steps, tokens, cost and timing."""
+
     events: int = 0
     tools: list[dict[str, Any]] = field(default_factory=list)
     text: str = ""
@@ -96,6 +98,7 @@ class Transcript:
         return True
 
     def parse(self, raw: str) -> Transcript:
+        """Feed every line of a raw transcript; returns self."""
         for line in raw.splitlines():
             self.feed(line)
         return self

@@ -24,6 +24,7 @@ TRAILER = re.compile(r"^(Evidence|Gate-Verdict):\s*(\S+)\s*$", re.M)
 
 
 def load_tiers(path: Path = TIERS_FILE) -> dict[int, list[str]]:
+    """The path patterns of tier 1 and tier 2 from the tiers file."""
     doc = tomllib.loads(path.read_text())
     return {1: list(doc["tier1"]["patterns"]), 2: list(doc["tier2"]["patterns"])}
 
@@ -38,6 +39,7 @@ def classify(files: list[str], tiers: dict[int, list[str]] | None = None) -> int
 
 
 def trailers(message: str) -> dict[str, str]:
+    """The `Evidence` and `Gate-Verdict` trailers of a commit message, by name."""
     return {name: value for name, value in TRAILER.findall(message)}
 
 
@@ -134,6 +136,7 @@ def decision_row(experiment: str, root: Path = layout.ROOT) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Check a commit range, print a decision row or check clearance; returns 1 if it blocks."""
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     ck = sub.add_parser("check", help="evidence for the commits in a range of the Paramo repo")

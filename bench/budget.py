@@ -89,4 +89,5 @@ def power(spec: registry.Spec, alpha: float, root: Path) -> dict[str, float]:
 
 
 def adequate(result: dict[str, float]) -> bool:
+    """Whether a power result clears a harmless rule at least POWER_MIN of the time."""
     return result["clear_if_harmless"] >= POWER_MIN
