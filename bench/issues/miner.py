@@ -70,6 +70,7 @@ def fix_commits(repo: Path, rev: str) -> list[str]:
 
 
 def _numstat(repo: Path, commit: str) -> list[tuple[int, str]]:
+    """(changed lines, path) per file a commit touched; -1 where git-crypt hides the count."""
     out = gitutil.raw(repo, "show", "--format=", "--numstat", "-z", commit).decode(
         "utf-8", "replace"
     )
@@ -84,6 +85,7 @@ def _numstat(repo: Path, commit: str) -> list[tuple[int, str]]:
 
 
 def _in_tests_dir(path: str) -> bool:
+    """True for a path under a `tests/` directory."""
     return path.startswith("tests/") or "/tests/" in path
 
 
@@ -107,6 +109,7 @@ def _eligible(
 
 
 def _select_one(repo: Path, commit: str, kept: set[str], max_sources: int) -> Selected | None:
+    """The commit as a Selected, or None when it touches no eligible source file."""
     rows = _numstat(repo, commit)
     sources = _eligible(rows, kept, max_sources)
     if not sources:
@@ -152,6 +155,7 @@ class _HunkParser:
     SKIP = ("new file", "deleted file", "rename ", "similarity", "Binary files")
 
     def __init__(self) -> None:
+        """Start with no hunks, no open file and an empty hunk body."""
         self.hunks: list[Hunk] = []
         self.file, self.active, self.usable = "", False, True
         self.before: list[str] = []
@@ -177,6 +181,7 @@ class _HunkParser:
             self._body(line)
 
     def _body(self, line: str) -> None:
+        """Add one body line to the open hunk: removed before, added after, context to both."""
         if line.startswith("-"):
             self.before.append(line[1:])
         elif line.startswith("+"):
@@ -196,6 +201,7 @@ def parse_hunks(diff: str) -> list[Hunk] | None:
 
 
 def _changed_lines(text_diff: str) -> int:
+    """The number of added and removed lines in a diff, file headers excluded."""
     return sum(1 for ln in text_diff.split("\n") if ln[:1] in "+-" and ln[:3] not in ("+++", "---"))
 
 
@@ -240,6 +246,7 @@ def inverse(sel: Selected, diff: bytes, tree: Path, max_lines: int = 80) -> Cand
 
 
 def _strip_docstrings(tree: ast.AST) -> ast.AST:
+    """The tree with its docstrings removed in place: they are prose, not code."""
     for node in ast.walk(tree):
         if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             body = node.body
@@ -300,6 +307,7 @@ def screen(cand: Candidate, rules: list[scrub.Rule], forbidden: frozenset[str]) 
 
 
 def _kind(result: check.Result) -> str:
+    """The verdict kind of a planted run: survived, caught_assertion or caught_exception."""
     if result.passed:
         return "survived"
     if (

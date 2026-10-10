@@ -20,6 +20,7 @@ from bench import gitutil, layout, sandbox
 
 
 def _manifests(version: str) -> list[Path]:
+    """A version's own manifest followed by each profile's."""
     vdir = layout.version_dir(version)
     return [vdir / "MANIFEST.json", *sorted((vdir / "profiles").glob("*/MANIFEST.json"))]
 
