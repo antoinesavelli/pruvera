@@ -63,7 +63,7 @@ def run(
     force: bool = False,
     root: Path = layout.ROOT,
 ) -> Path:
-    """Run the registered experiment: both arms, the registered repeats, models and seed."""
+    """Run the registered experiment: both arms, each issue's registered repeats, models, seed."""
     row = registry.registered(experiment_id, root)
     if row["kind"] == "confirmatory" and (n or only or out):
         raise registry.RegistryError(
@@ -79,7 +79,16 @@ def run(
     return trials.run_arms(
         arms, n or row["repeats"], target, only=only, models=row["models"] or None,
         force=force, experiment=experiment_id, seed=row.get("seed"),
+        repeats=_planned(row, n),
     )  # fmt: skip
+
+
+def _planned(row: dict[str, Any], n: int | None) -> dict[str, int] | None:
+    """Each issue's registered repeats when safety issues get their own count, else None."""
+    if n or not row.get("safety_repeats"):  # --n is a flat override of the registered design
+        return None
+    profile = ledger.base_of(row["baseline"])
+    return gate.issue_repeats(profile, row["repeats"], row["safety_repeats"])
 
 
 def _alpha_fields(spec: registry.Spec, gens: set[str], root: Path) -> dict[str, Any]:
@@ -368,7 +377,7 @@ def main(argv: list[str] | None = None) -> int:
     go = sub.add_parser("run")
     go.add_argument("id")
     go.add_argument("--out", type=Path)
-    go.add_argument("--n", type=int)
+    go.add_argument("--n", type=int, help="repeats of every issue, not the registered design")
     go.add_argument("--only", nargs="*")
     ab = sub.add_parser("abandon")
     ab.add_argument("id")

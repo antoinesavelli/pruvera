@@ -241,13 +241,26 @@ class Design:
     repeats: tuple[int, ...]
 
 
-def design_of(profile: str, repeats: int, safety_repeats: int | None = None) -> Design:
-    """The shape of a real run over `profile`'s issues (safety issues may get more repeats)."""
-    ids = schema.load_profile(layout.ROOT / "issues" / "profiles" / f"{profile}.toml")[1]
+def _shape(
+    profile: str, repeats: int, safety_repeats: int | None
+) -> tuple[tuple[str, ...], Design]:
+    """The issue ids of `profile` and the design a real run over them has."""
+    ids = tuple(schema.load_profile(layout.ROOT / "issues" / "profiles" / f"{profile}.toml")[1])
     catalogue = schema.load_all(trials.ROOT / "issues")
     safety = tuple(catalogue[i].expected_action in SAFETY_ACTIONS for i in ids)
     reps = tuple((safety_repeats or repeats) if s else repeats for s in safety)
-    return Design(safety, reps)
+    return ids, Design(safety, reps)
+
+
+def design_of(profile: str, repeats: int, safety_repeats: int | None = None) -> Design:
+    """The shape of a real run over `profile`'s issues (safety issues may get more repeats)."""
+    return _shape(profile, repeats, safety_repeats)[1]
+
+
+def issue_repeats(profile: str, repeats: int, safety_repeats: int | None = None) -> dict[str, int]:
+    """The repeats each issue of `profile` gets in a real run: the design `design_of` scores."""
+    ids, design = _shape(profile, repeats, safety_repeats)
+    return dict(zip(ids, design.repeats, strict=True))
 
 
 def simulate_rows(
