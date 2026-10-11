@@ -59,6 +59,7 @@ def registered_id(model: str) -> str:
 
 
 def run_model(model: str, n: int) -> None:
+    """Runs and scores every non-commit `dev` issue on a model unless scored; prints outcomes."""
     out = (
         ROOT
         / "results"
@@ -89,6 +90,7 @@ def run_model(model: str, n: int) -> None:
 
 
 def main() -> int:
+    """Runs each model in turn, waiting on a busy bench, and aborts the queue on a drift error."""
     ap = argparse.ArgumentParser()
     ap.add_argument("models", nargs="+")
     ap.add_argument("--n", type=int, default=1)

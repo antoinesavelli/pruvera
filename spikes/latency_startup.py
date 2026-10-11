@@ -26,6 +26,7 @@ PROMPT = (
 
 
 def run_once(base: Path, venv: Path, data: Path | None) -> tuple[float, float]:
+    """Runs one sandboxed opencode trial on a tree; returns seconds to first event and in total."""
     preflight.wait_clear(60)
     tmp = Path(tempfile.mkdtemp(prefix="lat-"))
     for d in ("upper", "work", "xdg/config", "xdg/data", "xdg/state"):
@@ -65,6 +66,7 @@ def run_once(base: Path, venv: Path, data: Path | None) -> tuple[float, float]:
 
 
 def main() -> None:
+    """Times four alternating runs on the fixture and a real copy; prints median first events."""
     src = Path(tempfile.mkdtemp(prefix="ref-lat-"))
     reference.prepare(layout.REAL_REPO, layout.source_commit(), src)
     cases = {

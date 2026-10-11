@@ -29,6 +29,7 @@ PROMPT = (
 
 
 def run(n: int, seed: int) -> None:
+    """Runs n fixture and n reference trials in a seeded shuffled order, logging rows to a file."""
     fixture = runner.load_profile(layout.VERSION, "clean")
     artifacts, trials = ROOT / "artifacts", ROOT / "overlays"
     order = ["fixture", "reference"] * n
@@ -54,6 +55,7 @@ def run(n: int, seed: int) -> None:
 
 
 def _load_trials() -> dict[str, list[dict[str, Any]]]:
+    """Reads the logged rows and groups each trial's secs, phases and Ollama calls by side."""
     rows = [json.loads(line) for line in OUT.read_text().splitlines() if line.strip()]
     by_side: dict[str, list[dict[str, Any]]] = {"fixture": [], "reference": []}
     for r in rows:
@@ -64,6 +66,7 @@ def _load_trials() -> dict[str, list[dict[str, Any]]]:
 
 
 def _print_side(side: str, trials: list[dict[str, Any]]) -> None:
+    """Prints a side's trial times, first-call first-byte and hashes, and later-call median."""
     first = [t["calls"][0] for t in trials if t["calls"]]
     print(f"\n{side}: {len(trials)} trials")
     print("  secs", [t["secs"] for t in trials])
@@ -76,11 +79,13 @@ def _print_side(side: str, trials: list[dict[str, Any]]) -> None:
 
 
 def report() -> None:
+    """Prints the per-side summary of the recorded fixture and reference trials."""
     for side, trials in _load_trials().items():
         _print_side(side, trials)
 
 
 def main() -> int:
+    """Parses the `run` and `report` subcommands and dispatches to the matching function."""
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     go = sub.add_parser("run")
