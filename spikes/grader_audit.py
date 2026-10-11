@@ -204,10 +204,12 @@ def group_of(family: str) -> str:
 
 
 def sha256_file(path: Path) -> str:
+    """The hex SHA-256 digest of a file's bytes."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def rel(path: Path) -> str:
+    """A path relative to the results directory, written with forward slashes."""
     return path.relative_to(layout.RESULTS).as_posix()
 
 
@@ -221,6 +223,7 @@ def load_rows(paths: list[Path], catalogue: dict[str, schema.Issue]) -> list[Row
 
 
 def check_counts(rows: list[Row]) -> None:
+    """Exits unless (family, outcome) counts match the registered table and trial ids are unique."""
     counts = Counter((r["family"], r["outcome"]) for r in rows)
     if counts != Counter(EXPECTED) or len({r["trial_id"] for r in rows}) != len(rows):
         delta = (counts - Counter(EXPECTED)) + (Counter(EXPECTED) - counts)
@@ -275,6 +278,7 @@ def stratum_order(rows: list[Row], family: str, outcome: str) -> list[Row]:
 
 
 def by_stratum(rows: list[Row], family: str, outcome: str) -> list[Row]:
+    """The rows whose family and outcome equal the given stratum."""
     return [r for r in rows if (r["family"], r["outcome"]) == (family, outcome)]
 
 
@@ -365,6 +369,7 @@ def render_event(event: Row) -> str | None:
 
 
 def read_events(path: Path) -> list[Row]:
+    """Parses a transcript into event dicts, marking an unparseable line as `unreadable`."""
     events: list[Row] = []
     for line in path.read_text(errors="replace").splitlines():
         try:
@@ -377,6 +382,7 @@ def read_events(path: Path) -> list[Row]:
 
 
 def paths_text(paths: tuple[str, ...]) -> str:
+    """Joins paths into a comma-separated string of backtick-quoted code spans."""
     return ", ".join(f"`{p}`" for p in paths)
 
 
@@ -406,6 +412,7 @@ def reference_text(issue: schema.Issue, group: str) -> str:
 
 
 def status_text(path: Path) -> str:
+    """The git status text minus runtime noise lines, cut to 80 lines, noting omitted ones."""
     lines = path.read_text(errors="replace").splitlines()
     kept = [line for line in lines if not line.startswith(STATUS_NOISE)]
     omitted = (
@@ -564,6 +571,7 @@ def verdict(false_pass: int, positives: int) -> str:
 
 
 def fmt(k: int, n: int) -> str:
+    """Formats k of n as `k/n [lo-hi]` with the Wilson interval to two decimals."""
     lo, hi = wilson(k, n)
     return f"{k}/{n} [{lo:.2f}-{hi:.2f}]"
 
@@ -666,6 +674,7 @@ def merge_items(
 
 
 def report_family(r: Row) -> list[str]:
+    """Renders one family's report as markdown lines: agreement, kappa, claim errors and matrix."""
     kappa_text = "n/a" if r["kappa"] is None else f"{r['kappa']:.2f}"
     lines = [
         "",
@@ -685,6 +694,7 @@ def report_family(r: Row) -> list[str]:
 
 
 def render_report(reports: list[Row], merged: list[Row], rubric_issues: str) -> str:
+    """Renders the audit report as markdown: a family table, sections, defects and rubric issues."""
     out = [
         "# Grader audit report",
         "",
@@ -820,6 +830,7 @@ def selftest() -> None:
 
 
 def main() -> None:
+    """Parses the subcommand (frame, draw, pack, ingest, spot, compare, selftest) and runs it."""
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("frame").add_argument("--write", action="store_true")

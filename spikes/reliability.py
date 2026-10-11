@@ -59,6 +59,7 @@ class Est:
     lost: int = 0
 
     def fmt(self, digits: int = 2) -> str:
+        """Formats as `point [low, high]`, or `n/a`, or `point [n/a]` with no interval."""
         if math.isnan(self.point):
             return "n/a"
         if math.isnan(self.low):
@@ -81,6 +82,7 @@ class ModelRuns:
     excluded: int = 0
 
     def groups(self, issues: Sequence[str]) -> Groups:
+        """Per-issue (successes, trials) pairs for the given issues this model has runs of."""
         return [(sum(self.wins[i]), len(self.wins[i])) for i in issues if i in self.wins]
 
 
@@ -190,6 +192,7 @@ def design_effect(icc: float, repeats: float) -> float:
 
 
 def _ranks(values: Sequence[float]) -> list[float]:
+    """Average 1-based ranks of the values in input order, tied values sharing the mean rank."""
     order = sorted(range(len(values)), key=lambda i: values[i])
     ranks = [0.0] * len(values)
     i = 0
@@ -260,6 +263,7 @@ def pattern(runs: ModelRuns, issue: str) -> str:
 
 
 def rate(k: int, n: int) -> str:
+    """Formats k successes of n as `k/n [lo, hi]` with the Wilson interval to two decimals."""
     lo, hi = wilson(k, n)
     return f"{k}/{n} [{lo:.2f}, {hi:.2f}]"
 
@@ -303,6 +307,7 @@ def by_group(runs: ModelRuns, key: dict[str, str]) -> list[str]:
 
 
 def model_section(runs: ModelRuns) -> list[str]:
+    """Builds one model's report block: success rates and reliability tables by group."""
     issues = sorted(runs.wins)
     ok = sum(sum(w) for w in runs.wins.values())
     trials = sum(len(w) for w in runs.wins.values())
@@ -386,6 +391,7 @@ def difficulty_rows(models: list[ModelRuns]) -> list[dict[str, Any]]:
 
 
 def difficulty_section(models: list[ModelRuns], records: list[dict[str, Any]]) -> list[str]:
+    """Builds the per-issue difficulty table, ordered by rating then success, with rating counts."""
     names = [m.name for m in models]
     counts = collections.Counter(r["rating"] for r in records)
     order = ["unsolved", "hard", "moderate", "easy", "unrated"]
@@ -416,6 +422,7 @@ def difficulty_section(models: list[ModelRuns], records: list[dict[str, Any]]) -
 
 
 def unsolved_section(models: list[ModelRuns], records: list[dict[str, Any]]) -> list[str]:
+    """Lists the issues no model solved, with per-model outcomes, no-answer counts and trial ids."""
     zero = [r for r in records if r["k"] == 0 and r["rating"] == "unsolved"]
     out = [f"{len(zero)} issues were solved in none of their trials by any model.", ""]
     if not zero:
@@ -551,6 +558,7 @@ def self_test() -> int:
 
 
 def main() -> int:
+    """Runs the self-test, or builds the report from scored files and writes markdown and JSON."""
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("scored", nargs="*", type=Path, help="one scored .jsonl per model")
     ap.add_argument("--md", type=Path, help="write or refresh the generated block in this file")

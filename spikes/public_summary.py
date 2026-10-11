@@ -111,6 +111,8 @@ HANDOFF = (
 
 @dataclass
 class Study:
+    """One study's counted rows, dropped-row tallies, input file hashes and provenance sets."""
+
     rows: list[Row] = field(default_factory=list)
     files: list[tuple[str, int, str]] = field(default_factory=list)  # name, rows, sha256
     dropped: collections.Counter[str] = field(default_factory=collections.Counter)
@@ -122,19 +124,23 @@ class Study:
 
 
 def wins(rows: list[Row]) -> int:
+    """The number of rows whose `success` field is true."""
     return sum(bool(r["success"]) for r in rows)
 
 
 def rate(k: int, n: int) -> str:
+    """Formats k wins of n as `k/n [lo, hi]` with the Wilson interval to two decimals."""
     lo, hi = wilson(k, n)
     return f"{k}/{n} [{lo:.2f}, {hi:.2f}]"
 
 
 def is_win(row: Row) -> bool:
+    """Whether a row counts as a success, taken from its `success` field."""
     return bool(row["success"])
 
 
 def is_unsafe(row: Row) -> bool:
+    """Whether a row's outcome is one of the unsafe ones (swept or peer lost)."""
     return row["outcome"] in UNSAFE
 
 
@@ -162,6 +168,7 @@ def shape(row: Row) -> str:
 
 
 def drop_reason(row: Row, raw: Row, held: frozenset[str]) -> str:
+    """Why a scored row is left out (held out, unscorable, infrastructure fault), else empty."""
     if row["issue"] in held:
         return "held out"
     if row["outcome"] == "unscorable":
@@ -172,6 +179,7 @@ def drop_reason(row: Row, raw: Row, held: frozenset[str]) -> str:
 
 
 def load(directory: Path, pattern: str, held: frozenset[str]) -> Study:
+    """Loads scored files matching a glob into a `Study`, dropping unusable and held-out rows."""
     study = Study()
     for path in sorted(directory.glob(pattern)):
         raw_path = path.with_name(path.name.replace(".scored", ""))
@@ -213,6 +221,7 @@ def registration(study: Study, reg: list[Row]) -> str:
 
 
 def by_model(rows: list[Row]) -> dict[str, list[Row]]:
+    """Groups rows by model name, returned as a dict sorted alphabetically by model."""
     grouped: dict[str, list[Row]] = collections.defaultdict(list)
     for row in rows:
         grouped[str(row["model"])].append(row)
@@ -227,10 +236,12 @@ def failures(rows: list[Row]) -> list[str]:
 
 
 def median_secs(rows: list[Row]) -> str:
+    """The median `secs` of the rows, rounded to a whole number and returned as a string."""
     return f"{statistics.median(r['secs'] for r in rows):.0f}"
 
 
 def of_shape(rows: list[Row], key: str) -> list[Row]:
+    """The rows whose graded shape equals the given shape key."""
     return [r for r in rows if shape(r) == key]
 
 
@@ -245,6 +256,7 @@ def is_rate(rows: list[Row]) -> bool:
 
 
 def cell(rows: list[Row]) -> str:
+    """A table cell for the rows: `-` if none, outcome labels for a one-issue shape, else a rate."""
     if not rows:
         return "-"
     if is_label(rows):
@@ -258,6 +270,7 @@ def cluster_cell(rows: list[Row]) -> str:
 
 
 def table(head: list[str], body: list[list[str]]) -> list[str]:
+    """Builds a markdown table from a header and body rows, as lines ending with a blank one."""
     return [
         "| " + " | ".join(head) + " |",
         "|" + "---|" * len(head),
@@ -267,6 +280,7 @@ def table(head: list[str], body: list[list[str]]) -> list[str]:
 
 
 def inputs_section(studies: dict[str, Study], reg: list[Row]) -> list[str]:
+    """Builds the Inputs table: per study its files, rows counted and dropped, and registration."""
     head = ["study", "files", "rows counted", "rows dropped", "fixture", "seeded", "registration"]
     body = []
     for key, s in studies.items():
@@ -279,6 +293,7 @@ def inputs_section(studies: dict[str, Study], reg: list[Row]) -> list[str]:
 
 
 def kinds_table(rows: list[Row]) -> list[str]:
+    """Builds the table of pooled success per shape and kind, with issue counts and intervals."""
     pooled: dict[tuple[str, str], list[Row]] = collections.defaultdict(list)
     for r in rows:
         pooled[(SHAPES[shape(r)], r["kind"])].append(r)
@@ -293,6 +308,7 @@ def kinds_table(rows: list[Row]) -> list[str]:
 
 
 def stage1_section(rows: list[Row]) -> list[str]:
+    """Builds the stage 1 section: a per-model table across task shapes and a by-kind table."""
     issues = len({r["issue"] for r in rows})
     per_model = by_model(rows)
     # a shape that prints a rate for some model gets a clustered column; a label shape does not
@@ -330,6 +346,7 @@ def top_group(per_model: dict[str, list[Row]]) -> set[str]:
 
 
 def stage2_section(rows: list[Row], stage1: list[Row]) -> list[str]:
+    """Builds the stage 2 section: per-model stage 1 versus stage 2 rates, top group and repeats."""
     issues = {r["issue"] for r in rows}
     per_model = by_model(rows)
     first = by_model([r for r in stage1 if r["issue"] in issues])
@@ -361,6 +378,7 @@ def stage2_section(rows: list[Row], stage1: list[Row]) -> list[str]:
 
 
 def handoff_section(studies: dict[str, Study]) -> list[str]:
+    """Builds the shared-tree commit section: per variant and model, success, unsafe, no commit."""
     out = ["## Commit in a shared tree, through a commit tool", "", HANDOFF, ""]
     for key in ("handoff", "handoff3"):
         rows = studies[key].rows
@@ -396,6 +414,7 @@ def gate_section(root: Path) -> list[str]:
 
 
 def files_section(studies: dict[str, Study]) -> list[str]:
+    """Builds the input files table: each scored file's row count and sha256 prefix, and dates."""
     body = [[key, name, str(n), sha[:16]] for key, s in studies.items() for name, n, sha in s.files]
     written = sorted(set().union(*(s.written for s in studies.values())))
     return [
@@ -408,6 +427,7 @@ def files_section(studies: dict[str, Study]) -> list[str]:
 
 
 def main() -> int:
+    """Checks holdouts and the registry chain, loads every study and writes the summary markdown."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("bakeoff", type=Path, help="directory holding the *.scored.jsonl files")
     ap.add_argument("--out", type=Path, default=ROOT / "results" / "public" / "SUMMARY.md")

@@ -32,10 +32,12 @@ TOKEN = re.compile(r"[a-z0-9_]+")
 
 
 def git(*args: str) -> bytes:
+    """Runs a git command in the real repo and returns its stdout bytes, raising on failure."""
     return subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, check=True).stdout
 
 
 def corpus() -> list[tuple[str, str]]:
+    """The (file, text) chunks of the pinned commit's md and yaml files, minus golden tests."""
     files = [
         f
         for f in git("ls-tree", "-r", "--name-only", COMMIT).decode().splitlines()
@@ -52,6 +54,7 @@ def corpus() -> list[tuple[str, str]]:
 
 
 def bm25(chunks: list[tuple[str, str]], query: str, k1: float = 1.5, b: float = 0.75) -> np.ndarray:
+    """Scores every chunk against the query with BM25 (k1, b) and returns an array of scores."""
     docs = [TOKEN.findall(t.lower()) for _, t in chunks]
     n, avg = len(docs), sum(map(len, docs)) / len(docs)
     df = Counter(w for d in docs for w in set(d))
@@ -67,6 +70,7 @@ def bm25(chunks: list[tuple[str, str]], query: str, k1: float = 1.5, b: float = 
 
 
 def embed(texts: list[str], prefix: str) -> np.ndarray:
+    """Embeds texts with nomic-embed-text on local Ollama in batches of 64, as unit-norm rows."""
     out = []
     for i in range(0, len(texts), 64):
         body = json.dumps(
@@ -85,6 +89,7 @@ def embed(texts: list[str], prefix: str) -> np.ndarray:
 
 
 def rank_files(chunks: list[tuple[str, str]], scores: np.ndarray) -> list[str]:
+    """Returns the first 20 distinct files in descending order of their best chunk score."""
     seen: list[str] = []
     for i in np.argsort(-scores):
         f = chunks[i][0]
@@ -96,6 +101,7 @@ def rank_files(chunks: list[tuple[str, str]], scores: np.ndarray) -> list[str]:
 
 
 def z(a: np.ndarray) -> np.ndarray:
+    """Standardises an array to zero mean and unit variance, with a small epsilon on the spread."""
     scaled: np.ndarray = (a - a.mean()) / (a.std() + 1e-9)
     return scaled
 
@@ -116,6 +122,7 @@ def first_hits(
 
 
 def summarise(firsts: list[int | None]) -> dict[str, float]:
+    """Returns recall@1, 3, 5 and 10 and the MRR from first-hit ranks, None counting as a miss."""
     n = len(firsts)
     recall = {
         f"recall@{k}": round(sum(1 for r in firsts if r and r <= k) / n, 3) for k in (1, 3, 5, 10)
@@ -124,6 +131,7 @@ def summarise(firsts: list[int | None]) -> dict[str, float]:
 
 
 def main() -> int:
+    """Embeds the corpus and questions, scores three retrievers, prints and saves a JSON summary."""
     qs = yaml.safe_load((REPO / "docs/eval/knowledge_questions.yaml").read_text())
     chunks = corpus()
     t0 = time.time()

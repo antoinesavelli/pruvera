@@ -38,6 +38,7 @@ SECRET_FILES = re.compile(r"(^|/)(\.env(\..*)?|id_rsa|id_ed25519|.*\.(key|pem|p1
 
 
 def git(repo: Path, *args: str, data: bytes | None = None) -> bytes:
+    """Runs git in a repo with optional stdin and returns stdout bytes, raising on failure."""
     run = subprocess.run(
         ["git", "-C", str(repo), *args], input=data, capture_output=True, check=True
     )
@@ -45,10 +46,12 @@ def git(repo: Path, *args: str, data: bytes | None = None) -> bytes:
 
 
 def lines(path: Path) -> list[str]:
+    """Returns the non-empty lines of a text file."""
     return [line for line in path.read_text().splitlines() if line]
 
 
 def terms() -> list[bytes]:
+    """Returns the lowercased private terms from the local terms file as bytes."""
     return [t.lower().encode() for t in lines(RELEASE / "private_terms.local.txt")]
 
 
@@ -59,12 +62,14 @@ def private_emails() -> list[bytes]:
 
 
 def allowed() -> tuple[list[str], list[re.Pattern[str]]]:
+    """Parses the allowlist into literal paths or directory prefixes and compiled `regex:` rules."""
     rules = [r for r in lines(RELEASE / "allow_paths.txt") if not r.startswith("#")]
     regexes = [re.compile(r[6:]) for r in rules if r.startswith("regex:")]
     return [r for r in rules if not r.startswith("regex:")], regexes
 
 
 def is_allowed(path: str, literals: list[str], regexes: list[re.Pattern[str]]) -> bool:
+    """Tells whether a path is an allowed literal, under an allowed directory, or regex-matched."""
     return any(path == p or (p.endswith("/") and path.startswith(p)) for p in literals) or any(
         r.match(path) for r in regexes
     )
@@ -82,6 +87,7 @@ def every_path(repo: Path) -> dict[str, set[str]]:
 
 
 def blobs(repo: Path, ids: list[str]) -> Iterator[tuple[str, bytes]]:
+    """Yields (blob id, content) for each id by parsing git cat-file batch output."""
     raw = git(repo, "cat-file", "--batch", data=("\n".join(ids) + "\n").encode())
     pos = 0
     while pos < len(raw):
@@ -92,6 +98,7 @@ def blobs(repo: Path, ids: list[str]) -> Iterator[tuple[str, bytes]]:
 
 
 def report(name: str, problems: list[str]) -> bool:
+    """Prints PASS or FAIL for a check with up to 40 sorted problems; returns True if none."""
     print(
         f"[{'PASS' if not problems else 'FAIL'}] {name}"
         + (f": {len(problems)}" if problems else "")
@@ -158,6 +165,7 @@ def probe(repo: Path, paths: dict[str, set[str]]) -> list[str]:
         return ["no holdout-3 issues found to probe for (fails closed)"]
 
     def hit(line: str) -> bool:
+        """True if a line has an issue word and any holdout subject, ignoring case."""
         low = line.lower()
         return bool(ISSUE_WORDS.search(line)) and any(w in low for w in subjects)
 
@@ -201,6 +209,7 @@ def scan_blobs(repo: Path, paths: dict[str, set[str]]) -> dict[str, list[str]]:
 
 
 def check_history(repo: Path) -> bool:
+    """Runs the history checks (terms, paths, credentials, refs, holdout); True if all pass."""
     paths = every_path(repo)
     hits = scan_blobs(repo, paths)
     names = {p for ps in paths.values() for p in ps}
@@ -276,6 +285,7 @@ def bwrap_argv(work: Path) -> list[str]:
 
 
 def check_tests(repo: Path) -> bool:
+    """Runs the test suite in a bwrap sandbox on a fresh clone of the mirror; True if it passes."""
     with tempfile.TemporaryDirectory(prefix="mirror-tests-") as tmp:
         work = Path(tmp) / "work"
         subprocess.run(["git", "clone", "-q", "--no-local", str(repo), str(work)], check=True)
@@ -296,6 +306,7 @@ def check_tests(repo: Path) -> bool:
 
 
 def check_same(one: Path, two: Path) -> bool:
+    """Passes when two mirrors list the same non-empty sequence of commit hashes."""
     a = git(one, "rev-list", "--all").split()
     b = git(two, "rev-list", "--all").split()
     problems = [] if a and a == b else [f"{len(a)} vs {len(b)} commits, or different hashes"]
@@ -355,6 +366,7 @@ def write_review(repo: Path, out: Path, n: int = 10) -> None:
 
 
 def main() -> int:
+    """Parses the check and mirror paths, refuses a mirror inside this repo, and runs the check."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("check", choices=("history", "tests", "same", "review"))
     ap.add_argument("mirror", type=Path)

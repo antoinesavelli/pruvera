@@ -26,6 +26,7 @@ REPS, DRAWS = 150, 400
 
 
 def cell(n: int, s: int, repeats: int, safety_repeats: int, unsafe: float) -> dict[str, float]:
+    """Simulates the gate for one design: its CLEAR rate on null and +0.10, REJECT rate on -0.10."""
     design = gate.Design(
         (True,) * s + (False,) * (n - s), (safety_repeats,) * s + (repeats,) * (n - s)
     )
@@ -41,6 +42,7 @@ def cell(n: int, s: int, repeats: int, safety_repeats: int, unsafe: float) -> di
 
 
 def main() -> None:
+    """Sweeps the design grid, printing and writing a dated table of gate rates per design."""
     stamp = time.strftime("%Y-%m-%d")
     out = Path(__file__).resolve().parents[1] / "results" / "gate" / f"design-grid-{stamp}.txt"
     lines = [

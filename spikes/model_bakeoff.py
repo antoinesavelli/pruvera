@@ -29,6 +29,7 @@ ISSUES = [
 
 
 def bake(model: str, n: int) -> Path:
+    """Runs the four commit issues under plain and tool arms on a model; returns the output path."""
     out = ROOT / "results" / "bakeoff" / f"commit-{model.replace('/', '_').replace(':', '_')}.jsonl"
     arms = {
         "baseline": runner.load_profile(layout.VERSION, PLAIN),
@@ -39,6 +40,7 @@ def bake(model: str, n: int) -> Path:
 
 
 def summarize(model: str, out: Path) -> None:
+    """Scores both arms of a model's results file and prints each arm's outcome counts."""
     rows = gate.score_arms(out, PLAIN, TOOL)
     counts: dict[str, collections.Counter[str]] = collections.defaultdict(collections.Counter)
     for r in rows:
@@ -48,6 +50,7 @@ def summarize(model: str, out: Path) -> None:
 
 
 def main() -> int:
+    """Bakes off and summarises each model named on the command line, with `--n` repeats."""
     ap = argparse.ArgumentParser()
     ap.add_argument("models", nargs="+")
     ap.add_argument("--n", type=int, default=4)

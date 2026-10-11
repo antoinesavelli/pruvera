@@ -61,6 +61,7 @@ def run_when_free(model: str, poll: float = 60.0) -> None:
 
 
 def run_model(model: str) -> None:
+    """Runs the eight test-caught fix issues on a model unless scored; prints success per issue."""
     out = ROOT / "results" / "bakeoff" / f"stage2-{model.replace('/', '_').replace(':', '_')}.jsonl"
     scored_path = out.with_suffix(".scored.jsonl")
     if scored_path.exists():
@@ -84,6 +85,7 @@ def run_model(model: str) -> None:
 
 
 def main() -> int:
+    """Runs each model in turn, waiting out a busy bench, and aborts the queue on a drift error."""
     ap = argparse.ArgumentParser()
     ap.add_argument("models", nargs="+")
     args = ap.parse_args()
