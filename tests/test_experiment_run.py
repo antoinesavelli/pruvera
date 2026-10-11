@@ -34,6 +34,7 @@ def campaign(monkeypatch: pytest.MonkeyPatch) -> Campaign:
     rec, authorized = Recorder(), []
 
     def authorize(experiment_id: str, *_a: object, **_k: object) -> str:
+        """Records the experiment id as authorized, ignores other arguments and returns the id."""
         authorized.append(experiment_id)
         return experiment_id
 
@@ -51,6 +52,7 @@ def design(monkeypatch: pytest.MonkeyPatch) -> Asked:
     def issue_repeats(
         profile: str, repeats: int, safety_repeats: int | None = None
     ) -> dict[str, int]:
+        """Records the request; gives repeats to the plain issue and safety_repeats to the other."""
         asked.append((profile, repeats, safety_repeats))
         return {PLAIN: repeats, SAFETY: safety_repeats or repeats}
 
@@ -61,6 +63,7 @@ def design(monkeypatch: pytest.MonkeyPatch) -> Asked:
 
 @needs_catalogue
 def test_the_repeats_a_run_plans_are_the_design_the_power_check_scores() -> None:
+    """Proves `gate.issue_repeats` plans the same repeats as the design `gate.design_of` scores."""
     plan = gate.issue_repeats("dev", 3, 5)
     shape = gate.design_of("dev", 3, 5)
     assert tuple(plan.values()) == shape.repeats
@@ -73,6 +76,7 @@ def test_run_arms_gives_an_issue_its_own_count_and_the_others_n(
     campaign: Campaign,
     tmp_path: Path,
 ) -> None:
+    """Proves `run_arms` runs a listed issue its own repeat count and every other issue n."""
     rec, _ = campaign
     trials.run_arms({"a": _fixture("a")}, 2, tmp_path / "more.jsonl", repeats={SAFETY: 3})
     assert Counter(c[0] for c in rec.cells) == {PLAIN: 2, SAFETY: 3}
@@ -87,6 +91,7 @@ def test_run_gives_the_safety_issues_their_extra_repeats_and_keeps_the_interleav
     campaign: Campaign,
     design: Asked,
 ) -> None:
+    """Proves a run gives safety issues extra repeats and keeps the interleave and order flip."""
     rec, authorized = campaign
     registry.register(_spec(root, "e-1", "exploratory", "dev", "dev+rule", extra=EXTRA), root)
     experiment.run("e-1", root=root)
@@ -106,6 +111,7 @@ def test_a_rerun_skips_the_cells_done_and_a_killed_run_resumes_at_the_missing_on
     campaign: Campaign,
     design: Asked,
 ) -> None:
+    """Proves a rerun skips finished cells and a run missing its last row resumes at that cell."""
     rec, _ = campaign
     registry.register(_spec(root, "e-1", "exploratory", "dev", "dev+rule", extra=EXTRA), root)
     experiment.run("e-1", root=root)
@@ -124,6 +130,7 @@ def test_n_is_a_flat_override_so_the_old_second_command_still_works_and_the_two_
     campaign: Campaign,
     design: Asked,
 ) -> None:
+    """A flat `n` run never reads the design; a plain run then completes only what is left."""
     rec, _ = campaign
     registry.register(_spec(root, "e-1", "exploratory", "dev", "dev+rule", extra=EXTRA), root)
     experiment.run("e-1", root=root, n=4)
@@ -142,6 +149,7 @@ def test_a_confirmatory_study_runs_its_whole_registered_design_with_no_flags(
     campaign: Campaign,
     design: Asked,
 ) -> None:
+    """Proves a confirmatory study runs its registered design, safety repeats included, no flags."""
     rec, _ = campaign
     monkeypatch.setattr(budget, "power", lambda *_a, **_k: STRONG)
     spec = _spec(root, "hold-1", "confirmatory", "holdout", "holdout+rule", extra=EXTRA)
@@ -157,6 +165,7 @@ def test_a_study_without_safety_repeats_runs_its_flat_repeats_and_never_reads_th
     campaign: Campaign,
     design: Asked,
 ) -> None:
+    """Proves a study without safety repeats runs flat repeats, skips the design and plans None."""
     rec, _ = campaign
     registry.register(_spec(root, "e-1", "exploratory", "dev", "dev+rule"), root)
     experiment.run("e-1", root=root)

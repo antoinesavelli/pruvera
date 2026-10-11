@@ -29,6 +29,7 @@ ISSUES = [
 
 
 def handoff(model: str, n: int) -> Path:
+    """Runs the commit-handoff profile on four commit issues for a model; scores, prints counts."""
     out = (
         ROOT / "results" / "bakeoff" / f"handoff3-{model.replace('/', '_').replace(':', '_')}.jsonl"
     )
@@ -41,6 +42,7 @@ def handoff(model: str, n: int) -> Path:
 
 
 def main() -> int:
+    """Runs `handoff` for each model given on the command line, with `--n` repeats per issue."""
     ap = argparse.ArgumentParser()
     ap.add_argument("models", nargs="+")
     ap.add_argument("--n", type=int, default=4)

@@ -76,6 +76,8 @@ class Census:
 
 @dataclass(frozen=True)
 class Trial:
+    """One recorded trial: its cost fields, task kind, scored flag and success."""
+
     trial_id: str
     model: str
     agent: str
@@ -96,6 +98,8 @@ class Trial:
 
 @dataclass
 class Dist:
+    """Summary of a list of values: count, mean, median and a p90 when enough exist."""
+
     n: int
     mean: float
     median: float
@@ -119,6 +123,8 @@ class Yield:
 
 @dataclass
 class Cell:
+    """The cost, split, token and success numbers for one group of trials."""
+
     n: int
     completed: int
     not_completed: int
@@ -233,10 +239,12 @@ def context_of(gpu: str) -> int | None:
 
 
 def text_of(rec: dict[str, Any], key: str) -> str:
+    """The record value for `key` as text, or `(not recorded)` when absent or empty."""
     return str(rec.get(key) or "(not recorded)")
 
 
 def count_of(rec: dict[str, Any], key: str) -> int:
+    """The record value for `key` as an integer, 0 when absent or empty."""
     return int(rec.get(key) or 0)
 
 
@@ -255,6 +263,7 @@ def verdict(rec: dict[str, Any], row: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def build_trial(rec: dict[str, Any], row: dict[str, Any] | None) -> Trial:
+    """Builds a `Trial` from a raw record and its scored row, if any."""
     return Trial(
         trial_id=str(rec["trial_id"]),
         model=text_of(rec, "model"),
@@ -273,6 +282,7 @@ def build_trial(rec: dict[str, Any], row: dict[str, Any] | None) -> Trial:
 
 
 def build(results: Path) -> tuple[list[Trial], Census, dict[str, dict[str, Any]]]:
+    """Reads results and scored rows, returning the trials, the census and the raw records."""
     census = Census()
     raw = collect(results, census)
     rows = read_scored(results, census)
@@ -283,6 +293,7 @@ def build(results: Path) -> tuple[list[Trial], Census, dict[str, dict[str, Any]]
 
 
 def dist(values: Sequence[float]) -> Dist | None:
+    """A `Dist` of the values (p90 only from `MIN_P90` points), or None when empty."""
     if not values:
         return None
     p90 = None
@@ -292,6 +303,7 @@ def dist(values: Sequence[float]) -> Dist | None:
 
 
 def interval(draws: list[float]) -> Interval | None:
+    """The 2.5th to 97.5th percentile range of the sorted draws, None when empty."""
     if not draws:
         return None
     draws.sort()
@@ -328,6 +340,7 @@ def issue_clusters(scored: Sequence[Trial]) -> list[tuple[int, int, float]]:
 
 
 def yield_of(trials: Sequence[Trial]) -> Yield | None:
+    """Successes, GPU-minutes and bootstrap intervals over the scored trials, or None."""
     scored = [t for t in trials if t.scored]
     if not scored:
         return None
@@ -372,6 +385,7 @@ def token_stats(trials: Sequence[Trial]) -> tuple[Dist | None, Dist | None]:
 
 
 def day_span(trials: Sequence[Trial]) -> tuple[str | None, str | None]:
+    """The earliest and latest day among the trials that have one, else (None, None)."""
     days = sorted(t.day for t in trials if t.day)
     return (days[0], days[-1]) if days else (None, None)
 
@@ -406,6 +420,7 @@ def summarise(trials: Sequence[Trial]) -> Cell:
 
 
 def group(trials: Iterable[Trial], *keys: str) -> dict[tuple[str, ...], list[Trial]]:
+    """Groups trials into lists keyed by the tuple of the named `Trial` attributes."""
     out: dict[tuple[str, ...], list[Trial]] = collections.defaultdict(list)
     for t in trials:
         out[tuple(getattr(t, k) for k in keys)].append(t)
@@ -413,22 +428,27 @@ def group(trials: Iterable[Trial], *keys: str) -> dict[tuple[str, ...], list[Tri
 
 
 def summarise_by(trials: Iterable[Trial], *keys: str) -> dict[tuple[str, ...], Cell]:
+    """A `Cell` for each group of trials made by the named attributes."""
     return {k: summarise(ts) for k, ts in group(trials, *keys).items()}
 
 
 def secs_fmt(x: float) -> str:
+    """Formats seconds with thousands separators and one decimal."""
     return f"{x:,.1f}"
 
 
 def kilo(x: float) -> str:
+    """Formats a count in thousands with one decimal and a k suffix."""
     return f"{x / 1000:,.1f}k"
 
 
 def partial(have: int, n: int) -> str:
+    """Empty when `have` equals `n`, else a note giving n=have of n."""
     return "" if have == n else f" (n={have} of {n})"
 
 
 def dist_cell(d: Dist | None) -> str:
+    """Formats a `Dist` as mean / median / p90 seconds, or none completed."""
     if d is None:
         return "none completed"
     p90 = secs_fmt(d.p90) if d.p90 is not None else f"n<{MIN_P90}"
@@ -436,6 +456,7 @@ def dist_cell(d: Dist | None) -> str:
 
 
 def split_cell(c: Cell) -> str:
+    """Formats a cell's mean startup / agent seconds, or not recorded."""
     if c.startup is None or c.agent is None:
         return "not recorded"
     return (
@@ -444,10 +465,12 @@ def split_cell(c: Cell) -> str:
 
 
 def share_cell(c: Cell) -> str:
+    """Formats a cell's startup share of wall as a whole percent, or not recorded."""
     return "not recorded" if c.startup_share is None else f"{100 * c.startup_share:.0f}%"
 
 
 def tokens_cell(c: Cell) -> str:
+    """Formats a cell's mean tokens in / out in thousands, or none recorded."""
     if c.tokens_in is None or c.tokens_out is None:
         return "none recorded"
     both = f"{kilo(c.tokens_in.mean)} / {kilo(c.tokens_out.mean)}"
@@ -455,12 +478,14 @@ def tokens_cell(c: Cell) -> str:
 
 
 def span(lo: str | None, hi: str | None) -> str:
+    """Formats a date range as one day or `lo to hi`, or not recorded if an end is missing."""
     if lo is None or hi is None:
         return "not recorded"
     return lo if lo == hi else f"{lo} to {hi}"
 
 
 def ci_text(ci: Interval | None, scale: float, digits: int, unit: str) -> str:
+    """Formats a scaled interval in brackets, no spread if its ends match, empty if None."""
     if ci is None:
         return ""
     if ci[0] == ci[1]:
@@ -469,6 +494,7 @@ def ci_text(ci: Interval | None, scale: float, digits: int, unit: str) -> str:
 
 
 def success_cell(y: Yield | None) -> str:
+    """Formats successes out of scored trials, the percent and its interval, or not scored."""
     if y is None:
         return "not scored"
     ci = ci_text(y.rate_ci, 100, 0, "%")
@@ -476,6 +502,7 @@ def success_cell(y: Yield | None) -> str:
 
 
 def per_min_cell(y: Yield | None) -> str:
+    """Formats successes per GPU-minute with its interval, or why none, or not scored."""
     if y is None or y.per_min is None:
         return "not scored"
     if y.per_min_ci is None:
@@ -484,6 +511,7 @@ def per_min_cell(y: Yield | None) -> str:
 
 
 def per_success_cell(y: Yield | None) -> str:
+    """Formats GPU-minutes per success, or no successes, or not scored."""
     if y is None:
         return "not scored"
     return f"{y.minutes / y.successes:.1f}" if y.successes else "no successes"
@@ -520,6 +548,7 @@ PER_SUCCESS: Column = ("GPU-min per success", lambda c: per_success_cell(c.score
 
 
 def table(header: Sequence[str], rows: Iterable[Sequence[str]]) -> list[str]:
+    """Builds a markdown table from a header and rows as a list of lines."""
     lines = ["| " + " | ".join(header) + " |", "|" + "|".join("---" for _ in header) + "|"]
     return lines + ["| " + " | ".join(r) + " |" for r in rows] + [""]
 
@@ -527,16 +556,21 @@ def table(header: Sequence[str], rows: Iterable[Sequence[str]]) -> list[str]:
 def cell_table(
     label: str, columns: Sequence[Column], items: Sequence[tuple[str, Cell]]
 ) -> list[str]:
+    """Builds a markdown table with a row per labelled `Cell` and a column per formatter."""
     header = [label, *(name for name, _ in columns)]
     return table(header, ([name, *(fn(c) for _, fn in columns)] for name, c in items))
 
 
 def by_trials(cells: dict[str, Cell]) -> list[tuple[str, Cell]]:
+    """Labels models in backticks, ordered by trial count descending, then name."""
     return [(f"`{m}`", cells[m]) for m in sorted(cells, key=lambda m: (-cells[m].n, m))]
 
 
 def by_yield(cells: dict[str, Cell]) -> list[tuple[str, Cell]]:
+    """Labels models in backticks, ordered by successes per GPU-minute, unscored last."""
+
     def key(model: str) -> tuple[int, float, str]:
+        """Sort key: scored models by descending yield then name, unscored after."""
         y = cells[model].score
         return (0, -(y.per_min or 0.0), model) if y else (1, 0.0, model)
 
@@ -544,6 +578,7 @@ def by_yield(cells: dict[str, Cell]) -> list[tuple[str, Cell]]:
 
 
 def model_tables(cells: dict[str, Cell]) -> list[str]:
+    """Renders the per-model tables: wall time, startup and tokens, and success."""
     items = by_trials(cells)
     out = ["### Per model, all kinds", "", "Wall time and throughput (`secs`).", ""]
     out += cell_table(
@@ -584,6 +619,7 @@ UNSCORED_NOTE = (
 
 
 def kind_tables(trials: Sequence[Trial]) -> list[str]:
+    """Renders tables per task kind, per model within a kind, and for unscored trials."""
     by_kind = group(trials, "kind")
     pooled = {k[0]: summarise(ts) for k, ts in by_kind.items()}
     order = sorted(pooled, key=lambda k: (k == NO_KIND, -pooled[k].n, k))
@@ -604,12 +640,14 @@ def kind_tables(trials: Sequence[Trial]) -> list[str]:
 
 
 def phases_note(recs: list[dict[str, Any]]) -> str:
+    """Counts the records lacking `phases` by their `schema`, as a note."""
     schemas = collections.Counter(str(r.get("schema", "absent")) for r in recs if "phases" not in r)
     by_schema = ", ".join(f"{k} {v}" for k, v in sorted(schemas.items()))
     return f"by `schema`: {by_schema}; the startup / agent split uses the trials that have it"
 
 
 def gpu_note(recs: list[dict[str, Any]], trials: Sequence[Trial]) -> str:
+    """Notes how many records show full GPU, how many a CPU share, and trials lacking a context."""
     texts = [str(r["gpu"]) for r in recs if r.get("gpu")]
     full = sum(1 for g in texts if GPU_FULL.search(g))
     no_context = sum(1 for t in trials if t.context is None)
@@ -620,6 +658,7 @@ def gpu_note(recs: list[dict[str, Any]], trials: Sequence[Trial]) -> str:
 
 
 def digest_note(recs: list[dict[str, Any]]) -> str:
+    """Names the models that have more than one recorded model digest, or none."""
     digests: dict[str, set[str]] = collections.defaultdict(set)
     for r in recs:
         if r.get("model_digest"):
@@ -629,14 +668,17 @@ def digest_note(recs: list[dict[str, Any]]) -> str:
 
 
 def missing_rows(raw: dict[str, dict[str, Any]], trials: Sequence[Trial]) -> list[list[str]]:
+    """Builds the rows of the missing-fields table: field, how many lack it, consequence."""
     recs = list(raw.values())
     n = len(recs)
 
     def absent(key: str, empty_too: bool = False) -> str:
+        """Returns how many records lack `key` (or have it empty) as N of total."""
         gone = sum(1 for r in recs if key not in r or (empty_too and not r[key]))
         return f"{gone} of {n}"
 
     def count(test: Callable[[Trial], bool]) -> int:
+        """Counts the trials for which `test` is true."""
         return sum(1 for t in trials if test(t))
 
     environments = collections.Counter(str(r.get("environment", "absent")) for r in recs)
@@ -680,10 +722,12 @@ def missing_rows(raw: dict[str, dict[str, Any]], trials: Sequence[Trial]) -> lis
 
 
 def listing(counter: collections.Counter[str]) -> str:
+    """Formats a counter as sorted key and count pairs, or none when empty."""
     return ", ".join(f"`{k}` {v}" for k, v in sorted(counter.items())) or "none"
 
 
 def census_lines(census: Census, trials: Sequence[Trial]) -> list[str]:
+    """Builds the census bullets: files, records, set aside, scored rows and cost."""
     days = sorted(t.day for t in trials if t.day)
     kinded = sum(1 for t in trials if t.kind != NO_KIND)
     failed = [t for t in trials if t.outcome != "completed"]
@@ -745,6 +789,7 @@ NOTES = """\
 
 
 def render(trials: Sequence[Trial], census: Census, raw: dict[str, dict[str, Any]]) -> str:
+    """Assembles the generated markdown block: census, tables, notes and markers."""
     cells = {k[0]: c for k, c in summarise_by(trials, "model").items()}
     out = [BEGIN, "", "## Cost and throughput", "", *census_lines(census, trials), ""]
     out += ["### Fields missing from older records", ""]
@@ -755,6 +800,7 @@ def render(trials: Sequence[Trial], census: Census, raw: dict[str, dict[str, Any
 
 
 def write_block(path: Path, block: str) -> None:
+    """Writes the block to a file: creates it, replaces the marked block, or appends it."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         path.write_text(HEADER + "\n" + block + "\n")
@@ -768,7 +814,10 @@ def write_block(path: Path, block: str) -> None:
 
 
 def payload(trials: Sequence[Trial], census: Census) -> dict[str, Any]:
+    """Builds the JSON summary: census, trial count and the cells by model and kind."""
+
     def cells(*keys: str) -> list[dict[str, Any]]:
+        """Lists each group's `Cell` numbers as dicts, with its key values, sorted by key."""
         return [
             {**dict(zip(keys, k, strict=True)), **dataclasses.asdict(c)}
             for k, c in sorted(summarise_by(trials, *keys).items())
@@ -788,6 +837,7 @@ def payload(trials: Sequence[Trial], census: Census) -> dict[str, Any]:
 
 
 def synthetic(tid: str, secs: float, model: str = "m", **extra: Any) -> dict[str, Any]:
+    """Builds a fake trial record whose phases add up to `secs`; `extra` overrides fields."""
     phases = {"startup": 10.0, "agent": secs - 12.0, "exit_wait": 1.0, "after_exit": 1.0}
     base = {"trial_id": tid, "secs": secs, "model": model, "agent": "coder", "steps": 3}
     base |= {"outcome": "completed", "tokens_in": 1000, "tokens_out": 100, "phases": phases}
@@ -795,11 +845,13 @@ def synthetic(tid: str, secs: float, model: str = "m", **extra: Any) -> dict[str
 
 
 def write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
+    """Writes the rows as one JSON object per line, creating parent directories."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(r) + "\n" for r in rows))
 
 
 def scored_row(tid: str, success: bool, **extra: Any) -> dict[str, Any]:
+    """Builds a fake scored row with a fixed kind and issue; `extra` overrides fields."""
     return {"trial_id": tid, "kind": "k", "issue": "i", "success": success} | extra
 
 
@@ -812,6 +864,7 @@ def holds(intervals: tuple[Interval | None, Interval | None], value: float) -> b
 
 
 def stat_checks() -> list[Check]:
+    """Self-test checks of p90, line parsing, context size and the bootstrap."""
     d = dist([float(i) for i in range(1, 11)])
     few = dist([1.0, 2.0, 3.0])
     records, bad = parse_lines('{"a": 1}\n\n[1]\n{"torn":')
@@ -837,6 +890,7 @@ def stat_checks() -> list[Check]:
 
 
 def join_checks(res: Path) -> list[Check]:
+    """Self-test checks that build result files and test dedupe, the join and the counts."""
     write_jsonl(
         res / "a.jsonl",
         [
@@ -904,6 +958,7 @@ def join_checks(res: Path) -> list[Check]:
 
 
 def write_checks(res: Path) -> list[Check]:
+    """Self-test checks that a rewrite keeps prose around the block and a double score errors."""
     trials, census, raw = build(res)
     target = res / "out.md"
     target.write_text("# Mine\n\nprose\n\n" + BEGIN + "\nOLD-SENTINEL\n" + END + "\n\nafter\n")
@@ -927,6 +982,7 @@ def write_checks(res: Path) -> list[Check]:
 
 
 def self_test() -> int:
+    """Runs every self-test check, prints PASS or FAIL for each and returns 1 on any failure."""
     with tempfile.TemporaryDirectory() as tmp:
         checks = stat_checks() + join_checks(Path(tmp)) + write_checks(Path(tmp))
     failed = [name for name, ok in checks if not ok]
@@ -937,6 +993,7 @@ def self_test() -> int:
 
 
 def main() -> int:
+    """Parses arguments, then runs the self-test or prints or writes the report and JSON."""
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--results", type=Path, default=ROOT / "results", help="the results directory")
     ap.add_argument("--md", type=Path, help="write or refresh the generated block in this file")
