@@ -375,7 +375,7 @@ def difficulty_rows(models: list[ModelRuns]) -> list[dict[str, Any]]:
                 "k": k,
                 "n": n,
                 "wilson": wilson(k, n),
-                "rating": rating(k, n) if len(have) == len(models) else "incomplete",
+                "rating": rating(k, n) if len(have) == len(models) else "unrated",
                 "split": len(have) > 1 and max(rates) - min(rates) >= 2 / 3 - 1e-9,
                 "labels": {m.name: m.labels[issue] for m in have},
                 "missing": {m.name: m.missing[issue] for m in have},
@@ -388,12 +388,13 @@ def difficulty_rows(models: list[ModelRuns]) -> list[dict[str, Any]]:
 def difficulty_section(models: list[ModelRuns], records: list[dict[str, Any]]) -> list[str]:
     names = [m.name for m in models]
     counts = collections.Counter(r["rating"] for r in records)
-    order = ["unsolved", "hard", "moderate", "easy", "incomplete"]
+    order = ["unsolved", "hard", "moderate", "easy", "unrated"]
     out = [
         "Ratings: "
         + ", ".join(f"{counts[o]} {o}" for o in order if counts[o])
-        + f" ({len(records)} issues). `split` marks issues where the models' success differs "
-        "by at least two repeats of three.",
+        + f" ({len(records)} issues). Rating needs valid trials from every model; an `unrated` "
+        "issue lacks them and one model alone sets no rating. `split` marks issues where the "
+        "models' success differs by at least two repeats of three.",
         "",
         "| issue | kind | " + " | ".join(names) + " | pooled k/n [Wilson] | rating | split |",
         "|---|---|" + "---|" * len(names) + "---|---|---|",
