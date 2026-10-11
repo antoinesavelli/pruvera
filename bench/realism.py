@@ -192,9 +192,8 @@ def _run_study_locked(
 
 # --- the long fix-and-commit study (G4): `python3 -m bench.realism --long` -----------------------
 
-LONG_AGENT = (
-    "full"  # Paramo's own coding agent, with its ask-first edit rules, as a delegation uses
-)
+# Paramo's own coding agent, with its ask-first edit rules, as a delegation uses it
+LONG_AGENT = "full"
 LONG_MODEL = "devstral-small-2:24b"
 LONG_SEED = 13
 LONG_REPEATS = 4
@@ -592,8 +591,8 @@ def _sensitivity(records: Sequence[dict[str, Any]]) -> list[str]:
     done = {r.measure: r for r in analyse(records, only_completed=True)}
     out = ["", "Sensitivity (reported, never used to decide):"]
     for key in ("tool_calls", "steps"):
-        r = done[key]
-        out.append(f"- {key}, completed trials only: {r.ratio:.2f} ({r.lo:.2f}-{r.hi:.2f})")
+        if r := done.get(key):
+            out.append(f"- {key}, completed trials only: {r.ratio:.2f} ({r.lo:.2f}-{r.hi:.2f})")
     sides = _per_side(records, False)["tool_calls"]
     tasks = sorted(set(sides["fixture"]) & set(sides["reference"]))
     leave = [

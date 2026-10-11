@@ -739,6 +739,20 @@ def test_the_report_flags_a_difference_and_a_partial_study(tmp_path: Path) -> No
     assert "16 of 64 cells" in partial and "INCOMPLETE" in partial
 
 
+def test_the_report_of_an_empty_or_all_failed_study_says_incomplete_instead_of_crashing(
+    tmp_path: Path,
+) -> None:
+    """Nothing recorded, or only trials that never completed, still prints a report."""
+    assert "0 of 64 cells recorded" in realism.render([], n=4)
+    assert "INCOMPLETE" in realism.render([], n=4)
+    stuck = [
+        _long_trial(tmp_path, side, "dedupe-lookup", 0, outcome="timeout", diff="")
+        for side in ("fixture", "reference")
+    ]
+    text = realism.render(stuck, n=4)
+    assert "2 of 64 cells recorded" in text and "INCOMPLETE" in text
+
+
 def test_a_harness_error_row_is_left_out_of_the_analysis(tmp_path: Path) -> None:
     """A harness error never counts, and the later record of a redone cell replaces the earlier."""
     rows = _study(tmp_path, 1, 10, 10)
