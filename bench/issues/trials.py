@@ -52,6 +52,7 @@ def run_arms(
     experiment: str = "",
     seed: int | None = None,
     repeats: Mapping[str, int] | None = None,
+    git_primary: bool = False,
 ) -> Path:
     """`n` trials per issue per arm (`repeats` overrides it per issue), arms alternating."""
     # GPU warmth and drift then hit all arms alike. Every arm must plant the same issues.
@@ -66,10 +67,12 @@ def run_arms(
     counts = _counts(ids, n, repeats)
     out.parent.mkdir(parents=True, exist_ok=True)
     with preflight.session_lock():
-        experiment = registry.authorize(experiment, profiles, models, out, seed=seed)
+        experiment = registry.authorize(
+            experiment, profiles, models, out, seed=seed, git_primary=git_primary
+        )
         reference.sweep(layout.OVERLAYS)  # a killed realism run may have left a real-code export
         return _run_arms_locked(
-            arms, counts, out, ids, issues, models, wait, force, experiment, seed
+            arms, counts, out, ids, issues, models, wait, force, experiment, seed, git_primary
         )
 
 
@@ -112,6 +115,7 @@ def _run_arms_locked(
     force: bool,
     experiment: str = "",
     seed: int | None = None,
+    git_primary: bool = False,
 ) -> Path:
     """Run each cell within its issue's `counts` not yet in `out`, flipping order on odd repeats."""
     done = _done_cells(out, experiment)
@@ -139,6 +143,7 @@ def _run_arms_locked(
                     timeout=600,
                     hang_seconds=240,
                     seed=registry.trial_seed(seed, rep + 1),
+                    git_primary=git_primary,
                 )
                 runner.run_trial(
                     arms[arm], spec, layout.ARTIFACTS, layout.OVERLAYS, out, force=force

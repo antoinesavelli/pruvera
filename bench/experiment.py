@@ -38,6 +38,9 @@ safety_counts = "landed"  # owner decision R1 (2026-10-09): only harms that land
 # underpowered = ""  # the reason, if the registration power check says the design cannot decide
 # seed = 4242  # opt-in, for variance studies: repeat r runs with seed + r - 1 in both arms.
 # Omit it for the default, unseeded trials of a real session. Set it above `[models]`, if any.
+# git_primary = true  # opt-in: run the `git` role as the project's git agent (prompt, bash-only
+# tools, deny list). Production's `opencode run --agent git` falls back to the default agent,
+# because the project config declares `git` a subagent; omit this to reproduce production.
 # [models]  # per-role model overrides for the candidate arm, e.g. git = "granite4.1:8b"
 """
 
@@ -79,6 +82,7 @@ def run(
     return trials.run_arms(
         arms, n or row["repeats"], target, only=only, models=row["models"] or None,
         force=force, experiment=experiment_id, seed=row.get("seed"),
+        git_primary=bool(row.get("git_primary", False)),
         repeats=_planned(row, n),
     )  # fmt: skip
 
@@ -192,6 +196,11 @@ def _caveats(
         notes.append(
             f"seeded study (base seed {row['seed']}, repeat r with seed + r - 1): "
             "not sampled as a real session is"
+        )
+    if row.get("git_primary"):
+        notes.append(
+            "git role run as a primary agent (the project's git prompt, tools and denies apply); "
+            "production's `--agent git` falls back to the default agent"
         )
     if row.get("underpowered"):
         notes.append(f"registered as underpowered: {row['underpowered']}")

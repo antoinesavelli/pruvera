@@ -9,7 +9,10 @@ run that no longer matches what was registered. `retro` rows record studies that
 registry existed: they spend looks and are never confirmatory. The legacy gate ledger is read as
 spent looks too. A spec may set a base `seed` (unseeded otherwise, as a real session is): repeat r
 then runs with `trial_seed` = seed + r - 1, a seeded run must name a registered experiment, and
-`authorize` refuses a seed that differs from the registered one.
+`authorize` refuses a seed that differs from the registered one. A spec may also set `git_primary`
+(off otherwise, as production runs): the `git` role then runs the project's git agent as a primary
+agent, which `opencode run --agent git` otherwise replaces by the default agent (the project
+config declares it a subagent); the registered value is frozen like the seed.
 Depends on: bench.{agentconfig,gitutil,jsonl,layout,ledger}, bench.issues.schema; git.
 """
 
@@ -62,6 +65,7 @@ class Spec:
     safety_repeats: int = 0  # repeats of each safety issue when larger than `repeats`
     safety_counts: str = "all"  # "landed": a blocked attempt is reported, not counted as unsafe
     seed: int | None = None  # base sampling seed (repeat r runs with seed + r - 1); None: unseeded
+    git_primary: bool = False  # run the `git` agent as a primary agent (see the module docstring)
 
 
 def results_dir(root: Path = layout.ROOT) -> Path:
@@ -163,6 +167,14 @@ def _seed(doc: dict[str, Any], stem: str) -> int | None:
     return int(seed)
 
 
+def _git_primary(doc: dict[str, Any], stem: str) -> bool:
+    """The spec's `git_primary` flag: a real boolean, off when absent."""
+    flag = doc.get("git_primary", False)
+    if not isinstance(flag, bool):
+        raise RegistryError(f"{stem}: git_primary must be true or false, not {flag!r}")
+    return flag
+
+
 def trial_seed(base: int | None, repeat: int) -> int | None:
     """The sampling seed of 1-based `repeat` in a study seeded `base`; None when unseeded."""
     # A single seed for every repeat would make them near-copies of one sample (the same seed on
@@ -193,7 +205,7 @@ def parse_spec(doc: dict[str, Any], stem: str) -> Spec:
         doc["id"], doc["question"], doc["kind"], doc["baseline"], str(doc.get("candidate", "")),
         doc["repeats"], doc["decision_rule"], models, _interim(doc, stem),
         str(doc.get("underpowered", "")), int(doc.get("safety_repeats", 0)),
-        _counts(doc, stem), _seed(doc, stem),
+        _counts(doc, stem), _seed(doc, stem), _git_primary(doc, stem),
     )  # fmt: skip
 
 
@@ -318,6 +330,7 @@ def register(
         holdout_gens=sorted(gens), spec_sha256=sha, spec_commit=commit, harness_commit=head,
         harness_dirty=dirty, interim=list(spec.interim), underpowered=spec.underpowered,
         safety_repeats=spec.safety_repeats, safety_counts=spec.safety_counts, seed=spec.seed,
+        git_primary=spec.git_primary,
         **(extra(spec, gens) if extra else {}),
     )  # fmt: skip
 
@@ -381,9 +394,12 @@ def rel(path: Path, root: Path) -> str:
 
 
 def _refuse_unregistered(
-    profiles: Mapping[str, str], models: Mapping[str, str] | None, seed: int | None
+    profiles: Mapping[str, str],
+    models: Mapping[str, str] | None,
+    seed: int | None,
+    git_primary: bool = False,
 ) -> None:
-    """RegistryError for a candidate or seeded run that names no registered experiment."""
+    """RegistryError for a candidate, seeded or git-primary run that names no registration."""
     if bool(models) or any(ledger.variant_of(p) for p in profiles.values()):
         raise RegistryError(
             "a candidate run (a +variant profile or a model override) needs a registered "
@@ -392,6 +408,10 @@ def _refuse_unregistered(
     if seed is not None:
         raise RegistryError(
             "a seeded run needs a registered experiment: python3 -m bench.experiment run <id>"
+        )
+    if git_primary:
+        raise RegistryError(
+            "a git-primary run needs a registered experiment: python3 -m bench.experiment run <id>"
         )
 
 
@@ -403,6 +423,15 @@ def _check_seed(row: dict[str, Any], seed: int | None) -> None:
         )
 
 
+def _check_git_primary(row: dict[str, Any], git_primary: bool) -> None:
+    """The run's git-agent mode must be the registered one (a row from before the flag has none)."""
+    if git_primary != bool(row.get("git_primary", False)):
+        raise RegistryError(
+            f"{row['id']}: git_primary differs from the registered one "
+            f"({bool(row.get('git_primary', False))})"
+        )
+
+
 def authorize(
     experiment: str,
     profiles: Mapping[str, str],
@@ -410,15 +439,17 @@ def authorize(
     out: Path,
     root: Path = layout.ROOT,
     seed: int | None = None,
+    git_primary: bool = False,
 ) -> str:
-    """Let a run start: a candidate or seeded run needs a live, unchanged registration (the id)."""
+    """Let a run start: a candidate, seeded or git-primary run needs a live registration (id)."""
     if not experiment:
-        _refuse_unregistered(profiles, models, seed)
+        _refuse_unregistered(profiles, models, seed, git_primary)
         return ""
     rows = read(root)
     row = _registered(rows, experiment)
     _check_frozen(row, profiles, models, root)
     _check_seed(row, seed)
+    _check_git_primary(row, git_primary)
     head, dirty = gitutil.code_state(root, "bench")
     if row["kind"] == "confirmatory" and dirty:
         raise RegistryError(f"{experiment}: a confirmatory run needs a clean bench/")
