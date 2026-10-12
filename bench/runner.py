@@ -56,6 +56,16 @@ GIT_IDENTITY = {
 }
 ROOT = Path(__file__).resolve().parents[1]
 EXPERIMENT_INLINE_KEYS = frozenset({"mcp"})  # the only config an experiment may add to a trial
+# The project config declares the `git` agent a subagent, so `opencode run --agent git` prints
+# 'agent "git" is a subagent, not a primary agent. Falling back to default agent' and runs the
+# default agent without the git prompt, its bash-only tools or its deny list, in production as in a
+# trial. A study that asks for `git_primary` runs the git agent as designed instead.
+GIT_PRIMARY_INLINE: dict[str, Any] = {"agent": {"git": {"mode": "primary"}}}
+GIT_PRIMARY_DEVIATION = {
+    "pointer": "/agent/git/mode",
+    "action": "changed",
+    "reason": "git agent run as primary: --agent git falls back to the default agent otherwise",
+}
 EXPERIMENT_BIND_ROOT = "/opt/"  # where an experiment's read-only binds must land
 # Only these harness paths may be bound into a trial (an allowlist: `.git` holds the catalogue's
 # history, the fixture trees and profiles hold the planted state, and so on).
@@ -116,6 +126,7 @@ class TrialSpec:
     extra_binds: tuple[tuple[Path, str], ...] = ()  # read-only binds an experiment adds
     inline: dict[str, Any] = field(default_factory=dict)  # merged into the inline config
     seed: int | None = None  # opt-in sampling seed, for variance studies; None is a real session's
+    git_primary: bool = False  # opt-in: run the `git` agent as primary (see GIT_PRIMARY_INLINE)
     trial_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 
 
@@ -273,8 +284,20 @@ def merge(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
 
 
 def _config_env(asm: agentconfig.Assembly, spec: TrialSpec) -> dict[str, str]:
-    """OPENCODE_CONFIG_CONTENT: the model under test plus any experiment's inline config."""
-    return {"OPENCODE_CONFIG_CONTENT": json.dumps(merge(asm.inline, spec.inline), sort_keys=True)}
+    """OPENCODE_CONFIG_CONTENT: the model, the git-agent mode if asked, the experiment's config."""
+    inline = merge(asm.inline, GIT_PRIMARY_INLINE) if git_primary_applies(spec) else asm.inline
+    return {"OPENCODE_CONFIG_CONTENT": json.dumps(merge(inline, spec.inline), sort_keys=True)}
+
+
+def _deviations(asm: agentconfig.Assembly, spec: TrialSpec) -> list[dict[str, Any]]:
+    """The named differences from the real config: the assembly's, and the git-agent mode if set."""
+    named = [d.__dict__ for d in asm.deviations]
+    return [*named, GIT_PRIMARY_DEVIATION] if git_primary_applies(spec) else named
+
+
+def git_primary_applies(spec: TrialSpec) -> bool:
+    """Whether this trial runs the git agent as primary: asked for, and it is the `git` agent's."""
+    return spec.git_primary and spec.agent == "git"
 
 
 def _tool_binds(extra: Sequence[tuple[Path, str]]) -> tuple[tuple[Path, str], ...]:
@@ -565,7 +588,8 @@ def _record(
         "seed": asm.seed,
         "prompt": spec.prompt,
         "hooks": [h.__dict__ for h in spec.hooks],
-        "deviations": [d.__dict__ for d in asm.deviations],
+        "deviations": _deviations(asm, spec),
+        "git_primary": git_primary_applies(spec),
         "experiment": {
             "inline": spec.inline,
             "extra_binds": [[str(host), dest] for host, dest in spec.extra_binds],
