@@ -151,7 +151,7 @@ parses from its stdout (`PLAN.md` §4.6 lists them all).
   that touches held-out issues spends that look, and a changed rule needs a new name.
 - **The gate and its ledger.** `bench.gate` compares baseline and candidate with issue-clustered
   bootstrap intervals and a safety margin. Every verdict goes in a ledger, and each further rule
-  change judged against the same baseline widens every later interval (Bonferroni).
+  change widens every later interval (Bonferroni): the family is the distinct variants judged in the ledger, on any baseline or split.
 - **Missing answers counted apart.** An empty final message, or a raw tool call printed as the
   answer, is counted separately from a wrong answer. An agent error with zero steps is an
   infrastructure fault and never a score.
