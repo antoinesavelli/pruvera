@@ -76,7 +76,7 @@ not wall time).
 - The grades of review round 9, and whether all its findings were closed (`a66ce05` is the only trace).
 - Whether `bench.doctor --strict` exits 0 on the active results today (C8); it was not run.
 - The final verdict of the known-bad control, whether its 456 cells finish without a harness error, and when: the hours above extrapolate a per-trial average that varies by issue and arm.
-- Whether the other two controls start by themselves after the known-bad ends, or one at a time after each verdict is seen (section 5.4 says a failed control stops the queue, which an unattended chain cannot honour). Which A/A counts for P1 is ruled (2026-10-12): `g2-aa-gp-dev3`.
+- G2's open sequencing questions are ruled (2026-10-12): the A/A that counts for P1 is `g2-aa-gp-dev3`, and each remaining control is started by hand after the previous verdict is seen (`plans/G2_GATE_CONTROLS.md` section 5.4); nothing queues behind the known-bad.
 - Whether the owner has decided O1 to O3, O6, O8 or O9 outside the repository (no decision is recorded in it; `plans/OWNER_DECISIONS_2026-10-12.md` lists each as pending).
 - Registry integrity beyond the hash chain: `results/registry.jsonl` (128 rows, 115 committed at HEAD) re-chains with no problem by a read-only recomputation of `bench.registry`'s rule; `bench.experiment verify`, which also checks spec hashes, was not run.
 
