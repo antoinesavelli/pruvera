@@ -25,7 +25,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     || exit 1
 done
 ```
-Run from `/mnt/ParamoStorage/AIModels/agent-testing` (`cd` there inside the hook, or set
+Run from `/mnt/ParamoStorage/AIModels/pruvera` (`cd` there inside the hook, or set
 `PYTHONPATH`). It reads only the registry and git history; it never starts a trial.
 
 ## Order
