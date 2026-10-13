@@ -1,7 +1,7 @@
 # Road to A: what it takes to bring every review grade to A
 
 **Status 2026-10-12: partly done, one study running.** Workstreams C and A have landed (C8's strict check and parts of A2 to A4 excepted), G1 and G4 have run, G2 is running (its A/A control is judged, its known-bad control is in progress), G3 has not started, O7 is answered in part, O5 was replaced by the registry's `retro` rows, O4's deletion was approved on 2026-09-30 and not run, and no owner decision is recorded for O1 to O3, O6, O8 and O9; the row-by-row record, with the commit or path behind each row, is "Status record 2026-10-12" before section 1. The 2026-10-02 status was "plan, nothing in it started". Written after eight independent review rounds
-(the last against `26de493`, fixed in `ae42884`). It lists every gap the reviewers named that still
+(the eighth against `26de493`, fixed in `ae42884`; a ninth round followed, fixed in `a66ce05`). It lists every gap the reviewers named that still
 stands, what closes it, who has to act and in what order. Tags: **[C]** code only, **[A]** issue
 authoring (drafted here, approved by the owner), **[G]** GPU time, **[O]** an owner decision.
 
