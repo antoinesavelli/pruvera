@@ -826,6 +826,7 @@ def spy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Spy:
     return s
 
 
+@needs_fixture_files
 def test_run_long_runs_every_cell_in_seed_order_and_discards_the_real_code_copy(spy: _Spy) -> None:
     """A full pass runs the cells in seed order, prepares one copy and removes it at the end."""
     assert realism.run_long(spy.out, n=1) == 0
@@ -834,6 +835,7 @@ def test_run_long_runs_every_cell_in_seed_order_and_discards_the_real_code_copy(
     assert spy.out.with_suffix(".manifest.json").exists()
 
 
+@needs_fixture_files
 def test_run_long_resumes_after_a_stop_and_redoes_only_what_is_missing(spy: _Spy) -> None:
     """Cells already recorded are not run again."""
     cells = realism.long_cells(realism.LONG_SEED, 1)
@@ -842,6 +844,7 @@ def test_run_long_resumes_after_a_stop_and_redoes_only_what_is_missing(spy: _Spy
     assert spy.cells == cells[5:], "the first five were already recorded"
 
 
+@needs_fixture_files
 def test_run_long_leaves_a_repeated_harness_error_as_a_gap_and_the_exit_code_says_so(
     spy: _Spy, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -866,6 +869,7 @@ def test_a_blocked_host_stops_the_study_without_forcing_and_without_leaving_real
     assert realism.main(["--long", "--n", "1", "--out", str(spy.out)]) == 75
 
 
+@needs_fixture_files
 def test_the_long_study_has_no_force_and_a_second_seed_is_refused(
     spy: _Spy, capsys: pytest.CaptureFixture[str]
 ) -> None:
