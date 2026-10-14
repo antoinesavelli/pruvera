@@ -52,7 +52,7 @@ not wall time).
 |---|---|---|
 | G1 | done, smaller than the row | Registered `c5f1a56`, recorded `c9a8ebe`: devstral-small-2:24b and qwen3.5:27b (the second is not one of the three the row lists), the 31 `dev3` issues, 3 repeats each, 186 trials against the row's about 540 on the grown catalogue; 2.80 agent-h against about 10 (`results/experiments/g1-dev3-*.scored.jsonl`). Analysis `0c2fa02`, `results/analysis/reliability.md`: 27 of the 31 issues have a two-model rating, 4 do not, because the second model's git-routed trials ran on the first |
 | G2 | running; known-bad REJECT (P2 holds) and A/A CLEAR (P1 holds) judged 2026-10-13, known-good running | Plan `plans/G2_GATE_CONTROLS.md`, specs `experiments/g2-*.toml` (`dc84f2e`, `db1be8c`). The A/A control on the default agent (`g2-aa-dev3`, 456 trials) was judged CLEAR (success difference +0.008, unsafe upper bound +0.056): `c2769b5`, bundle `results/verdicts/g2-aa-dev3/`. The first pilots all failed because git-routed trials ran the default agent, not the git agent (`e0e9676`); `git_primary`, an opt-in study condition that runs the designed git agent, landed in `6947b85`; `7c24e22` rewrote the pilots' go rules, the repaired pilots chose the control texts, and `db1be8c` records them and registers the three controls on that condition (registry rows 124 to 126, uncommitted). **Updated 2026-10-13:** `g2-known-bad-gp-dev3` (456 of 456 trials) was judged REJECT, P2 holds: success 0.589 against 0.495 (difference -0.094), landed unsafe outcomes 1 against 34, unsafe-rate upper bound +0.620 against a limit of +0.15 (`0c29739`, section 13 of the plan, bundle `results/verdicts/g2-known-bad-gp-dev3/`). `g2-aa-gp-dev3` (456 of 456) was judged CLEAR, P1 holds: success 0.562 against 0.554 (difference -0.008, interval -0.076 to +0.062), unsafe upper bound +0.055 (`c7d79a4`, section 14, bundle `results/verdicts/g2-aa-gp-dev3/`). `g2-known-good-2-gp-dev3` is running and not judged. The figures that follow are as of 10:33 on 2026-10-12, before those two finished: `g2-known-bad-gp-dev3` had 110 of 456 trials recorded (`results/experiments/g2-known-bad-gp-dev3.jsonl`, untracked) and the other two were registered, not started. The pass line is P1 to P3, and P1 is judged on the repaired-condition A/A `g2-aa-gp-dev3` (ruling 2026-10-12, `plans/G2_GATE_CONTROLS.md` section 5.2; `g2-aa-dev3` stays as the default-agent record and does not count); the pass itself is undecided until P3 is judged. Cost: the row budgets about 2 x 300 trials and about 11 h; the registered design is 3 x 456 trials. Agent time recorded so far is 8.69 h at 10:33 (`results/experiments/g2-*.jsonl`); at the measured 44 to 53 s a trial (the A/A and the known-bad so far) about 16 to 19 h remain, so about 25 to 27 h of agent time in all, against the plan's own about 22 h (`plans/G2_GATE_CONTROLS.md` section 2); `plans/OWNER_DECISIONS_2026-10-12.md` D4 gives about 29 to 31 h from about 7 h per control, a different basis. A reboot stops the run (2026-10-11 16:32 stopped the A/A at 54 trials, resumed by hand, plan section 10; a reboot on 2026-10-12 stopped the known-bad at 429 trials, resumed by hand on 10-13, plan section 13); the campaign auto-resume unit is enabled since D11, and after that boot it ran the A/A before the known-bad was resumed |
-| G3 | not started | No spec in `experiments/` and no registry row names `holdout3`; the only holdout generation any registry row records is 2, on 50 of its 51 `retro` rows (`results/registry.jsonl`). `holdout3` is frozen and unused (`021d5af`). Waits for G2's pass line and for O9 |
+| G3 | not started | No spec in `experiments/` and no registry row names `holdout3`; the only holdout generation any registry row records is 2, on 50 of its 51 `retro` rows (`results/registry.jsonl`). `holdout3` is frozen and unused (`021d5af`). Waits for G2's pass line and for O9. **Updated 2026-10-13:** the row's two models and about 46 h assume a look per model that the registry does not give; see the notes under sections 2 and 5 and `plans/G3_HOLDOUT3_PREP.md` |
 | G4 | done; outcome NOT SHOWN | Tool `fb95aee`, plan `c334ba5`; 64 of 64 cells on harness `c470c17` (clean), 2.44 agent-h against about 3 h; reported in `f418283` (`plans/LONG_TASK_REALISM.md` section 9; `results/realism/long-task.jsonl`, `.manifest.json`, `.report.json`). No headline ratio is inside or outside the band 0.8 to 1.25: tool calls 0.57 [0.25, 1.17], steps 0.58 [0.28, 1.16], tasks done 0.86 [0.54, 1.31], diff size no data. Realism beyond short lookups is neither shown nor refuted. The optional second look (`--n 8`) was not run |
 
 **Owner decisions (section 6)**
@@ -124,6 +124,15 @@ to verify. The definition per area:
   had not seen, with at least two models, and is wired to an enforcement point (or the owner decided
   not to).
 
+> **Note 2026-10-13 (Fitness).** The clause "with at least two models" assumes a holdout look per model. The registry
+> does not give one: a rule variant is identified by its name and file hash alone (`[models]` is not part of it,
+> `bench/registry.py` `_variants`), and `_recheck` refuses a second registration of it on a generation already used. So the
+> same control cannot be judged on a second model on `holdout3`; the model of a candidate's one look is final. Meeting the
+> clause as written needs a registry rule change (a look per variant and model set, which also splits the alpha) or another
+> unseen generation, both the owner's call. A control on a holdout is also registered `confirmatory` and takes a share of the
+> generation's alpha, since `_check_kind` refuses a `control` that plants holdout issues. The text above is left as written;
+> `plans/G3_HOLDOUT3_PREP.md` sections 1, 7 and 11 have the detail.
+
 ## 3. Workstream C: code only (no GPU, no owner)
 
 About three sessions. Each item lands with tests and its own commit.
@@ -175,6 +184,15 @@ one model. Runs avoid any window the peer session uses (`overlays/.session.lock`
 
 Total about 70 GPU hours; G3 is the bulk and can be cut to one model if the owner prefers (Fitness
 then stays at B+).
+
+> **Note 2026-10-13 (row G3 and the totals above).** "Two models" and "about 46" hours (3 x 420 x 2) rest on a `holdout3`
+> look per model, and the registry gives one look per variant text per generation whatever the model (the Fitness note in
+> section 2). "Cut G3 to one model" is therefore not an option but the rule, and the second model's half of the 46 hours does
+> not exist to spend. What a look costs now: one per candidate, one model each; at the design of the G2 controls (6 repeats,
+> 12 for safety issues) a study is 732 trials, about 12.2 h with devstral-small-2:24b (`plans/G3_HOLDOUT3_PREP.md` section 5), so
+> three candidates are about 36.6 h, and each look takes half of what remains of the generation's alpha (0.025, then 0.0125,
+> ...), the controls included. The row and the totals above stay as written; the figures, orderings and options to decide
+> are in `plans/G3_HOLDOUT3_PREP.md`.
 
 ## 6. Owner decisions
 
