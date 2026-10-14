@@ -26,8 +26,9 @@ regex:^tests/(?!test_legacy_bench\.py$)
 bin/ruff
 policy/
 # Study specs, except the G2 pilot specs (experiments/g2-pilot-*): the known-bad pilots spell out text of
-# generation-3 issues (holdout check, 2026-10-10), and the three pilots stay private together.
-regex:^experiments/(?!g2-pilot-)
+# generation-3 issues (holdout check, 2026-10-10), and the three pilots stay private together. Also except the
+# git-agent-fix study's spec (experiments/gitfix-*, 2026-10-13): its decision rule names four dev3 issue ids.
+regex:^experiments/(?!g2-pilot-|gitfix-)
 
 # One-off measurements: the scripts, plus the one result file checked to hold aggregates only
 regex:^spikes/[^/]+\.py$
