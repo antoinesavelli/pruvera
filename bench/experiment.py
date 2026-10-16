@@ -68,6 +68,7 @@ def run(
 ) -> Path:
     """Run the registered experiment: both arms, each issue's registered repeats, models, seed."""
     row = registry.registered(experiment_id, root)
+    registry.check_version(row)  # before any profile of the wrong build is loaded
     if row["kind"] == "confirmatory" and (n or only or out):
         raise registry.RegistryError(
             f"{experiment_id}: a confirmatory run is exactly what was registered "

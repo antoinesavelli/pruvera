@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import importlib
 import json
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -86,6 +88,55 @@ def test_the_state_root_can_name_another_checkout(
     finally:
         monkeypatch.delenv("AGENT_TESTING_STATE")
         importlib.reload(layout)
+
+
+VERSION_ENV = "AGENT_TESTING_FIXTURE_VERSION"
+
+
+@pytest.fixture
+def reload_layout(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[str | None], ModuleType]]:
+    """Reloads `layout` under a fixture-version variable (unset for None); the original returns."""
+
+    def reload(value: str | None) -> ModuleType:
+        """Sets or unsets the variable, re-imports `layout`, and returns it."""
+        if value is None:
+            monkeypatch.delenv(VERSION_ENV, raising=False)
+        else:
+            monkeypatch.setenv(VERSION_ENV, value)
+        return importlib.reload(layout)
+
+    yield reload
+    monkeypatch.undo()  # the caller's own value of the variable, before layout is read again
+    importlib.reload(layout)
+
+
+def test_the_fixture_version_is_v2_unless_the_environment_names_another_build(
+    reload_layout: Callable[[str | None], ModuleType],
+) -> None:
+    """Unset or empty is v2; `v4` selects that build, and the path defaults follow at import."""
+    assert reload_layout(None).VERSION == "v2"
+    assert reload_layout("").VERSION == "v2"
+    fresh = reload_layout("v4")
+    assert fresh.VERSION == "v4"
+    assert fresh.version_dir() == fresh.FIXTURES / "versions" / "v4"
+    assert fresh.tree() == fresh.FIXTURES / "versions" / "v4" / "tree"
+    assert fresh.venv() == fresh.FIXTURES / "venv" / "v4"
+    assert fresh.rag_dir() == fresh.FIXTURES / "rag" / "v4"
+    assert fresh.tree("v2") == fresh.FIXTURES / "versions" / "v2" / "tree"
+    assert fresh.DATA_VERSION == "v3"  # the data slice is versioned on its own
+    assert reload_layout("v10").VERSION == "v10"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["4", "v", "V4", "v4a", "v-1", "v2.0", "../v2", "v4/../v2", " v4", "v4\n", "v\u0664", "latest"],
+)
+def test_a_fixture_version_that_is_not_v_and_digits_is_refused_at_import(
+    reload_layout: Callable[[str | None], ModuleType], bad: str
+) -> None:
+    """A value that could leave the versions directory, or is no version name, stops the import."""
+    with pytest.raises(ValueError, match=VERSION_ENV):
+        reload_layout(bad)
 
 
 def test_the_harness_stamp_names_a_commit_and_a_dirty_flag() -> None:
