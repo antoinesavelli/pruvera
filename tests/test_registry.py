@@ -1,6 +1,6 @@
 """The registry: preregistration, hash chain, spent looks, unregistered candidate runs refused.
 
-Depends on: bench.{registry,experiment,gitutil}, pytest, git.
+Depends on: bench.{registry,experiment,gitutil,layout}, pytest, git.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from bench import experiment, gitutil, registry
+from bench import experiment, gitutil, layout, registry
 from tests.helpers import spec as _spec
 
 
@@ -237,3 +237,66 @@ def test_a_malformed_spec_is_refused(root: Path) -> None:
             },
             "x1",
         )
+
+
+def _before_the_version_field(root: Path) -> None:
+    """Rewrites the registry as the code before `fixture_version` wrote it: no field, relinked."""
+    prev, lines = "", []
+    for row in registry.read(root):
+        old = {k: v for k, v in row.items() if k not in ("fixture_version", "hash", "prev")}
+        old["prev"] = prev
+        old["hash"] = prev = registry._digest(old)
+        lines.append(json.dumps(old, sort_keys=True) + "\n")
+    registry.registry_path(root).write_text("".join(lines))
+
+
+def test_a_registered_row_records_the_fixture_version_the_process_selected(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A registration records `layout.VERSION` in its row, and the chain still verifies."""
+    monkeypatch.setattr(layout, "VERSION", "v2")
+    first = registry.register(_spec(root, "dev-1", "exploratory", "dev", ""), root)
+    monkeypatch.setattr(layout, "VERSION", "v4")
+    second = registry.register(_spec(root, "dev-2", "exploratory", "dev", ""), root)
+    assert (first["fixture_version"], second["fixture_version"]) == ("v2", "v4")
+    assert registry.verify(registry.read(root)) == []
+    assert registry.registered("dev-2", root)["fixture_version"] == "v4"
+
+
+def test_a_run_on_another_fixture_version_than_the_registered_one_is_refused(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A registration made on v4 authorizes a run on v4 only; a refusal records no start."""
+    monkeypatch.setattr(layout, "VERSION", "v4")
+    registry.register(_spec(root, "dev-1", "exploratory", "dev", "dev+rule"), root)
+    out, arms = root / "results" / "experiments" / "dev-1.jsonl", {"b": "dev", "c": "dev+rule"}
+    for selected in ("v2", "v3", "v5"):
+        monkeypatch.setattr(layout, "VERSION", selected)
+        with pytest.raises(registry.RegistryError, match=f"registered on fixture v4.*{selected}"):
+            registry.authorize("dev-1", arms, None, out, root)
+    assert [r for r in registry.read(root) if r["event"] == "started"] == []
+    monkeypatch.setattr(layout, "VERSION", "v4")
+    assert registry.authorize("dev-1", arms, None, out, root) == "dev-1"
+    assert len([r for r in registry.read(root) if r["event"] == "started"]) == 1
+
+
+def test_a_row_registered_before_the_field_still_verifies_and_means_v2(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An old row has no version: it verifies, a new row chains onto it, and it runs on v2 only."""
+    monkeypatch.setattr(layout, "VERSION", "v2")
+    registry.register(_spec(root, "dev-1", "exploratory", "dev", "dev+rule"), root)
+    _before_the_version_field(root)
+    assert "fixture_version" not in registry.registered("dev-1", root)
+    assert registry.verify(registry.read(root)) == []
+    registry.register(_spec(root, "dev-2", "exploratory", "dev", ""), root)
+    rows = registry.read(root)
+    assert registry.verify(rows) == [] and rows[1]["fixture_version"] == "v2"
+    out, arms = root / "results" / "experiments" / "dev-1.jsonl", {"b": "dev", "c": "dev+rule"}
+    monkeypatch.setattr(layout, "VERSION", "v4")
+    with pytest.raises(registry.RegistryError, match="registered on fixture v2.*selects v4"):
+        registry.authorize("dev-1", arms, None, out, root)
+    assert [r for r in registry.read(root) if r["event"] == "started"] == []
+    monkeypatch.setattr(layout, "VERSION", "v2")
+    assert registry.authorize("dev-1", arms, None, out, root) == "dev-1"
+    assert registry.verify(registry.read(root)) == []

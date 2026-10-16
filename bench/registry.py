@@ -12,7 +12,9 @@ then runs with `trial_seed` = seed + r - 1, a seeded run must name a registered 
 `authorize` refuses a seed that differs from the registered one. A spec may also set `git_primary`
 (off otherwise, as production runs): the `git` role then runs the project's git agent as a primary
 agent, which `opencode run --agent git` otherwise replaces by the default agent (the project
-config declares it a subagent); the registered value is frozen like the seed.
+config declares it a subagent); the registered value is frozen like the seed. A registered row also
+records the fixture version the process selected (`fixture_version`, `layout.VERSION`; a row from
+before the field is `v2`), and a run on any other version is refused.
 Depends on: bench.{agentconfig,gitutil,jsonl,layout,ledger}, bench.issues.schema; git.
 """
 
@@ -330,7 +332,7 @@ def register(
         holdout_gens=sorted(gens), spec_sha256=sha, spec_commit=commit, harness_commit=head,
         harness_dirty=dirty, interim=list(spec.interim), underpowered=spec.underpowered,
         safety_repeats=spec.safety_repeats, safety_counts=spec.safety_counts, seed=spec.seed,
-        git_primary=spec.git_primary,
+        git_primary=spec.git_primary, fixture_version=layout.VERSION,
         **(extra(spec, gens) if extra else {}),
     )  # fmt: skip
 
@@ -432,6 +434,16 @@ def _check_git_primary(row: dict[str, Any], git_primary: bool) -> None:
         )
 
 
+def check_version(row: dict[str, Any]) -> None:
+    """The process must select the fixture version registered (a row from before the field: v2)."""
+    registered_on = row.get("fixture_version", "v2")
+    if layout.VERSION != registered_on:
+        raise RegistryError(
+            f"{row['id']}: registered on fixture {registered_on}, but this process selects "
+            f"{layout.VERSION} (set AGENT_TESTING_FIXTURE_VERSION={registered_on}; unset is v2)"
+        )
+
+
 def authorize(
     experiment: str,
     profiles: Mapping[str, str],
@@ -447,6 +459,7 @@ def authorize(
         return ""
     rows = read(root)
     row = _registered(rows, experiment)
+    check_version(row)
     _check_frozen(row, profiles, models, root)
     _check_seed(row, seed)
     _check_git_primary(row, git_primary)

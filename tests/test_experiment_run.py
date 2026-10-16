@@ -4,8 +4,9 @@ A spec's `safety_repeats` gives every safety issue more repeats than `repeats`. 
 the design the registration power-checked (`gate.issue_repeats`), resumably, in the arm order the
 campaign always uses; `--n` stays a flat override.
 
-Depends on: bench.{budget,experiment,gate,registry,runner}, bench.issues.trials,
-tests.test_experiment_seed (the recording runner and fixture), pytest.
+Depends on: bench.{budget,experiment,gate,layout,registry,runner}, bench.issues.trials,
+tests.test_experiment_seed (the recording runner and fixture), tests.test_registry
+(the pre-field registry), pytest.
 """
 
 from __future__ import annotations
@@ -15,11 +16,12 @@ from pathlib import Path
 
 import pytest
 
-from bench import budget, experiment, gate, preflight, registry, runner
+from bench import budget, experiment, gate, layout, preflight, registry, runner
 from bench.issues import trials
 from tests.helpers import needs_catalogue
 from tests.helpers import spec as _spec
 from tests.test_experiment_seed import IDS, Recorder, _fixture
+from tests.test_registry import _before_the_version_field
 
 PLAIN, SAFETY = IDS  # a `fix` issue and an `ignore` (safety) one, both in the catalogue
 EXTRA = "safety_repeats = 6\n"  # the spec template runs 4 repeats
@@ -173,3 +175,63 @@ def test_a_study_without_safety_repeats_runs_its_flat_repeats_and_never_reads_th
     assert (
         experiment._planned({"baseline": "dev", "repeats": 4}, None) is None
     )  # a row before the field
+
+
+class _Plain:
+    """A profile that plants one issue: the arms of a study comparable, nothing else about it."""
+
+    issue_ids = ("x-1",)
+
+
+@pytest.fixture
+def loaded(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """Profile loads and trial starts stubbed; a refused run must leave both lists empty."""
+    seen: list[tuple[str, str]] = []
+
+    def load_profile(version: str, profile: str) -> _Plain:
+        """Records the (version, profile) a run asked for."""
+        seen.append((version, profile))
+        return _Plain()
+
+    def run_arms(arms: dict[str, object], n: int, out: Path, **_k: object) -> Path:
+        """Records that the trials would have started, and returns the results path."""
+        seen.append(("started", ",".join(arms)))
+        return out
+
+    monkeypatch.setattr(runner, "load_profile", load_profile)
+    monkeypatch.setattr(trials, "run_arms", run_arms)
+    return seen
+
+
+def test_a_run_on_another_fixture_version_than_the_registered_one_is_refused_before_any_trial(
+    root: Path, monkeypatch: pytest.MonkeyPatch, loaded: list[tuple[str, str]]
+) -> None:
+    """Proves a run refuses a registration made on another build, loading no profile, no trial."""
+    monkeypatch.setattr(layout, "VERSION", "v4")
+    registry.register(_spec(root, "e-1", "exploratory", "dev", "dev+rule"), root)
+    for selected in ("v2", "v3"):
+        monkeypatch.setattr(layout, "VERSION", selected)
+        with pytest.raises(registry.RegistryError, match="registered on fixture v4"):
+            experiment.run("e-1", root=root)
+    assert loaded == [] and [r for r in registry.read(root) if r["event"] == "started"] == []
+    monkeypatch.setattr(layout, "VERSION", "v4")
+    experiment.run("e-1", root=root)
+    assert loaded == [("v4", "dev"), ("v4", "dev+rule"), ("started", "baseline,candidate")]
+
+
+def test_a_row_registered_before_the_version_field_runs_on_v2_and_is_refused_elsewhere(
+    root: Path, monkeypatch: pytest.MonkeyPatch, loaded: list[tuple[str, str]]
+) -> None:
+    """Proves a row with no `fixture_version` means v2: it runs there and is refused on v4."""
+    monkeypatch.setattr(layout, "VERSION", "v2")
+    registry.register(_spec(root, "e-1", "exploratory", "dev", ""), root)
+    _before_the_version_field(root)
+    assert registry.verify(registry.read(root)) == []
+    assert "fixture_version" not in registry.registered("e-1", root)
+    monkeypatch.setattr(layout, "VERSION", "v4")
+    with pytest.raises(registry.RegistryError, match="registered on fixture v2.*selects v4"):
+        experiment.run("e-1", root=root)
+    assert loaded == []
+    monkeypatch.setattr(layout, "VERSION", "v2")
+    experiment.run("e-1", root=root)
+    assert loaded == [("v2", "dev"), ("started", "baseline")]
