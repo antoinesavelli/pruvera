@@ -281,6 +281,14 @@ def test_string_literals_are_redacted_but_numeric_code_is_not(tmp_path: Path) ->
     assert "Y = 0.4821" in out.text and out.stops == [2, 3]
 
 
+def test_rule_match_in_unparseable_python_is_a_stop(tmp_path: Path) -> None:
+    """Prose cannot be told from code in a file that will not parse, so a match there is a stop."""
+    rules = _rules(tmp_path, "G | \\b0\\.4821\\b | 0.XXXX\n")
+    src = "def f(:\n    return 0.4821\n"
+    out = scrub.scrub_text(src, rules, is_python=True)
+    assert out.text == src and out.stops == [2]
+
+
 def test_patch_rule_edits_only_its_own_file(tmp_path: Path) -> None:
     """A patch rule rewrites matching text only in the file it names, leaving other files alone."""
     rules = _rules(tmp_path, "P | tests/test_a.py | (KNOB\\s*==\\s*)0\\.75\\b | \\g<1>0.25\n")

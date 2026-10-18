@@ -229,8 +229,8 @@ def _scrub_line(
     line = lines[i]
     if not is_python:
         return _redact_line(rules, lines, i, line), False
-    if prose is None:
-        return line, False  # unparseable Python: leave alone, verification flags any residue
+    if prose is None:  # unparseable Python: prose cannot be told from code, so a match is a stop
+        return line, _matches(rules, lines, i, line)
     if (i + 1) in prose:
         return _redact_line(rules, lines, i, line), False
     code, comment = _code_comment_split(line)
