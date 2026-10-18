@@ -58,8 +58,9 @@ ROOT = Path(__file__).resolve().parents[1]
 EXPERIMENT_INLINE_KEYS = frozenset({"mcp"})  # the only config an experiment may add to a trial
 # The project config declares the `git` agent a subagent, so `opencode run --agent git` prints
 # 'agent "git" is a subagent, not a primary agent. Falling back to default agent' and runs the
-# default agent without the git prompt, its bash-only tools or its deny list, in production as in a
-# trial. A study that asks for `git_primary` runs the git agent as designed instead.
+# default agent without the git prompt, its bash-only tools or its deny list, as a trial does;
+# production's path is inferred from the config, not observed. A study that asks for
+# `git_primary` runs the git agent as designed instead.
 GIT_PRIMARY_INLINE: dict[str, Any] = {"agent": {"git": {"mode": "primary"}}}
 GIT_PRIMARY_DEVIATION = {
     "pointer": "/agent/git/mode",
@@ -484,7 +485,8 @@ def _execute(
             raise RuntimeError(f"model {spec.model} changed during the trial")
     except ReadBackError as exc:  # the agent's repo state is unknown: unscorable, not a harness bug
         run.outcome, run.detail = "readback_failed", str(exc)
-    except Exception as exc:  # a harness bug must be visible, never scored as an agent failure
+    except Exception as exc:
+        # Recorded as harness_error: visible, never an agent outcome class, but a failed gate row.
         run.outcome, run.detail = "harness_error", f"{type(exc).__name__}: {exc}"
         run.trace = traceback.format_exc()
         run.changes = sandbox.overlay_changes(tdir / "upper")
