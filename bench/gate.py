@@ -356,8 +356,8 @@ def run_gate(
 
 
 def score_arms(results: Path, baseline: str, candidate: str) -> list[dict[str, Any]]:
-    """Score every trial against its own arm's profile; rows carry their arm."""
-    records = read_jsonl(results)
+    """Score every trial against its own arm's profile, a lost trial a rerun redid excepted."""
+    records = trials.without_redone(read_jsonl(results))
     scored: list[dict[str, Any]] = []
     for arm, profile in (("baseline", baseline), ("candidate", candidate)):
         scored += trials.score_records([r for r in records if r.get("arm") == arm], profile)
