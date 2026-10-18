@@ -107,13 +107,14 @@ def _tests_for(env: check.Env, issue: schema.Issue) -> list[str]:
 
 
 def _check_survivor(env: check.Env, issue: schema.Issue, planted: dict[str, str]) -> list[str]:
-    """A problem if a test catches the planted survivor; an import error is not a catch."""
+    """A problem if a test run fails on the planted survivor. A test file that cannot import counts
+    as catching it (pytest lists it as an ERROR), so a broken import never makes a survivor."""
     tests = _tests_for(env, issue)
     if not tests:
         return []  # no test even imports the module: nothing can catch it
     result = check.run_pytest(env, tests, planted)
-    if result.passed or (result.collection_error and not result.failed):
-        return []  # an import error is not a test catching the bug
+    if result.passed:
+        return []
     return ["a test catches this issue, so it is not a survivor"]
 
 

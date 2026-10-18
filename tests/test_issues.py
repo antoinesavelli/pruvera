@@ -414,6 +414,18 @@ def test_a_survivor_in_a_module_with_no_sibling_test_file_is_checked_against_imp
     assert not verdict.ok and any("not a survivor" in n for n in verdict.notes)
 
 
+def test_a_survivor_whose_test_file_cannot_import_counts_as_caught(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pytest lists a collection error as `ERROR <file>`, so `failed` is never empty then: a test
+    file that cannot import counts as catching the bug, never as a silent survivor."""
+    broken = check.Result(2, ("tests/test_m.py",), "", {}, (), collection_error=True)
+    monkeypatch.setattr(verify, "_tests_for", lambda env, issue: ["tests/test_m.py"])
+    monkeypatch.setattr(check, "run_pytest", lambda *args, **kwargs: broken)
+    notes = verify._check_survivor(check.Env(tmp_path, tmp_path), _issue(), {})
+    assert notes == ["a test catches this issue, so it is not a survivor"]
+
+
 def test_grader_winnable_proves_restoration_and_scenario_issues_can_be_passed(
     tmp_path: Path,
 ) -> None:
