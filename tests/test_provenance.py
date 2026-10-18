@@ -74,6 +74,34 @@ def test_a_rerun_of_an_experiment_skips_the_cells_already_recorded(tmp_path: Pat
     assert trials._done_cells(tmp_path / "none.jsonl", "e1") == set()
 
 
+def test_a_lost_row_is_dropped_only_where_its_own_cell_was_redone() -> None:
+    """A lost row goes only for a redone cell of the same experiment, issue, arm and repeat."""
+
+    def row(trial_id: str, outcome: str, **cell: object) -> dict[str, object]:
+        """A trial record in experiment e1, issue i1, baseline arm, repeat 1 unless overridden."""
+        base = {"experiment_id": "e1", "label": "i1", "arm": "baseline", "repeat": 1}
+        return {**base, **cell, "trial_id": trial_id, "outcome": outcome}
+
+    records = [
+        row("lost-readback", "readback_failed"),
+        row("redone", "fixed"),
+        row("other-arm", "harness_error", arm="candidate"),
+        row("other-repeat", "harness_error", repeat=2),
+        row("other-experiment", "harness_error", experiment_id="e2"),
+        row("no-experiment-lost", "harness_error", experiment_id=""),
+        row("no-experiment-done", "fixed", experiment_id=""),
+    ]
+    kept = [r["trial_id"] for r in trials.without_redone(records)]
+    assert kept == [
+        "redone",
+        "other-arm",
+        "other-repeat",
+        "other-experiment",
+        "no-experiment-lost",
+        "no-experiment-done",
+    ]
+
+
 def test_the_state_root_can_name_another_checkout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

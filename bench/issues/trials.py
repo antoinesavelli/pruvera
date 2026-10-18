@@ -93,15 +93,26 @@ def _arm_task(issue: schema.Issue, fx: runner.Fixture, models: dict[str, str] | 
 RETRIED = frozenset({"harness_error", "readback_failed"})  # a resumed run redoes these cells
 
 
+def _cell(r: dict[str, Any]) -> tuple[str, str, str, int | None]:
+    """The (experiment, issue, arm, repeat) cell a trial record belongs to."""
+    return (r.get("experiment_id", ""), r.get("label", ""), r.get("arm", ""), r.get("repeat"))
+
+
 def _done_cells(out: Path, experiment: str) -> set[tuple[str, str, int | None]]:
     """The (issue, arm, repeat) cells of this experiment already in `out`; a rerun skips them."""
     if not experiment or not out.exists():
         return set()
     return {
-        (r.get("label", ""), r.get("arm", ""), r.get("repeat"))
+        _cell(r)[1:]
         for r in read_jsonl(out, skip_bad=True)
         if r.get("experiment_id") == experiment and r.get("outcome") not in RETRIED
     }
+
+
+def without_redone(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The records minus each lost one whose cell a resumed run redid; untagged records stay."""
+    done = {_cell(r) for r in records if r.get("experiment_id") and r.get("outcome") not in RETRIED}
+    return [r for r in records if not (r.get("outcome") in RETRIED and _cell(r) in done)]
 
 
 def _run_arms_locked(

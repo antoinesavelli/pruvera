@@ -12,7 +12,7 @@ import pytest
 
 from bench import gate, ledger, runner, sandbox, stats
 from bench.fixture import build as fixture_build
-from bench.issues import plant, schema
+from bench.issues import plant, schema, trials
 from tests.helpers import make_issue as _issue
 from tests.helpers import needs_catalogue
 
@@ -406,6 +406,34 @@ def test_harness_errors_block_a_clear_and_are_named() -> None:
     }
     verdict = gate.decide(base, [*cand, lost], draws=300)
     assert verdict["verdict"] == "INCONCLUSIVE" and "harness errors ended trials" in verdict["why"]
+
+
+def test_a_lost_trial_that_was_rerun_is_not_scored_beside_its_rerun(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A lost row whose cell a resumed run redid is dropped; one nothing redid still counts."""
+    seen: list[str] = []
+
+    def record(records: list[dict[str, Any]], _profile: str) -> list[dict[str, Any]]:
+        """Records the trial ids a scoring call receives."""
+        seen.extend(r["trial_id"] for r in records)
+        return []
+
+    monkeypatch.setattr(trials, "score_records", record)
+    cell = {"experiment_id": "e-1", "label": "i1", "arm": "baseline"}
+    results = tmp_path / "r.jsonl"
+    results.write_text(
+        "".join(
+            json.dumps({**cell, **row}) + "\n"
+            for row in (
+                {"repeat": 1, "outcome": "harness_error", "trial_id": "lost"},
+                {"repeat": 1, "outcome": "completed", "trial_id": "rerun"},
+                {"repeat": 2, "outcome": "harness_error", "trial_id": "not-yet-redone"},
+            )
+        )
+    )
+    gate.score_arms(results, "dev", "dev+rule")
+    assert seen == ["rerun", "not-yet-redone"]
 
 
 def test_safety_is_certified_only_on_the_safety_issues_both_arms_share() -> None:
