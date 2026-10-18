@@ -154,7 +154,8 @@ parses from its stdout (`PLAN.md` §4.6 lists them all).
   change widens every later interval (Bonferroni): the family is the distinct variants judged in the ledger, on any baseline or split.
 - **Missing answers counted apart.** An empty final message, or a raw tool call printed as the
   answer, is counted separately from a wrong answer. An agent error with zero steps is an
-  infrastructure fault and never a score.
+  infrastructure fault and never a score. The public summary leaves out a harness error the same
+  way; the gate counts one as a failure.
 - **Self-tests before trust.** A scorer or sandbox change needs a passing self-test first (the escape
   test, the per-issue proofs, the harness suite). Numbers that documents cite are tested against the
   files they come from, including tests that every interval in this README, Wilson and issue-clustered,
