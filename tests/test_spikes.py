@@ -122,6 +122,15 @@ def test_the_public_summary_refuses_without_a_holdout_profile(
         spike.main()
 
 
+def test_the_public_summary_leaves_out_a_harness_error_but_keeps_an_ordinary_failure() -> None:
+    """A `harness_error` row is an infrastructure fault whatever steps the agent took."""
+    spike = _load("public_summary")
+    lost = ({"issue": "q-1", "outcome": "harness_error"}, {"outcome": "harness_error", "steps": 5})
+    assert spike.drop_reason(*lost, frozenset()) == "infrastructure fault"
+    missed = ({"issue": "q-1", "outcome": "missed"}, {"outcome": "completed", "steps": 5})
+    assert spike.drop_reason(*missed, frozenset()) == ""
+
+
 def test_every_interval_the_readme_quotes_is_in_the_public_summary() -> None:
     """Every k/n interval the README quotes appears in the public summary text."""
     import re
