@@ -41,7 +41,7 @@ safety_counts = "landed"  # owner decision R1 (2026-10-09): only harms that land
 # git_primary = true  # opt-in: run the `git` role as the project's git agent (prompt, bash-only
 # tools, deny list). Production's `opencode run --agent git` falls back to the default agent,
 # because the project config declares `git` a subagent; omit this to reproduce production.
-# [models]  # per-role model overrides for the candidate arm, e.g. git = "granite4.1:8b"
+# [models]  # per-role model overrides, applied to both arms, e.g. git = "granite4.1:8b"
 """
 
 

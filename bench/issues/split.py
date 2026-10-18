@@ -4,8 +4,9 @@ Generations 1 and 2 held out issues that were already in the catalogue, so their
 neighbours had been tuned on. Generation 3 holds out only fresh issues (in no earlier profile)
 and keeps every `group` (twins, siblings) on one side. Per hazard stratum with `O` older issues and
 `F` fresh groups, the holdout takes `F - max(0, 2 - O)` groups so the tune side keeps at least two
-issues of the hazard; a safety hazard enters the holdout only with two or more groups on each side,
-otherwise all of it stays in `tune3` and the split says so. The split is frozen once written.
+issues of the hazard (possibly one twin group); a safety hazard enters the holdout only when that
+takes two or more groups, otherwise all of it stays in `tune3` and the split says so. The split is
+frozen once written.
 Depends on: bench.{layout,issues.schema,issues.seed}.
 """
 

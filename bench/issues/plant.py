@@ -108,7 +108,8 @@ def flatten_mtimes(tree: Path) -> None:
 
 def git_leaks(tree: Path, issues: list[schema.Issue]) -> list[str]:
     """Markers visible through git itself: commit messages, authors, refs, tracked paths."""
-    # Object files are compressed, so a byte scan of `.git` cannot see these.
+    # `leak_check` byte-scans `.git` and sees its plain-text files (index, reflog, packed-refs,
+    # COMMIT_EDITMSG); only git can read the compressed objects (messages, authors, tree names).
     env = {"PATH": os.environ.get("PATH", ""), "GIT_CONFIG_GLOBAL": "/dev/null"}
     shown = ""
     for args in (
