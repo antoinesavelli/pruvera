@@ -54,7 +54,9 @@ class Result:
 def _run(
     env: Env, script: str, overrides: dict[str, str] | None, timeout: float
 ) -> tuple[int, str]:
-    """Run `script` in the workdir (overrides written first); returns (exit code, stdout)."""
+    """Run `script` in the workdir (overrides written first); returns (exit code, stdout + stderr).
+    Stderr is kept because bwrap reports a sandbox that failed to start there, and `score._ran`
+    reads it to call such a run the harness's failure, not a miss."""
     SCRATCH.mkdir(exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="check-", dir=SCRATCH))
     try:
@@ -78,7 +80,7 @@ def _run(
         done = sandbox.run(
             spec, ["sh", "-c", f"cd {sandbox.WORKDIR} && {prep}{script}"], timeout=timeout
         )
-        return done.returncode, done.stdout
+        return done.returncode, done.stdout + done.stderr
     finally:
         sandbox.remove_trial_dirs(work)
         shutil.rmtree(work, ignore_errors=True)
