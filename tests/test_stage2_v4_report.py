@@ -454,6 +454,27 @@ def test_a_trial_on_another_version_or_profile_is_refused_from_either_record(
     refused(tmp_path / "scored", match, v4_over=over)
 
 
+def test_the_v4_side_may_name_its_own_profile_and_only_that_one(tmp_path: Path) -> None:
+    """The rerun on `dev+opencode-deps` needs `v4_profile`; the v2 side must still be `dev`."""
+    deps = "dev+opencode-deps"
+    over = {
+        m: {"raw_over": {(i, r): {"fixture_profile": deps} for i in IDS for r in (1, 2, 3)}}
+        for m in MODELS
+    }
+    v4_paths, v2_paths = study(tmp_path, wins_of(19, 21, 20), wins_of(19, 21, 20), **over)
+    with pytest.raises(rep.Refusal, match="fixture profile 'dev\\+opencode-deps', not 'dev'"):
+        rep.build_report(IDS, v4_paths, v2_paths)
+    report = rep.build_report(IDS, v4_paths, v2_paths, v4_profile=deps)
+    assert report["study"]["profile"] == deps
+    assert report["study"]["comparator_profile"] == "dev"
+    with pytest.raises(rep.Refusal, match="fixture profile 'dev', not 'dev\\+opencode-deps'"):
+        rep.build_report(
+            IDS,
+            *study(tmp_path / "again", wins_of(19, 21, 20), wins_of(19, 21, 20)),
+            v4_profile=deps,
+        )
+
+
 def test_the_comparator_must_be_v2(tmp_path: Path) -> None:
     """A v2 comparator file whose records say v4 (the wrong file passed) is refused."""
 
