@@ -95,6 +95,37 @@ def test_argv_overlay_over_base(spec: Spec) -> None:
     assert i < j
 
 
+def test_the_launch_hands_bwrap_its_options_through_an_fd_not_the_argv(
+    spec: Spec, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The started argv is `bwrap --args FD` and the command; the fd holds every option."""
+    seen: dict[str, Any] = {}
+
+    def fake_popen(argv: list[str], **kw: Any) -> str:
+        """Record the argv and read the options fd as bwrap would."""
+        (fd,) = kw["pass_fds"]
+        seen.update(argv=argv, data=os.pread(fd, 1 << 20, 0))
+        return "proc"
+
+    monkeypatch.setattr(sandbox, "limit_prefix", lambda: ())
+    monkeypatch.setattr(sandbox.subprocess, "Popen", fake_popen)
+    probe = Spec(**{**spec.__dict__, "env": {"PRUVERA_CANARY": "zz-canary"}})
+    assert sandbox._start(probe, ["echo", "hi"], None) == "proc"
+    assert seen["argv"] == ["bwrap", "--args", seen["argv"][2], "echo", "hi"]
+    assert seen["data"] == b"".join(a.encode() + b"\0" for a in sandbox.bwrap_options(probe))
+    assert sandbox.build_argv(probe, ["echo", "hi"]) == [
+        "bwrap", *sandbox.bwrap_options(probe), "echo", "hi",
+    ]  # fmt: skip
+    with pytest.raises(SandboxError, match="NUL"):
+        sandbox._start(Spec(**{**spec.__dict__, "env": {"X": "a\0--bind"}}), ["true"], None)
+
+
+def test_the_host_side_path_names_no_home_directory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """bwrap's environ is readable as /proc/1/environ inside: the harness's own PATH is not it."""
+    monkeypatch.setenv("PATH", f"{Path.home()}/.local/bin:/usr/bin")
+    assert sandbox._host_env()["PATH"] == sandbox.HOST_PATH and "/home" not in sandbox.HOST_PATH
+
+
 def test_trial_env_ignores_host_env(spec: Spec, monkeypatch: pytest.MonkeyPatch) -> None:
     """The trial environment drops host variables and sets HOME, spec variables and no bytecode."""
     monkeypatch.setenv("AGENT_TEST_CANARY_SECRET", "s3cret")
@@ -246,6 +277,42 @@ def test_environment_and_processes_are_isolated(
 
 
 @needs_bwrap
+@pytest.mark.parametrize("net", ["none", "ollama"])
+def test_pid_1_inside_the_sandbox_shows_no_host_path_and_no_setenv_value(
+    spec: Spec, tmp_path: Path, net: str
+) -> None:
+    """Regression (review round 9b, S5): PID 1 is bwrap's reaper, and its argv listed the whole
+    launch policy (overlay, bind and data sources, the proxy socket, every `--setenv`)."""
+    if net == "ollama" and shutil.which("socat") is None:
+        pytest.skip("socat not installed")
+    for sub in ("ro", "data"):
+        (tmp_path / sub).mkdir()
+    canary = "zz-setenv-canary-value"
+    probe = Spec(
+        **{
+            **spec.__dict__,
+            "net": net,
+            "ro_binds": ((tmp_path / "ro", "/opt/ro"),),
+            "data_base": tmp_path / "data",
+            "env": {"PRUVERA_CANARY": canary},
+        }
+    )
+    script = "tr '\\0' '\\n' </proc/1/cmdline; echo @ENV; tr '\\0' '\\n' </proc/1/environ"
+    result = _sh(probe, script + "; echo @FD; ls -l /proc/1/fd 2>&1")
+    assert result.returncode == 0, result.stderr
+    cmdline, rest = result.stdout.split("@ENV\n", 1)
+    environ, fds = rest.split("@FD\n", 1)
+    argv = cmdline.splitlines()
+    assert Path(argv[0]).name == "bwrap" and argv[1] == "--args", argv[:3]
+    root = Path(__file__).resolve().parents[1]
+    hidden = [str(p) for p in (spec.base, spec.upper, spec.work, spec.xdg, tmp_path, root)]
+    for leak in [*hidden, "/home/", "ollama-proxy-", canary, "--setenv", "--ro-bind"]:
+        assert leak not in cmdline, f"PID 1's argv shows {leak!r}"
+    assert "/home/" not in environ and str(root) not in environ, environ
+    assert "bwrap-args" not in fds, "the options fd must be closed before the sandbox starts"
+
+
+@needs_bwrap
 def test_python_bytecode_never_reaches_the_base(spec: Spec) -> None:
     """Importing a module in the sandbox writes no bytecode cache and leaves the base unchanged."""
     before = sandbox.tree_hash(spec.base)
@@ -309,7 +376,7 @@ def test_remove_trial_dirs_handles_unreadable_workdir(spec: Spec) -> None:
 
 def test_run_refuses_without_bwrap(spec: Spec, monkeypatch: pytest.MonkeyPatch) -> None:
     """A run with `bwrap` missing from the path is refused with a `SandboxError` naming bwrap."""
-    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    monkeypatch.setattr(shutil, "which", lambda _name, **_kw: None)
     with pytest.raises(SandboxError, match="bwrap"):
         sandbox.run(spec, ["true"])
 
@@ -410,7 +477,7 @@ def test_limit_prefix_caps_memory_and_tasks_or_is_empty(
 ) -> None:
     """The limit prefix caps memory, swap and tasks, or is empty and warns without systemd-run."""
     sandbox.limit_prefix.cache_clear()
-    monkeypatch.setattr(shutil, "which", lambda _n: None)
+    monkeypatch.setattr(shutil, "which", lambda _n, **_kw: None)
     assert sandbox.limit_prefix() == ()
     assert "WITHOUT" in capsys.readouterr().err, "running without caps must not be silent"
     sandbox.limit_prefix.cache_clear()
