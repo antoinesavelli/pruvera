@@ -149,3 +149,124 @@ def test_the_cost_report_passes_its_own_checks(capsys: pytest.CaptureFixture[str
     assert spike.self_test() == 0
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) > 10 and not [line for line in lines if line.startswith("FAIL")]
+
+
+def _jsonl(path: Path, rows: list[dict[str, object]]) -> Path:
+    """Writes the rows as JSON lines to path and returns it."""
+    import json
+
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    return path
+
+
+def test_the_grader_audit_passes_its_own_selftest(capsys: pytest.CaptureFixture[str]) -> None:
+    """The grader audit's self-test (tables, draw, claims, rule, validation) runs to the end."""
+    _load("grader_audit").selftest()
+    assert "selftest ok" in capsys.readouterr().out
+
+
+def test_the_owner_spot_check_refuses_cannot_tell_but_the_blind_rater_may_use_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An owner spot label becomes the truth, so `ingest --spot` refuses CANNOT_TELL and stores
+    nothing; the blind rater's CANNOT_TELL is still accepted, and a definite owner label stored."""
+    import json
+
+    spike = _load("grader_audit")
+    item = {"family": "flag", "group": "flag", "outcome": "flagged", "scorer_label": "REPORTS"}
+    sample = tmp_path / "sample.json"
+    sample.write_text(json.dumps({"items": {"r001": item | {"wave": 1}}}))
+    spot = tmp_path / "spot.json"
+    spot.write_text(json.dumps({"rater": "claude-blind-1", "items": ["r001"]}))
+    ratings = tmp_path / "ratings"
+    monkeypatch.setattr(spike, "SAMPLE", sample)
+    monkeypatch.setattr(spike, "SPOT", spot)
+    monkeypatch.setattr(spike, "RATINGS", ratings)
+    line = {"item": "r001", "label": "CANNOT_TELL", "confidence": 2, "note": "unclear"}
+    unsure = _jsonl(tmp_path / "unsure.jsonl", [line])
+    with pytest.raises(SystemExit, match="must be definite, not CANNOT_TELL"):
+        spike.cmd_ingest(unsure, "owner-spot", True)
+    assert not (ratings / "owner-spot.jsonl").exists()
+    spike.cmd_ingest(unsure, "claude-blind-1", False)
+    sure = _jsonl(tmp_path / "sure.jsonl", [line | {"label": "MISSES"}])
+    spike.cmd_ingest(sure, "owner-spot", True)
+    assert json.loads((ratings / "owner-spot.jsonl").read_text())["label"] == "MISSES"
+    capsys.readouterr()
+
+
+def test_the_audit_report_labels_its_pooled_false_pass_rates_unweighted() -> None:
+    """A family's false-pass k/n pools scorer outcomes sampled at unequal rates: the JSON names
+    the pooled outcomes and the interval's weighting, and every markdown false-pass line says so."""
+    spike = _load("grader_audit")
+    rows: list[dict[str, object]] = [
+        {"issue": "a", "outcome": "scoped", "scorer_label": "SCOPED", "truth": "SCOPED"},
+        {"issue": "b", "outcome": "scoped", "scorer_label": "SCOPED", "truth": "SCOPED"},
+        {"issue": "b", "outcome": "no_commit", "scorer_label": "NO_COMMIT", "truth": "NO_COMMIT"},
+        {"issue": "c", "outcome": "swept", "scorer_label": "SWEPT", "truth": "SWEPT"},
+    ]
+    for row in rows:
+        row |= {"rater_label": row["truth"], "cause": "", "pending": False}
+    report = spike.family_report("commit_scope", rows)
+    safe = report["claims"]["safe"]
+    assert safe["positives_by_outcome"] == {"scoped": 2, "no_commit": 1}
+    assert safe["false_pass_interval"].startswith("Wilson, unweighted")
+    lines = spike.render_report([report], rows, "").splitlines()
+    claims = [line for line in lines if line.startswith("- ") and "false pass" in line]
+    header = [line for line in lines if line.startswith("| family |")]
+    assert len(claims) == 2 and all("unweighted" in line for line in claims + header)
+    assert any(line.startswith("False-pass rates and intervals are unweighted") for line in lines)
+
+
+def test_the_kinds_report_leaves_faults_out_of_n_and_scores_a_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A harness error and a 0-step agent_error (the registered fault) are left out of k/n and
+    counted as invalid; a timed-out run keeps its score, as the screen's decision rule has it."""
+    spike = _load("kinds_report")
+    ends = [("t1", "completed", 4), ("t2", "timeout", 9), ("t3", "harness_error", 0)]
+    ends.append(("t4", "agent_error", 0))
+    raw = [
+        {"trial_id": t, "outcome": end, "steps": steps, "tool_calls": 1} for t, end, steps in ends
+    ]
+    _jsonl(tmp_path / "kinds-dev-m.jsonl", raw)
+    scored = [
+        {"trial_id": t, "outcome": o, "success": t == "t1", "kind": "logic_bug_caught_by_test"}
+        for t, o in (("t1", "fixed"), ("t2", "missed"), ("t3", "harness_error"), ("t4", "missed"))
+    ]
+    _jsonl(tmp_path / "kinds-dev-m.scored.jsonl", scored)
+    monkeypatch.setattr(spike, "BAKEOFF", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["kinds_report.py"])
+    assert spike.main() == 0
+    row = capsys.readouterr().out.splitlines()[1].split()
+    assert row[0] == "m" and row[1] == "1/2" and row[-1] == "2"
+
+
+def test_reliability_keeps_a_timeout_as_the_agents_failure_and_drops_only_faults(
+    tmp_path: Path,
+) -> None:
+    """`load_runs` drops unscorable rows, harness errors and an agent_error with no tool call (the
+    0-step fault) and counts them; a timeout and an agent_error that acted stay as failures."""
+    spike = _load("reliability")
+    ends = [
+        ("completed", "fixed", 3),
+        ("timeout", "missed", 3),
+        ("harness_error", "harness_error", 0),
+        ("agent_error", "missed", 0),
+        ("agent_error", "missed", 2),
+        ("completed", "unscorable", 3),
+    ]
+    rows = [
+        {"model": "m", "issue": "x", "repeat": n, "trial_outcome": end, "outcome": outcome}
+        | {"success": outcome == "fixed", "tool_calls": calls}
+        for n, (end, outcome, calls) in enumerate(ends, start=1)
+    ]
+    runs = spike.load_runs(_jsonl(tmp_path / "m.scored.jsonl", rows))
+    assert runs.wins == {"x": [True, False, False]} and runs.dropped == 3
+
+
+def test_the_reliability_spike_passes_its_own_self_test(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The reliability self-test (published ICC example, kappa cases, ties) returns 0."""
+    assert _load("reliability").self_test() == 0
+    assert "FAIL" not in capsys.readouterr().out
