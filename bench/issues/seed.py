@@ -75,6 +75,8 @@ def mutant_issue(
     m = _pick_mutant(campaign, module, line, pick)
     source = (tree / module).read_text()
     old_line = source.split("\n")[line - 1]
+    if old_line[m["col"] : m["col"] + len(m["old"])] != m["old"]:  # a campaign of another version
+        raise ValueError(f"{module}:{line} does not hold the campaign's {m['old']!r} in {tree}")
     new_line = old_line[: m["col"]] + m["new"] + old_line[m["col"] + len(m["old"]) :]
     edit = unique_edit(source, line, new_line)
     killed = bool(m["killed"])
@@ -545,7 +547,7 @@ def _write_profile(prof: Path, name: str, ids: list[str], desc: str) -> None:
 
 def seed(root: Path) -> list[Issue]:
     """Rewrite the seeded issues and every profile file under `root`; returns the seeded issues."""
-    tree = root / "fixtures/paramo/versions/v2/tree"
+    tree = layout.tree()  # the tree bench.issues.campaign mutated: the state's, of layout.VERSION
     campaign = json.loads((root / "issues/_campaign.json").read_text())
     issues = [mutant_issue(tree, campaign, m, ln, pick) for m, ln, pick in CAUGHT + SURVIVING]
     issues += hand_issues()
