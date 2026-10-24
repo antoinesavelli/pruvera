@@ -449,6 +449,8 @@ def test_grader_winnable_proves_restoration_and_scenario_issues_can_be_passed(
         hooks=(("dirty", "README.md", "n"), ("peer_staged", "docs/P.md", "p")),
     )
     assert verify.grader_winnable(env, [doc, scope]) == {"r-1": True, "s-1": True}
+    stash = dataclasses.replace(scope, id="s-2", hooks=(scope.hooks[0], ("peer_stash", "P", "p")))
+    assert verify.grader_winnable(env, [stash]) == {"s-2": True}, "its perfect state is a real one"
     ghost = _issue(
         id="r-2",
         detector="review_only",

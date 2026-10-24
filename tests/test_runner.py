@@ -858,6 +858,13 @@ def test_a_perfect_scripted_agent_scores_scoped_end_to_end_beside_a_staged_peer_
         ),
         (("untracked", "peer_scratch.txt"), "git add pkg/mod.py; git commit -qm x", "scoped"),
         (("peer_staged", "peer.md"), "echo nothing", "no_commit"),
+        (("peer_stash", "AGENTS.md"), "git commit -qm x -- pkg/mod.py", "scoped"),
+        (  # review 9b B6: the peer's stash dropped (and pruned) and the agent's own stashed
+            ("peer_stash", "AGENTS.md"),
+            "git commit -qm x -- pkg/mod.py; git stash drop -q; git reflog expire --expire=now "
+            "--all; git gc -q --prune=now; echo t >> pkg/mod.py; git stash -q",
+            "peer_lost",
+        ),
     ],
 )
 def test_scripted_scope_failures_are_scored_as_the_failure_they_are(

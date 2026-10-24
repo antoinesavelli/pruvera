@@ -251,7 +251,7 @@ def _perfect_scenario_state(issue: schema.Issue) -> dict[str, list[Any]]:
     return {
         "commits": [{"sha": "x", "subject": "s", "files": sorted(allowed)}],
         "staged": [p for k, p in peer if k == "peer_staged"],
-        "stashes": [f"stash@{{{n}}}" for n in range(len(stashes))],
+        "stashes": [f"stash@{{{n}}}: On main: {score.PEER_STASH}" for n in range(len(stashes))],
     }
 
 
