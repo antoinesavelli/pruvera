@@ -506,15 +506,41 @@ def test_a_run_needs_a_committed_clean_plan_that_names_its_tasks(tmp_path: Path)
         realism.require_preregistered(tmp_path / "missing.md", fp, repo3)
 
 
+def test_a_resume_accepts_a_plan_that_only_grew_since_its_registration(tmp_path: Path) -> None:
+    """Results appended to the plan keep the registration commit; an edit above them is refused."""
+    fp = realism.tasks_fingerprint()
+    repo, plan = _repo_with_plan(tmp_path, f"rule\ntasks_sha256: {fp}\n")
+    registered = git(repo, "rev-parse", "HEAD")
+    plan.write_text(plan.read_text() + "## 9. Results\n")
+    git(repo, "commit", "-qam", "results")
+    assert realism.require_preregistered(plan, fp, repo) != registered, "a later commit"
+    assert realism.require_preregistered(plan, fp, repo, registered) == registered
+    plan.write_text(f"rule widened\ntasks_sha256: {fp}\n## 9. Results\n")
+    git(repo, "commit", "-qam", "widen the rule")
+    with pytest.raises(realism.PreregistrationError, match="not only appended"):
+        realism.require_preregistered(plan, fp, repo, registered)
+
+
+FACTS = {
+    "seed": 13,
+    "n": 4,
+    "tasks_sha256": "abc",
+    "plan_commit": "deadbeef",
+    "fixture_version": "v2",
+    "profile": "clean",
+}
+
+
 def test_the_manifest_pins_seed_and_tasks_and_lets_n_only_grow(tmp_path: Path) -> None:
-    """A resume keeps the seed and tasks; a second look may only add repeats, and is recorded."""
+    """A resume keeps seed, tasks, plan and fixture; a second look may only add repeats."""
     path = tmp_path / "long.manifest.json"
-    facts = {"seed": 13, "n": 4, "tasks_sha256": "abc", "plan_commit": "deadbeef"}
+    facts = dict(FACTS)
     realism.check_manifest(path, facts)
     assert json.loads(path.read_text()) == {**facts, "looks": [4]}
     realism.check_manifest(path, facts)  # the same run resumes
     assert json.loads(path.read_text())["looks"] == [4], "a resume is not a new look"
-    for key, value in (("seed", 14), ("tasks_sha256", "xyz")):
+    changed = {"tasks_sha256": "xyz", "plan_commit": "cafe", "fixture_version": "v4"}
+    for key, value in {"seed": 14, **changed, "profile": "realistic2"}.items():
         with pytest.raises(ValueError, match=key):
             realism.check_manifest(path, {**facts, key: value})
     realism.check_manifest(path, {**facts, "n": 8})  # a second look adds repeats
@@ -522,6 +548,17 @@ def test_the_manifest_pins_seed_and_tasks_and_lets_n_only_grow(tmp_path: Path) -
     assert saved["n"] == 8 and saved["looks"] == [4, 8]
     with pytest.raises(ValueError, match="n can only grow"):
         realism.check_manifest(path, {**facts, "n": 4})
+
+
+def test_a_manifest_from_before_the_fixture_was_recorded_reads_as_v2_clean(tmp_path: Path) -> None:
+    """G4's manifest has no fixture fields: a v2 clean resume goes on, a v4 one is refused."""
+    path = tmp_path / "long.manifest.json"
+    old = {k: FACTS[k] for k in ("seed", "n", "tasks_sha256", "plan_commit")}
+    path.write_text(json.dumps({**old, "looks": [4]}))
+    realism.check_manifest(path, {**FACTS, "n": 8})
+    assert json.loads(path.read_text()) == {**old, "n": 8, "looks": [4, 8]}, "nothing else added"
+    with pytest.raises(ValueError, match="fixture_version='v2'"):
+        realism.check_manifest(path, {**FACTS, "n": 8, "fixture_version": "v4"})
 
 
 def _long_events(tools: list[tuple[str, dict[str, Any], str]], final: str, steps: int) -> str:
@@ -644,19 +681,55 @@ def test_geomean_ratio_gives_each_task_one_vote_where_the_pooled_ratio_follows_t
     num = {"big": [100.0] * 4, **{f"t{i}": [15.0] * 4 for i in range(7)}}
     den = {"big": [100.0] * 4, **{f"t{i}": [10.0] * 4 for i in range(7)}}
     point, lo, hi = realism.geomean_ratio(num, den)
-    assert abs(point - 1.5 ** (7 / 8)) < 1e-9 and lo <= point <= hi
+    assert abs(point - (60.5 / 40.5) ** (7 / 8)) < 1e-9 and lo <= point <= hi, "half a count each"
     pooled = stats.bootstrap_ratio(num, den)[0]
     assert point > pooled + 0.15, "the pooled ratio hid a 1.5x gap on seven of eight tasks"
     assert realism.geomean_ratio(num, den) == realism.geomean_ratio(num, den), "seeded"
 
 
 def test_geomean_ratio_of_equal_sides_is_one_and_a_twofold_gap_is_two() -> None:
-    """Equal sides give exactly 1 with an interval around it; a doubled side gives 2."""
+    """Equal sides give exactly 1 with an interval around it; a doubled side gives about 2."""
     same = {f"t{i}": [4.0, 6.0, 5.0, 5.0] for i in range(8)}
     point, lo, hi = realism.geomean_ratio(same, same)
     assert point == 1.0 and lo < 1.0 < hi
     doubled = {k: [2 * x for x in v] for k, v in same.items()}
-    assert abs(realism.geomean_ratio(doubled, same)[0] - 2.0) < 1e-9
+    assert abs(realism.geomean_ratio(doubled, same)[0] - 40.5 / 20.5) < 1e-9, "totals 40 and 20"
+
+
+def _kept_draws(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Records how many bootstrap draws reach each interval geomean_ratio computes."""
+    kept: list[int] = []
+    interval = realism._interval
+
+    def counting(sims: list[float]) -> tuple[float, float]:
+        """The real interval, after noting how many draws it was given."""
+        kept.append(len(sims))
+        return interval(sims)
+
+    monkeypatch.setattr(realism, "_interval", counting)
+    return kept
+
+
+def test_geomean_ratio_keeps_the_draws_where_a_sparse_task_resamples_to_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """True ratio 1 with three sparse tasks: no draw is dropped and the interval straddles 1.
+
+    Review 9b B3: dropping every draw in which a resampled task's mean was zero kept 1,473 of 4,000
+    draws here and gave (1.000, 1.364), never below 1, for a ratio that is 1.
+    """
+    kept = _kept_draws(monkeypatch)
+    dense = {f"d{i}": [5.0] * 4 for i in range(5)}
+    sparse = {**dense, **{f"s{i}": [0.0, 0.0, 0.0, 4.0] for i in range(3)}}
+    steady = {**dense, **{f"s{i}": [1.0] * 4 for i in range(3)}}
+    point, lo, hi = realism.geomean_ratio(sparse, steady)
+    assert kept == [4000], "every draw counts"
+    # the low tail is real: a resample of [0, 0, 0, 4] is all zeros 32% of the time
+    assert point == 1.0 and lo < 0.6 and 1.1 < hi < 1.364
+    point, lo, hi = realism.geomean_ratio(sparse, sparse)  # both sides alike and sparse
+    assert kept == [4000, 4000] and point == 1.0
+    assert abs(math.log(lo) + math.log(hi)) < 0.05 * math.log(hi / lo), "symmetric in log space"
+    assert lo < 0.6 and hi > 1.6, "the old rule's 649 kept draws gave a narrow (0.84, 1.19)"
 
 
 def test_geomean_ratio_with_a_zero_task_mean_says_no_data_instead_of_a_number() -> None:
@@ -751,6 +824,16 @@ def test_the_report_of_an_empty_or_all_failed_study_says_incomplete_instead_of_c
     ]
     text = realism.render(stuck, n=4)
     assert "2 of 64 cells recorded" in text and "INCOMPLETE" in text
+
+
+def test_the_report_counts_missing_answers_apart_from_the_done_rate(tmp_path: Path) -> None:
+    """An empty or tool-call answer is counted on its own line, per side, not only as not done."""
+    rows = _study(tmp_path, 1, 10, 10)
+    assert "Missing answers" in (text := realism.render(rows, n=1))
+    assert "fixture 0 of 8, reference 0 of 8" in text
+    rows[0]["answer_kind"], rows[1]["answer_kind"] = "empty", "tool_json"
+    assert (rows[0]["environment"], rows[1]["environment"]) == ("fixture", "reference")
+    assert "fixture 1 of 8, reference 1 of 8" in realism.render(rows, n=1)
 
 
 def test_a_harness_error_row_is_left_out_of_the_analysis(tmp_path: Path) -> None:
@@ -880,6 +963,19 @@ def test_the_long_study_has_no_force_and_a_second_seed_is_refused(
     assert realism.run_long(spy.out, n=1) == 0
     with pytest.raises(ValueError, match="seed"):
         realism.run_long(spy.out, n=1, seed=99)
+
+
+@needs_fixture_files
+def test_a_long_study_resumed_under_another_fixture_version_runs_nothing(
+    spy: _Spy, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The manifest pins the fixture: a resume under v4 runs no cell of a study begun on v2."""
+    assert realism.run_long(spy.out, n=1) == 0
+    ran = len(spy.cells)
+    monkeypatch.setattr(layout, "VERSION", "v4")
+    with pytest.raises(ValueError, match="fixture_version"):
+        realism.run_long(spy.out, n=2)
+    assert len(spy.cells) == ran
 
 
 def test_dry_run_lists_what_would_run_and_runs_nothing(

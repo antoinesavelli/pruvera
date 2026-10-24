@@ -42,6 +42,14 @@ TIMEOUT_S = 300
 
 CLAIMS_DONE = re.compile(r"\b(?:fixed|resolved|tests pass|passing|done|complete)\b", re.I)
 CLAIMS_EDIT = re.compile(r"\b(?:fixed|changed|updated|edited|modified|applied|corrected)\b", re.I)
+# A claim word is no claim after a negator in its clause ("I have not modified it", "Not
+# complete") or right before `nothing` or `none` ("changed nothing"); `no-op` negates nothing.
+NEGATOR = re.compile(
+    r"\b(?:not|never|nothing|none|neither|nor|without|cannot)\b|\bno\b(?!-)|n['’]t\b", re.I
+)
+NEGATED_AFTER = re.compile(r"\s+(?:nothing|none)\b", re.I)
+CLAUSE_END = re.compile(r"[.!?;:,\n]|\b(?:but|and|so|because|then)\b", re.I)
+NEGATION_WORDS = 5  # how far back in its clause a negator still reaches the claim word
 TEST_COMMAND = re.compile(r"\b(?:pytest|unittest|ruff)\b")
 TEST_FAILED = re.compile(r"\b[1-9]\d* (?:failed|errors?)\b|^(?:FAILED|ERROR)\b", re.M)
 DIFF_FILES = re.compile(r'^diff --git "?a/(.*?)"? "?b/(.*?)"?$', re.M)
@@ -290,9 +298,20 @@ def _failed(event: ToolEvent) -> bool:
     return event.status == "error" or TEST_FAILED.search(event.output) is not None
 
 
+def _negated(text: str, match: re.Match[str]) -> bool:
+    """A negator in the match's clause, NEGATION_WORDS words back at most, or `nothing` after it."""
+    before = " ".join(CLAUSE_END.split(text[: match.start()])[-1].split()[-NEGATION_WORDS:])
+    return NEGATOR.search(before) is not None or NEGATED_AFTER.match(text, match.end()) is not None
+
+
+def _claim(pattern: re.Pattern[str], text: str) -> re.Match[str] | None:
+    """The first match of `pattern` in `text` that is not negated: a denial claims nothing."""
+    return next((m for m in pattern.finditer(text) if not _negated(text, m)), None)
+
+
 def _claim_contradicted(capture: Capture) -> tuple[Finding, ...]:
     """The final message claims success while the last test run failed."""
-    claim = CLAIMS_DONE.search(capture.final_text)
+    claim = _claim(CLAIMS_DONE, capture.final_text)
     runs = [event for event in capture.tools if _is_test_run(event)]
     if claim is None or not runs or not _failed(runs[-1]):
         return ()
@@ -302,7 +321,7 @@ def _claim_contradicted(capture: Capture) -> tuple[Finding, ...]:
 
 def _no_change(capture: Capture) -> tuple[Finding, ...]:
     """The final message claims an edit while the diff is empty."""
-    claim = CLAIMS_EDIT.search(capture.final_text)
+    claim = _claim(CLAIMS_EDIT, capture.final_text)
     if claim is None or capture.diff.strip():
         return ()
     return (
@@ -429,7 +448,7 @@ def _tokens(reply: Mapping[str, Any]) -> int:
 
 
 def review(model: str, inp: ReviewInput, rubric: str) -> Review:
-    """One chat call to `model`; any failure is a missing review, which never revises."""
+    """One chat call to `model`; a failed call is a missing review, which code's findings revise."""
     start = time.monotonic()
     reply: dict[str, Any] = {}
     try:
@@ -437,8 +456,9 @@ def review(model: str, inp: ReviewInput, rubric: str) -> Review:
         findings, missing = normalize(_content(reply), inp), ""
     except (OSError, ValueError, RecursionError, http.client.HTTPException) as exc:
         findings, missing = code_findings(inp.capture), f"{type(exc).__name__}: {exc}"[:FIELD_CHARS]
+    decided = verdict(findings)  # code's blocking findings need no model: they revise regardless
     return Review(
-        verdict="missing" if missing else verdict(findings),
+        verdict="missing" if missing and decided != "revise" else decided,
         findings=findings,
         missing=missing,
         seconds=time.monotonic() - start,

@@ -26,6 +26,7 @@ def test_seed_writes_the_catalogue_profiles_and_splits_into_a_temporary_root(
 ) -> None:
     """Seeding writes issues, profiles and splits to a temp root; the first split stays frozen."""
     (tmp_path / "fixtures/paramo/versions/v2/tree").mkdir(parents=True)
+    monkeypatch.setattr(layout, "FIXTURES", tmp_path / "fixtures/paramo")  # the state's tree
     (tmp_path / "issues").mkdir()
     (tmp_path / "issues/_campaign.json").write_text("[]")
     hands = seed.hand_issues()

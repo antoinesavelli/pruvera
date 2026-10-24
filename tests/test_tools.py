@@ -68,6 +68,11 @@ def test_mutant_issue_builds_the_planted_edit_from_a_campaign_record(tmp_path: P
     try:
         killed = seed.mutant_issue(tree, campaign_rec, "utils/m.py", 2, None)
         survivor = seed.mutant_issue(tree, campaign_rec, "utils/m.py", 2, "<")
+        moved = tmp_path / "other-version"  # a tree the campaign did not mutate: line 2 moved
+        (moved / "utils").mkdir(parents=True)
+        (moved / "utils" / "m.py").write_text("a = 1\nb = 3\nif x > 5:\n    y = 2\n")
+        with pytest.raises(ValueError, match="does not hold the campaign's '>'"):
+            seed.mutant_issue(moved, campaign_rec, "utils/m.py", 2, None)
     finally:
         del seed.SUMMARIES["utils/m.py:2"]
     assert killed.kind == "logic_bug_caught_by_test" and killed.detector == "test"

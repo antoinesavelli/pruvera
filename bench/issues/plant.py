@@ -253,9 +253,9 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     """Build a planted-issue profile, optionally with a rule variant, and print its identity."""
     import argparse
 
-    root = root or Path(__file__).resolve().parents[2]
+    root = root or layout.ROOT  # issues/ and variants/; the fixture lives under layout.STATE
     ap = argparse.ArgumentParser(description="Build a planted-issue profile of a fixture version.")
-    ap.add_argument("--version", default="v2")
+    ap.add_argument("--version", default=layout.VERSION)
     ap.add_argument("--profile", required=True)
     ap.add_argument("--variant", default="", help="a rule variant under variants/<name>")
     ap.add_argument("--history", action="store_true", help="give the tree a synthetic git history")
@@ -271,7 +271,7 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     screen_rule_files({**(rules or {}), **_prompt_texts(config)})
     name = f"{args.profile}+{args.variant}" if args.variant else args.profile
     manifest = build_profile(
-        root / "fixtures" / "paramo" / "versions" / args.version,
+        layout.version_dir(args.version),
         name + ("@hist" if args.history else ""),
         [issues[i] for i in ids],
         rule_files=rules,

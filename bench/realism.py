@@ -198,6 +198,11 @@ LONG_MODEL = "devstral-small-2:24b"
 LONG_SEED = 13
 LONG_REPEATS = 4
 LONG_SIDES = ("fixture", "reference")
+LONG_PROFILE = "clean"  # the fixture side's profile
+# What a resume must match. A manifest from before the fixture was recorded (G4's, 2026-10-12)
+# reads as v2's clean profile, the only fixture the study had run on.
+PINNED = ("seed", "tasks_sha256", "fixture_version", "profile", "plan_commit")
+MANIFEST_DEFAULTS = {"fixture_version": "v2", "profile": LONG_PROFILE}
 LONG_TIMEOUT = 1200
 LONG_HANG = 300
 BAND = (0.8, 1.25)  # fixed in plans/LONG_TASK_REALISM.md before any trial
@@ -314,8 +319,14 @@ def tasks_fingerprint(tasks: Sequence[Task] = LONG_TASKS) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
-def require_preregistered(plan: Path, fingerprint: str, repo: Path = layout.ROOT) -> str:
-    """The commit holding the plan; refuses unless it is committed, unedited and names the tasks."""
+def require_preregistered(
+    plan: Path, fingerprint: str, repo: Path = layout.ROOT, since: str = ""
+) -> str:
+    """The commit holding the plan; refuses unless it is committed, unedited and names the tasks.
+
+    With `since` (the commit a study registered under), the plan may only have grown after it, as
+    its results are appended to it, and `since` stays the commit returned.
+    """
     if not plan.is_file():
         raise PreregistrationError(f"no plan at {plan}")
     rel = str(plan.relative_to(repo))
@@ -325,11 +336,15 @@ def require_preregistered(plan: Path, fingerprint: str, repo: Path = layout.ROOT
         raise PreregistrationError(f"{rel} has uncommitted changes")
     if f"tasks_sha256: {fingerprint}" not in plan.read_text():
         raise PreregistrationError(f"{rel} does not name the tasks' fingerprint {fingerprint}")
-    return gitutil.text(repo, "log", "-1", "--format=%H", "--", rel)
+    if not since:
+        return gitutil.text(repo, "log", "-1", "--format=%H", "--", rel)
+    if not plan.read_bytes().startswith(gitutil.raw(repo, "show", f"{since}:{rel}")):
+        raise PreregistrationError(f"{rel} was edited since {since[:7]}, not only appended to")
+    return since
 
 
 def check_manifest(path: Path, facts: dict[str, Any]) -> None:
-    """Record the run's identity; a resume must match seed and tasks, and n may only grow."""
+    """Record the run's identity; a resume must match every PINNED fact, and n may only grow."""
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
@@ -337,9 +352,12 @@ def check_manifest(path: Path, facts: dict[str, Any]) -> None:
         )
         return
     saved = json.loads(path.read_text())
-    for key in ("seed", "tasks_sha256"):
-        if saved.get(key) != facts.get(key):
-            raise ValueError(f"manifest says {key}={saved.get(key)!r}, this run has {facts[key]!r}")
+    recorded = {**MANIFEST_DEFAULTS, **saved}  # any other fact a manifest lacks is not pinned
+    for key in PINNED:
+        if key in recorded and recorded[key] != facts.get(key):
+            raise ValueError(
+                f"manifest says {key}={recorded[key]!r}, this run has {facts.get(key)!r}"
+            )
     if facts["n"] < saved["n"]:
         raise ValueError(
             f"manifest says n={saved['n']}, this run has {facts['n']}: n can only grow"
@@ -424,16 +442,18 @@ def _picked(tasks: Sequence[str], rng: random.Random) -> list[str]:
     return [tasks[rng.randrange(len(tasks))] for _ in tasks]
 
 
+HALF_COUNT = 0.5  # added to each side's total: the measures are counts, or seconds (never near 0)
+
+
 def _mean(values: Sequence[float], rng: random.Random | None) -> float:
-    """The mean of `values`, or of a with-replacement resample of them when `rng` is given."""
+    """(total + HALF_COUNT) / n of `values`, or of a with-replacement resample if `rng` is given."""
     drawn = values if rng is None else [values[rng.randrange(len(values))] for _ in values]
-    return sum(drawn) / len(drawn)
+    return (sum(drawn) + HALF_COUNT) / len(drawn)
 
 
 def _log_ratio(num: Sequence[float], den: Sequence[float], rng: random.Random | None) -> float:
-    """log(mean(num) / mean(den)), NaN when either mean is not positive."""
-    a, b = _mean(num, rng), _mean(den, rng)
-    return math.log(a / b) if a > 0 and b > 0 else math.nan
+    """log(mean(num) / mean(den)), each total offset by half a count: finite even at a zero."""
+    return math.log(_mean(num, rng) / _mean(den, rng))
 
 
 def _geomean(logs: Sequence[float]) -> float:
@@ -449,16 +469,21 @@ def geomean_ratio(
     seed: int = 1,
 ) -> tuple[float, float, float]:
     """Geometric mean over tasks of mean(num)/mean(den), with a 95% interval: one vote per task."""
+    # A task whose recorded mean is zero on a side gives `no data` (plans/LONG_TASK_REALISM.md
+    # section 4). A resampled mean can still be zero (every trial drawn for a sparse task is a
+    # zero): dropping those draws cut off that side's tail (true ratio 1, three tasks sparse in
+    # `num`: 1.00 to 1.36 from 1,473 of 4,000 draws). Each side's total gets half a count instead,
+    # in the point and in every draw alike, so every draw is kept: log(x + 1/2) is the least biased
+    # log of a count (Gart and Zweifel, Biometrika 1967), and it moves a 40-call total by 1.25%.
     tasks = _shared(num, den)
     if not tasks or any(sum(num[t]) <= 0 or sum(den[t]) <= 0 for t in tasks):
         return _NO_DATA
     rng = random.Random(seed)
     point = _geomean([_log_ratio(num[t], den[t], None) for t in tasks])
-    sims = []
-    for _ in range(draws):
-        logs = [_log_ratio(num[t], den[t], rng) for t in _picked(tasks, rng)]
-        if not any(map(math.isnan, logs)):
-            sims.append(_geomean(logs))
+    sims = [
+        _geomean([_log_ratio(num[t], den[t], rng) for t in _picked(tasks, rng)])
+        for _ in range(draws)
+    ]
     return (point, *_interval(sims))
 
 
@@ -608,6 +633,16 @@ def _sensitivity(records: Sequence[dict[str, Any]]) -> list[str]:
     return out
 
 
+def _missing_answers(records: Sequence[dict[str, Any]]) -> str:
+    """The trials with no text answer, per side: counted apart, though each is also not `done`."""
+    counts = []
+    for side in LONG_SIDES:
+        kinds = [r["answer_kind"] for r in usable(records) if r["environment"] == side]
+        counts.append(f"{side} {sum(k != 'text' for k in kinds)} of {len(kinds)}")
+    head = "Missing answers (`answer_kind` empty or `tool_json`; each is also not done)"
+    return f"{head}: {', '.join(counts)}"
+
+
 def render(records: Sequence[dict[str, Any]], n: int = LONG_REPEATS) -> str:
     """The long study's report: cells recorded, the ratios with intervals, and the outcome."""
     total = len(LONG_TASKS) * len(LONG_SIDES) * n
@@ -615,7 +650,8 @@ def render(records: Sequence[dict[str, Any]], n: int = LONG_REPEATS) -> str:
     rows = analyse(records)
     lines = [f"{recorded} of {total} cells recorded; band {BAND[0]} to {BAND[1]}", ""]
     lines += _table(rows)
-    lines += ["", conclusion(rows, recorded, total), *_sensitivity(records)]
+    lines += ["", conclusion(rows, recorded, total), _missing_answers(records)]
+    lines += _sensitivity(records)
     lines += ["", compare.markdown(compare.compare(usable(records)))]
     return "\n".join(lines)
 
@@ -669,9 +705,17 @@ def power_table(sims: int = 150) -> str:
 def run_long(out: Path, n: int = LONG_REPEATS, seed: int = LONG_SEED, wait: float = 120.0) -> int:
     """Run the cells `out` lacks, never forcing a busy host; returns how many are still missing."""
     fingerprint = tasks_fingerprint()
-    commit = require_preregistered(PLAN, fingerprint, layout.ROOT)
-    facts = {"seed": seed, "n": n, "tasks_sha256": fingerprint, "plan_commit": commit}
-    check_manifest(out.with_suffix(".manifest.json"), facts)
+    manifest = out.with_suffix(".manifest.json")
+    since = json.loads(manifest.read_text()).get("plan_commit", "") if manifest.exists() else ""
+    facts = {
+        "seed": seed,
+        "n": n,
+        "tasks_sha256": fingerprint,
+        "plan_commit": require_preregistered(PLAN, fingerprint, layout.ROOT, since),
+        "fixture_version": layout.VERSION,
+        "profile": LONG_PROFILE,
+    }
+    check_manifest(manifest, facts)
     cells = long_cells(seed, n)
     todo = remaining(cells, compare.load(out) if out.exists() else [])
     if todo:
@@ -681,7 +725,7 @@ def run_long(out: Path, n: int = LONG_REPEATS, seed: int = LONG_SEED, wait: floa
 
 def _run_cells(todo: Sequence[Cell], out: Path, wait: float) -> None:
     """Run `todo` in order under the session lock, preparing the real-code copy once, lazily."""
-    fixture = runner.load_profile(layout.VERSION, "clean")
+    fixture = runner.load_profile(layout.VERSION, LONG_PROFILE)
     by_label = {t.label: t for t in LONG_TASKS}
     copy = layout.OVERLAYS / "ref-source"
     out.parent.mkdir(parents=True, exist_ok=True)
