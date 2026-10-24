@@ -41,6 +41,9 @@ PACK = layout.STATE / "runs" / "audit-pack"
 FRAME_GLOBS = ("bakeoff/*.scored.jsonl", "experiments/*.scored.jsonl", "issues/*scored*")
 CLIP, DIFF_CLIP, PASS_UPPER, NEEDED_AT_ZERO, SPOT_N = 1400, 24000, 0.10, 35, 10
 CAUSES = ("scorer_defect", "rater_error", "rubric_gap")
+# A family's false-pass k/n pools its scorer-outcome strata as drawn, at unequal sampling rates
+# (plans/GRADER_AUDIT.md section 7: "Rates use the trials as drawn"); every output says so.
+UNWEIGHTED = "unweighted (the trials as drawn: strata sampled at unequal rates are pooled)"
 STATUS_NOISE = ("!! .opencode/", "!! .venv/")
 
 LABELS = {
@@ -510,6 +513,12 @@ def cmd_ingest(path: Path, rater: str, spot: bool) -> None:
     need = expected_items(sample, set(seen), spot)
     problems = [p for r in ratings for p in check_rating(r, sample["items"])]
     problems += [f"{i} rated {n} times" for i, n in seen.items() if n > 1]
+    if spot:  # the owner's label becomes the truth, so it must be definite
+        problems += [
+            f"{r['item']}: the owner's spot label must be definite, not CANNOT_TELL"
+            for r in ratings
+            if r.get("label") == "CANNOT_TELL"
+        ]
     problems += [f"{i} is not rated" for i in sorted(need - set(seen))]
     problems += [f"{i} is not in this round" for i in sorted(set(seen) - need)]
     if problems:
@@ -590,15 +599,16 @@ def frame_positives(family: str) -> int:
 
 
 def claim_stats(group: str, rows: list[Row], kind: str) -> Row:
-    """False passes among the scorer's positives and false fails among its denials."""
+    """Unweighted false passes among the scorer's positives and false fails among its denials."""
     pairs = [(claim(group, r["scorer_label"], kind), claim(group, r["truth"], kind)) for r in rows]
     positives = [truth for scorer, truth in pairs if scorer]
-    fails = Counter(
-        r["outcome"] for r, (scorer, truth) in zip(rows, pairs, strict=True) if truth and not scorer
-    )
+    joined = list(zip(rows, pairs, strict=True))
+    fails = Counter(r["outcome"] for r, (scorer, truth) in joined if truth and not scorer)
     return {
         "false_pass": positives.count(False),
         "positives": len(positives),
+        "positives_by_outcome": dict(Counter(r["outcome"] for r, (scorer, _) in joined if scorer)),
+        "false_pass_interval": f"Wilson, {UNWEIGHTED}",
         "false_fail_by_outcome": dict(fails),
         "negatives": len(pairs) - len(positives),
     }
@@ -686,7 +696,8 @@ def report_family(r: Row) -> list[str]:
     ]
     for kind, c in r["claims"].items():
         lines.append(
-            f"- {kind} claim: false pass {fmt(c['false_pass'], c['positives'])}; false fail by "
+            f"- {kind} claim: false pass {fmt(c['false_pass'], c['positives'])} unweighted, "
+            f"positives by scorer outcome {c['positives_by_outcome'] or 'none'}; false fail by "
             f"scorer outcome {c['false_fail_by_outcome'] or 'none'} (of {c['negatives']} denied)"
         )
     matrix = ", ".join(f"{k} {n}" for k, n in r["matrix"].items()) or "none"
@@ -707,7 +718,10 @@ def render_report(reports: list[Row], merged: list[Row], rubric_issues: str) -> 
             "",
         ]
     out += [
-        "| family | rated | scenarios | decision claim: false pass | verdict |",
+        f"False-pass rates and intervals are {UNWEIGHTED}, as plans/GRADER_AUDIT.md section 7",
+        "registers: a family's rate is not its frame-wide rate where it pools scorer outcomes.",
+        "",
+        "| family | rated | scenarios | decision claim: false pass (unweighted) | verdict |",
         "|---|---|---|---|---|",
     ]
     for r in reports:

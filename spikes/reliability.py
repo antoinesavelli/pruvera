@@ -12,8 +12,10 @@ agree. Intervals are percentile bootstraps over issues (issues are the unit that
 repeats are not independent draws of anything else), and a group with fewer than MIN_ISSUES issues
 gets no ICC at all. Across models it gives the rank correlation of per-issue success and a
 difficulty rating per issue (definition at `rating`), then lists the issues no model solved, with
-their trial ids so the transcripts can be read. Rows that are not valid runs (not completed, or
-`unscorable`) are dropped and counted; `--drop MODEL/AGENT` also leaves out one model's rows that
+their trial ids so the transcripts can be read. Rows that grade no agent work (`unscorable`, a
+harness error, or an agent_error with no tool call: a scored row's sign of the 0-step infrastructure
+fault) are dropped and counted; a run that timed out, hung or stalled stays, scored as the agent's
+work, as the registered reports count it. `--drop MODEL/AGENT` also leaves out one model's rows that
 were routed to an agent that did not run that model's work, and counts them. `--md` replaces the
 block between the generated-block markers in an existing file (or creates the file holding just the
 block), so prose around it survives a rerun.
@@ -40,6 +42,7 @@ from bench.jsonl import read_jsonl  # noqa: E402
 from bench.stats import cluster_ci, wilson  # noqa: E402
 
 MISSING = ("empty", "tool_json")  # not an answer: counted apart from a wrong one
+NOT_SCORES = ("unscorable", "harness_error")  # scored rows that grade no agent work
 MIN_ISSUES = 8  # fewer issues: no interval, kappa or ICC (the bootstrap is degenerate there)
 DRAWS = 10_000
 SEED = 1
@@ -101,10 +104,8 @@ def load_runs(path: Path, drop: dict[str, set[str]] | None = None) -> ModelRuns:
         if row.get("agent") in skipped:
             runs.excluded += 1
             continue
-        if (
-            row.get("outcome") == "unscorable"
-            or row.get("trial_outcome", "completed") != "completed"
-        ):
+        fault = row.get("trial_outcome") == "agent_error" and not row.get("tool_calls")
+        if row.get("outcome") in NOT_SCORES or fault:
             runs.dropped += 1
             continue
         cells[(str(row["issue"]), int(row.get("repeat", 0)))] = row
