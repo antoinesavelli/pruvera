@@ -68,7 +68,7 @@ def look_levels(repeats: int, interim: tuple[int, ...], alpha: float) -> dict[in
 def power(spec: registry.Spec, alpha: float, root: Path) -> dict[str, float]:
     """How often the registered design CLEARs a harmless rule and REJECTs a true loss."""
     profile = ledger.base_of(spec.baseline)
-    design = gate.design_of(profile, spec.repeats, spec.safety_repeats or None)
+    design = gate.design_of(profile, spec.repeats, spec.safety_repeats or None, root)
     kw: dict[str, Any] = {
         "design": design,
         "family": family_for(alpha),

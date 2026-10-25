@@ -52,7 +52,7 @@ def design(monkeypatch: pytest.MonkeyPatch) -> Asked:
     asked: Asked = []
 
     def issue_repeats(
-        profile: str, repeats: int, safety_repeats: int | None = None
+        profile: str, repeats: int, safety_repeats: int | None = None, root: Path | None = None
     ) -> dict[str, int]:
         """Records the request; gives repeats to the plain issue and safety_repeats to the other."""
         asked.append((profile, repeats, safety_repeats))
@@ -173,7 +173,7 @@ def test_a_study_without_safety_repeats_runs_its_flat_repeats_and_never_reads_th
     experiment.run("e-1", root=root)
     assert design == [] and Counter(c[0] for c in rec.cells) == {PLAIN: 4 * 2, SAFETY: 4 * 2}
     assert (
-        experiment._planned({"baseline": "dev", "repeats": 4}, None) is None
+        experiment._planned({"baseline": "dev", "repeats": 4}, None, root) is None
     )  # a row before the field
 
 
@@ -181,6 +181,7 @@ class _Plain:
     """A profile that plants one issue: the arms of a study comparable, nothing else about it."""
 
     issue_ids = ("x-1",)
+    profile = "clean"  # no profile TOML: the build-against-TOML check has nothing to compare
 
 
 @pytest.fixture

@@ -75,6 +75,9 @@ def _register(
 ) -> dict[str, Any]:
     """Registers a confirmatory holdout spec with the power check stubbed to a given result."""
     monkeypatch.setattr(budget, "power", lambda *_a, **_k: power)
+    ids = json.dumps([f"i{k}" for k in range(12)])  # the issues `_scored` simulates
+    profile = root / "issues" / "profiles" / "holdout.toml"
+    profile.write_text(f'description = "h"\nissues = {ids}\n')
     return experiment.register(
         _spec(root, "hold-1", "confirmatory", "holdout", "holdout+rule", extra=extra), root
     )
@@ -297,7 +300,7 @@ def test_judging_refuses_fewer_repeats_than_registered_unless_an_interim_stop_en
     registry.append(root, "started", id="hold-1", out="x")
     short = [r for r in _scored(random.Random(3)) if r["repeat"] <= 2]
     monkeypatch.setattr(gate, "score_arms", lambda *_a, **_k: short)
-    with pytest.raises(registry.RegistryError, match="2 of 4 registered repeats"):
+    with pytest.raises(registry.RegistryError, match="24 issue cells .*first: baseline i0 2/4"):
         experiment.judge("hold-1", root)
     registry.append(root, "interim", id="hold-1", after=1, alpha=0.001, decision="STOP")
     assert experiment.judge("hold-1", root)["verdict"]

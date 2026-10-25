@@ -43,3 +43,12 @@ def code_state(repo: Path, subdir: str) -> tuple[str, bool]:
         return head, bool(text(repo, "status", "--porcelain", "--", subdir))
     except (OSError, subprocess.CalledProcessError):
         return "unknown", True
+
+
+def tree(repo: Path, subdir: str) -> str:
+    """HEAD's tree hash of `subdir` (`git rev-parse HEAD:subdir`); "unknown" if git cannot say."""
+    # Two commits that leave `subdir` alone share it: it names the code, not the commit.
+    try:
+        return text(repo, "rev-parse", f"HEAD:{subdir}")
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
