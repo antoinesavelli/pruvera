@@ -549,6 +549,11 @@ def _write_profile(prof: Path, name: str, ids: list[str], desc: str) -> None:
     )
 
 
+def _without_hand_overs(issues: dict[str, Issue]) -> dict[str, Issue]:
+    """The catalogue minus the literal hand-over issues, which have a profile of their own."""
+    return {i: issue for i, issue in issues.items() if not i.startswith(HAND_OVER)}
+
+
 def seed(root: Path) -> list[Issue]:
     """Rewrite the seeded issues and every profile file under `root`; returns the seeded issues."""
     tree = layout.tree()  # the tree bench.issues.campaign mutated: the state's, of layout.VERSION
@@ -559,7 +564,7 @@ def seed(root: Path) -> list[Issue]:
     prof = root / "issues" / "profiles"
     prof.mkdir(parents=True, exist_ok=True)
     # Every catalogue issue, mined ones included, not only the seeded ones.
-    names = [n for n in sorted(schema.load_all(root / "issues")) if not n.startswith(HAND_OVER)]
+    names = sorted(_without_hand_overs(schema.load_all(root / "issues")))
     mined = [n for n in names if n.startswith("fix-")]
     if mined:
         (prof / "reverted-fixes.toml").write_text(
@@ -587,9 +592,7 @@ def seed(root: Path) -> list[Issue]:
         f"issues = {json.dumps(names)}\n"
     )
     by_kind: dict[str, list[str]] = {}
-    for issue in schema.load_all(root / "issues").values():  # mined and mutated issues too
-        if issue.id.startswith(HAND_OVER):
-            continue
+    for issue in _without_hand_overs(schema.load_all(root / "issues")).values():  # mined too
         by_kind.setdefault(issue.kind, []).append(issue.id)
     for kind, ids in sorted(by_kind.items()):
         name = "kind-" + kind.replace("_", "-")
