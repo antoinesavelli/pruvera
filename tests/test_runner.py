@@ -479,6 +479,17 @@ def test_the_record_says_trials_are_unseeded_and_carries_the_model_parameters(
     assert rec["model_parameters"] == "temperature 1"
 
 
+def test_the_record_carries_the_ollama_version_and_server_settings(
+    fx: runner.Fixture, tmp_path: Path, cfg: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A trial record holds the Ollama version and the server's host and start-up settings."""
+    server = {"host": "box", "OLLAMA_NUM_PARALLEL": "1", "OLLAMA_KV_CACHE_TYPE": "q8_0"}
+    monkeypatch.setattr(runner, "ollama_version", lambda *_a, **_k: "0.33.1")
+    monkeypatch.setattr(runner, "ollama_server", lambda *_a, **_k: dict(server))
+    rec, _ = _run(fx, tmp_path, cfg, f"echo '{EVENT}'")
+    assert rec["ollama_version"] == "0.33.1" and rec["ollama_server"] == server
+
+
 # The scripted agent echoes the config it was handed as its one text event.
 SHOW_CONFIG = (
     'esc=$(printf %s "$OPENCODE_CONFIG_CONTENT" | sed \'s/\\\\/\\\\\\\\/g; s/"/\\\\"/g\'); '

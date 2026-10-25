@@ -34,6 +34,8 @@ from bench.modelinfo import OPENCODE as OPENCODE
 from bench.modelinfo import gpu_residency as gpu_residency
 from bench.modelinfo import model_digest as model_digest
 from bench.modelinfo import model_parameters as model_parameters
+from bench.modelinfo import ollama_server as ollama_server
+from bench.modelinfo import ollama_version as ollama_version
 from bench.modelinfo import opencode_version as opencode_version
 from bench.readback import ReadBackError
 from bench.readback import git_state as _git_state
@@ -586,6 +588,9 @@ def _record(
         "model": spec.model,
         "model_digest": model_digest(spec.model),
         "model_parameters": model_parameters(spec.model),
+        # what a seed's replay rests on besides the model: the server's version and settings
+        "ollama_version": ollama_version(),
+        "ollama_server": ollama_server(),
         "seeded": asm.seed is not None,
         "seed": asm.seed,
         "prompt": spec.prompt,

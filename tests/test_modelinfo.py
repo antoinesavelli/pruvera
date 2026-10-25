@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import socket
 import subprocess
 import urllib.request
 from pathlib import Path
@@ -191,3 +192,104 @@ def test_a_bare_model_name_finds_the_digest_of_its_latest_tag(
         {"models": [{"name": "m:latest", "digest": "dl"}, {"name": "m:7b", "digest": "d7"}]},
     )
     assert modelinfo.model_digest("m") == "dl" and modelinfo.model_digest("m:7b") == "d7"
+
+
+def test_the_ollama_version_is_read_from_api_version_and_fails_soft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The server's version comes from /api/version; a down server or an odd reply gives empty."""
+    _serve(monkeypatch, {"version": "0.33.1"})
+    assert modelinfo.ollama_version() == "0.33.1"
+    _serve(monkeypatch, ["not", "an", "object"])
+    assert modelinfo.ollama_version() == ""
+
+    def down(*_a: object, **_k: object) -> None:
+        """Stands in for the Ollama request and raises OSError."""
+        raise OSError("no ollama")
+
+    monkeypatch.setattr(modelinfo, "_open", down)
+    assert modelinfo.ollama_version() == ""
+
+
+def _process(proc: Path, pid: int, argv: list[str], env: dict[str, str]) -> None:
+    """Writes a fake /proc/<pid> with the given command line and environment."""
+    entry = proc / str(pid)
+    entry.mkdir(parents=True)
+    (entry / "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
+    (entry / "environ").write_bytes(b"".join(f"{k}={v}\0".encode() for k, v in env.items()))
+
+
+def test_the_ollama_server_settings_come_from_the_serve_process_on_the_port(
+    tmp_path: Path,
+) -> None:
+    """The one `ollama serve` on the port gives its host and allowlisted settings, nothing else."""
+    serve = ["/usr/local/bin/ollama", "serve"]
+    _process(
+        tmp_path,
+        100,
+        serve,
+        {
+            "OLLAMA_HOST": "0.0.0.0:11434",
+            "OLLAMA_NUM_PARALLEL": "1",
+            "OLLAMA_KV_CACHE_TYPE": "q8_0",
+            "OLLAMA_FLASH_ATTENTION": "1",
+            "OLLAMA_NUM_BATCH": "512",
+            "OLLAMA_API_KEY": "sk-not-for-records",
+            "HOME": "/home/someone",
+        },
+    )
+    _process(tmp_path, 101, ["/usr/local/bin/ollama", "runner", "--model", "x"], {})
+    _process(tmp_path, 102, serve, {"OLLAMA_HOST": "127.0.0.1:11436", "OLLAMA_NUM_PARALLEL": "4"})
+    _process(tmp_path, 103, ["/usr/bin/python3", "serve"], {"OLLAMA_NUM_PARALLEL": "9"})
+    (tmp_path / "self").mkdir()
+    found = modelinfo.ollama_server(proc=tmp_path)
+    assert found == {
+        "host": socket.gethostname(),
+        "OLLAMA_NUM_PARALLEL": "1",
+        "OLLAMA_KV_CACHE_TYPE": "q8_0",
+        "OLLAMA_FLASH_ATTENTION": "1",
+        "OLLAMA_NUM_BATCH": "512",
+        "OLLAMA_CONTEXT_LENGTH": "",  # unset: the version's default applies
+    }
+    dumped = json.dumps(found)
+    assert "sk-not-for-records" not in dumped and "/home/someone" not in dumped
+    assert modelinfo.ollama_server(port=11436, proc=tmp_path)["OLLAMA_NUM_PARALLEL"] == "4"
+
+
+@pytest.mark.parametrize(
+    ("ollama_host", "port"),
+    [
+        (None, 11434),  # unset
+        ("0.0.0.0", 11434),
+        ("127.0.0.1:11435", 11435),
+        ("http://127.0.0.1:11436", 11436),
+        ("http://localhost", 80),
+        ("[::1]:11437", 11437),
+        ("::1", 11434),  # a bare IPv6 address keeps the default port
+    ],
+)
+def test_a_servers_port_follows_ollamas_reading_of_ollama_host(
+    tmp_path: Path, ollama_host: str | None, port: int
+) -> None:
+    """A server is matched to a port the way Ollama reads OLLAMA_HOST, defaults included."""
+    env = {"OLLAMA_NUM_PARALLEL": "2"}
+    if ollama_host is not None:
+        env["OLLAMA_HOST"] = ollama_host
+    _process(tmp_path, 100, ["ollama", "serve"], env)
+    assert modelinfo.ollama_server(port=port, proc=tmp_path)["OLLAMA_NUM_PARALLEL"] == "2"
+    assert modelinfo.ollama_server(port=port + 1, proc=tmp_path) == {}
+
+
+def test_the_ollama_server_is_unknown_unless_exactly_one_readable_server_claims_the_port(
+    tmp_path: Path,
+) -> None:
+    """No server, an unreadable environment, two servers on one port, or no /proc all give {}."""
+    assert modelinfo.ollama_server(proc=tmp_path) == {}
+    _process(tmp_path, 100, ["ollama", "serve"], {})
+    (tmp_path / "100" / "environ").unlink()
+    (tmp_path / "100" / "environ").mkdir()  # reading it fails, as another user's would
+    assert modelinfo.ollama_server(proc=tmp_path) == {}
+    _process(tmp_path, 200, ["ollama", "serve"], {})
+    _process(tmp_path, 201, ["ollama", "serve"], {"OLLAMA_HOST": "0.0.0.0:11434"})
+    assert modelinfo.ollama_server(proc=tmp_path) == {}
+    assert modelinfo.ollama_server(proc=tmp_path / "absent") == {}
