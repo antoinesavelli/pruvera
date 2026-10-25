@@ -35,15 +35,21 @@ def test_seed_writes_the_catalogue_profiles_and_splits_into_a_temporary_root(
         for i in ("mut-trading_calendar-145", "mut-effective_n-53")
     ]
     mined = [dataclasses.replace(hands[0], id=f"fix-{i}") for i in ("0cb0835b", "c0d8b8e4")]
+    lit = [dataclasses.replace(hands[0], id="lit-m-1")]
     monkeypatch.setattr(seed, "CAUGHT", [])
     monkeypatch.setattr(seed, "SURVIVING", [])
-    monkeypatch.setattr(seed, "hand_issues", lambda: hands + extra + mined)
+    monkeypatch.setattr(seed, "hand_issues", lambda: hands + extra + mined + lit)
     seeded = seed.seed(tmp_path)
-    assert len(seeded) == len(hands) + 4
+    assert len(seeded) == len(hands) + 5
     prof = tmp_path / "issues/profiles"
     names = {p.stem for p in prof.glob("*.toml")}
     assert {"full", "tune", "holdout", "tune2", "holdout2", "dev", "reverted-fixes"} <= names
     assert "realistic2" in names, "its eight issues are all in the catalogue"
+    swept = [p for p in prof.glob("*.toml") if p.stem == "full" or p.stem.startswith("kind-")]
+    in_profiles = {i for p in swept for i in schema.load_profile(p)[1]}
+    assert "lit-m-1" in schema.load_all(tmp_path / "issues") and "lit-m-1" not in in_profiles, (
+        "a literal hand-over issue stays out of `full` and every `kind-*` profile"
+    )
     held = [set(schema.load_profile(prof / f"{n}.toml")[1]) for n in ("holdout", "holdout2")]
     assert not held[0] & held[1], "the second holdout is drawn from what the first left"
     before = (prof / "holdout.toml").read_text()
