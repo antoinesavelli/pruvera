@@ -286,17 +286,24 @@ python3 -m bench.issues.trials run --profile full --n 2 --out results/issues/run
 python3 -m bench.issues.trials score results/issues/run.jsonl --profile full
 python3 -m bench.issues.trials report results/issues/run.scored.jsonl
 python3 -m bench.gate run --baseline tune --candidate "tune+<variant>" --n 6 --out results/gate/x.jsonl   # see variants/README.md
-python3 -m bench.doctor                           # can every recorded result still be rescored? (read-only)
+python3 -m bench.doctor                           # can every recorded result still be rescored? (read-only, every fixture version)
 python3 -m bench.realism --n 3 --out results/realism/study-N.jsonl
 fixtures/paramo/venv/v2/bin/python -m pytest tests -q -p no:cacheprovider   # the harness tests
 ```
+
+Two environment variables select what a process works on, read once at start (`bench/layout.py`):
+`AGENT_TESTING_FIXTURE_VERSION` (`v2` when unset; `v` and digits) picks the fixture build trials run on, and
+`AGENT_TESTING_STATE` (this checkout when unset) names the checkout whose fixtures, artifacts, overlays and results
+are used, so a clean `git worktree` can run the code of one commit on the main checkout's state. A study records the
+version it was registered on and refuses to run, look or be judged under another.
 
 ## What is reproducible, and from what
 
 Git holds the harness, the catalogue (`issues/`), profile manifests and every results file, but **not** the fixture trees, the
 venv, the data slice, the superseded `profiles.old-*` builds or the `artifacts/` the scorer reads (all local, gitignored).
 Rebuilding them needs the real repo (git-crypt unlocked) at the pinned commit and Ollama with the models named in a record's
-`model` and `model_digest`. `python3 -m bench.doctor` lists, per results file, which builds are missing and which model digests
+`model` and `model_digest`. `python3 -m bench.doctor` lists, per results file, which builds are missing (each record looked up under its own
+fixture version, a reference-side build listed apart since it is never kept) and which model digests
 no longer match what Ollama serves, so a claim in `PLAN.md` can be traced to data that still exists. Trials are unseeded
 (repeats are the control); a rebuilt fixture is compared by tree hash, not by byte-for-byte reproduction of the old build.
 

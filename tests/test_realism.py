@@ -383,6 +383,7 @@ def test_the_long_tasks_are_eight_distinct_fix_and_commit_prompts() -> None:
 
 
 @needs_fixture_files
+@pytest.mark.skipif(not layout.tree().is_dir(), reason="the fixture tree is not built")
 def test_every_path_a_long_task_names_is_in_the_fixture_tree() -> None:
     """A typo in a prompt's file path would send the agent on a task that cannot be done."""
     tree = layout.tree()
