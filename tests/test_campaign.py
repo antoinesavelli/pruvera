@@ -17,6 +17,12 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "bin" / "campaign.sh"
+
+if not SCRIPT.exists():  # bin/ is not in the public copy: skip the module, do not fail its tests
+    pytest.skip(
+        "bin/campaign.sh not present (it stays in the private repo)", allow_module_level=True
+    )
+
 FAKE_PYTHON = """#!/bin/sh
 if [ "$1" = "-m" ] && [ "$3" = "status" ]; then cat "$FAKE_STATUS"; exit 0; fi
 if [ "$1" = "-c" ]; then echo "probe says ${FAKE_PROBE_RC:-0}"; exit "${FAKE_PROBE_RC:-0}"; fi
