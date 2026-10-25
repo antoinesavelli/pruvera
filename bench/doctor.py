@@ -3,8 +3,11 @@
 Reads, never writes. For each results file it names the fixture builds, model digests and
 opencode versions its records carry and says which of them exist or match now: a result whose
 build is gone cannot be rescored, one whose model digest changed was produced by a different
-model than `ollama` serves today. Exit status 1 when a build is gone or drifted (`--strict`: any
-flag).
+model than `ollama` serves today. Each record is looked up under its own fixture version
+(`fixture_version`; a record from before the field is `v2`), whatever version this process selects,
+and the builds of every version on disk are re-hashed. A reference-side record (the realism check's
+real-repo copy) is listed apart: its tree is never kept, by design. Exit status 1 when a fixture
+build is gone or drifted (`--strict`: any flag).
 Depends on: bench.{layout,modelinfo,registry,runner,jsonl}; a running Ollama for the model digests
 (optional).
 """
@@ -28,10 +31,25 @@ def _records(path: Path) -> list[dict[str, Any]]:
     ]
 
 
-def _missing_builds(records: list[dict[str, Any]], version: str) -> list[str]:
-    """Short hashes of the builds the records ran on that are no longer on disk."""
-    hashes = {r["fixture_tree_hash"] for r in records if "fixture_tree_hash" in r}
-    return sorted(h[:12] for h in hashes if layout.find_profile_dir(h, version) is None)
+def _builds(records: list[dict[str, Any]]) -> dict[str, set[tuple[str, str]]]:
+    """The (tree hash, fixture version) builds the records ran on, fixture and reference side."""
+    found: dict[str, set[tuple[str, str]]] = {"fixture": set(), "reference": set()}
+    for r in records:
+        if "fixture_tree_hash" in r:
+            side = "reference" if r.get("environment") == "reference" else "fixture"
+            found[side].add((r["fixture_tree_hash"], str(r.get("fixture_version") or "v2")))
+    return found
+
+
+def _short(build: tuple[str, str]) -> str:
+    """A build's short hash, with its version when that is not v2."""
+    tree_hash, version = build
+    return tree_hash[:12] if version == "v2" else f"{tree_hash[:12]}@{version}"
+
+
+def _missing_builds(builds: set[tuple[str, str]]) -> list[str]:
+    """Short hashes of the fixture builds the records ran on that are gone from their version."""
+    return sorted(_short(b) for b in builds if layout.find_profile_dir(*b) is None)
 
 
 def _missing_artifacts(records: list[dict[str, Any]]) -> int:
@@ -51,7 +69,7 @@ def _digests(records: list[dict[str, Any]], current: dict[str, str]) -> tuple[li
     return sorted(changed), sorted(m for m in seen if not current[m])
 
 
-def audit_results(results_dir: Path, version: str = layout.VERSION) -> list[dict[str, Any]]:
+def audit_results(results_dir: Path) -> list[dict[str, Any]]:
     """One row per results file: records, missing builds and artifacts, digests that changed."""
     current: dict[str, str] = {}
     rows = []
@@ -62,11 +80,13 @@ def audit_results(results_dir: Path, version: str = layout.VERSION) -> list[dict
         if not records:
             continue
         changed, unchecked = _digests(records, current)
+        builds = _builds(records)
         rows.append(
             {
                 "file": str(path.relative_to(results_dir)),
                 "records": len(records),
-                "missing_builds": _missing_builds(records, version),
+                "missing_builds": _missing_builds(builds["fixture"]),
+                "reference_builds": sorted(_short(b) for b in builds["reference"]),
                 "missing_artifacts": _missing_artifacts(records),
                 "unpinned": sum(
                     1 for r in records if r.get("arm") == "candidate" and not r.get("variant_hash")
@@ -79,15 +99,21 @@ def audit_results(results_dir: Path, version: str = layout.VERSION) -> list[dict
     return rows
 
 
-def audit_builds(version: str = layout.VERSION) -> list[str]:
-    """Problems with the current profile builds: a tree that drifted from its manifest."""
+def versions() -> list[str]:
+    """The fixture versions on disk that have profile builds."""
+    return sorted(p.parent.name for p in (layout.FIXTURES / "versions").glob("v*/profiles"))
+
+
+def audit_builds(of: list[str] | None = None) -> list[str]:
+    """Problems with the profile builds of each version: a tree that drifted from its manifest."""
     problems = []
-    for manifest in sorted(layout.version_dir(version).glob("profiles/*/MANIFEST.json")):
-        fx = runner.load_profile(version, manifest.parent.name)
-        try:
-            runner.check_fixture(fx)
-        except runner.DriftError as exc:
-            problems.append(f"{manifest.parent.name}: {exc}")
+    for version in versions() if of is None else of:
+        for manifest in sorted(layout.version_dir(version).glob("profiles/*/MANIFEST.json")):
+            fx = runner.load_profile(version, manifest.parent.name)
+            try:
+                runner.check_fixture(fx)
+            except runner.DriftError as exc:
+                problems.append(f"{version}/{manifest.parent.name}: {exc}")
     return problems
 
 
@@ -96,6 +122,8 @@ def _flags(row: dict[str, Any]) -> list[str]:
     flags = []
     if row["missing_builds"]:
         flags.append(f"builds gone: {row['missing_builds']}")
+    if row.get("reference_builds"):
+        flags.append(f"reference side, not kept by design: {row['reference_builds']}")
     if row["missing_artifacts"]:
         flags.append(f"{row['missing_artifacts']} artifact dirs gone (cannot be rescored)")
     if row["unpinned"]:
@@ -135,7 +163,7 @@ def _status(
 ) -> int:
     """The exit status: 1 for a missing or drifted build, a strict flag or a registry problem."""
     gone = any(r["missing_builds"] for r in rows)
-    flagged = strict and any(_flags(r) for r in rows)
+    flagged = strict and any(_flags({**r, "reference_builds": []}) for r in rows)
     return 1 if gone or builds or flagged or registry_problems else 0
 
 

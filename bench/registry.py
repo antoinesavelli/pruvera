@@ -14,7 +14,10 @@ then runs with `trial_seed` = seed + r - 1, a seeded run must name a registered 
 agent, which `opencode run --agent git` otherwise replaces by the default agent (the project
 config declares it a subagent); the registered value is frozen like the seed. A registered row also
 records the fixture version the process selected (`fixture_version`, `layout.VERSION`; a row from
-before the field is `v2`), and a run on any other version is refused.
+before the field is `v2`), and a run on any other version is refused. `registered` and `started`
+rows record the committed tree of `bench/` (`harness_tree`), and a confirmatory run, a resume too,
+on any other tree is refused (a row from before the field is not compared). A judged study cannot
+be run again: its verdict bundle hashed the results file.
 Depends on: bench.{agentconfig,gitutil,jsonl,layout,ledger}, bench.issues.schema; git.
 """
 
@@ -312,10 +315,13 @@ def register(
     spec_path: Path,
     root: Path = layout.ROOT,
     extra: Callable[[Spec, set[str]], Mapping[str, Any]] | None = None,
+    recheck: Callable[[list[dict[str, Any]], set[str], Mapping[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Register a committed spec; spends the holdout looks it touches.
 
-    `extra(spec, gens)` adds fields to the row once every check has passed.
+    `extra(spec, gens)` adds fields to the row once every check has passed; `recheck(rows, gens,
+    fields)` then re-checks those fields on the rows read under the lock (an alpha share another
+    registration changed meanwhile).
     """
     spec = parse_spec(tomllib.loads(spec_path.read_text()), spec_path.stem)
     sha, commit = _committed(spec_path, root)
@@ -325,15 +331,23 @@ def register(
     head, dirty = gitutil.code_state(root, "bench")
     _check_kind(spec, gens, dirty)
     variants = _variants(root, spec)
+    fields = dict(extra(spec, gens)) if extra else {}
+
+    def check(rows: list[dict[str, Any]]) -> None:
+        """The preconditions and the caller's fields, re-checked on the rows under the lock."""
+        _recheck(rows, spec, variants, gens, root)
+        if recheck:
+            recheck(rows, gens, fields)
+
     return append(
-        root, "registered", check=lambda rows: _recheck(rows, spec, variants, gens, root),
+        root, "registered", check=check,
         id=spec.id, kind=spec.kind, baseline=spec.baseline,
         candidate=spec.candidate, repeats=spec.repeats, models=spec.models, variants=variants,
         holdout_gens=sorted(gens), spec_sha256=sha, spec_commit=commit, harness_commit=head,
         harness_dirty=dirty, interim=list(spec.interim), underpowered=spec.underpowered,
         safety_repeats=spec.safety_repeats, safety_counts=spec.safety_counts, seed=spec.seed,
         git_primary=spec.git_primary, fixture_version=layout.VERSION,
-        **(extra(spec, gens) if extra else {}),
+        harness_tree=gitutil.tree(root, "bench"), **fields,
     )  # fmt: skip
 
 
@@ -350,13 +364,15 @@ def _recheck(
 
 
 def _registered(rows: list[dict[str, Any]], experiment: str) -> dict[str, Any]:
-    """The `registered` row of an experiment; RegistryError if it is missing or abandoned."""
+    """The `registered` row of a live experiment; RegistryError if missing, abandoned or judged."""
     mine = [r for r in rows if r.get("id") == experiment]
     found = next((r for r in mine if r["event"] == "registered"), None)
     if found is None:
         raise RegistryError(f"{experiment}: not registered")
     if any(r["event"] == "abandoned" for r in mine):
         raise RegistryError(f"{experiment}: abandoned")
+    if any(r["event"] == "judged" for r in mine):  # its verdict bundle hashed the results file
+        raise RegistryError(f"{experiment}: already judged; its results file is sealed")
     return found
 
 
@@ -464,18 +480,27 @@ def authorize(
     _check_seed(row, seed)
     _check_git_primary(row, git_primary)
     head, dirty = gitutil.code_state(root, "bench")
-    if row["kind"] == "confirmatory" and dirty:
-        raise RegistryError(f"{experiment}: a confirmatory run needs a clean bench/")
+    tree = gitutil.tree(root, "bench")
+    if row["kind"] == "confirmatory":
+        _check_confirmatory_code(row, dirty, tree)
     if not any(r["event"] == "started" and r["id"] == experiment for r in rows):
         append(
-            root,
-            "started",
-            id=experiment,
-            out=rel(out, root),
-            harness_commit=head,
-            harness_dirty=dirty,
-        )
+            root, "started", id=experiment, out=rel(out, root), harness_commit=head,
+            harness_dirty=dirty, harness_tree=tree,
+        )  # fmt: skip
     return experiment
+
+
+def _check_confirmatory_code(row: dict[str, Any], dirty: bool, tree: str) -> None:
+    """A confirmatory run, a resume too, runs the committed bench/ it was registered with."""
+    if dirty:
+        raise RegistryError(f"{row['id']}: a confirmatory run needs a clean bench/")
+    registered_tree = row.get("harness_tree")  # a row from before the field: not compared
+    if registered_tree and tree != registered_tree:
+        raise RegistryError(
+            f"{row['id']}: bench/ is tree {tree[:12]} now, but the study was registered on "
+            f"{registered_tree[:12]}; a confirmatory study runs the code it was registered with"
+        )
 
 
 def abandon(experiment: str, reason: str, root: Path = layout.ROOT) -> dict[str, Any]:

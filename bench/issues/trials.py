@@ -111,8 +111,20 @@ def _done_cells(out: Path, experiment: str) -> set[tuple[str, str, int | None]]:
 
 def without_redone(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The records minus each lost one whose cell a resumed run redid; untagged records stay."""
+    # A cell no rerun ever completed keeps only its last lost attempt: one cell, one row, however
+    # often it failed.
     done = {_cell(r) for r in records if r.get("experiment_id") and r.get("outcome") not in RETRIED}
-    return [r for r in records if not (r.get("outcome") in RETRIED and _cell(r) in done)]
+    last = {_cell(r): i for i, r in enumerate(records) if r.get("experiment_id")}
+    return [r for i, r in enumerate(records) if _kept(r, i, done, last)]
+
+
+def _kept(
+    r: dict[str, Any], i: int, done: set[tuple[Any, ...]], last: dict[tuple[Any, ...], int]
+) -> bool:
+    """Whether record `i` stays: not lost, untagged, or the last attempt at a cell never done."""
+    if r.get("outcome") not in RETRIED or not r.get("experiment_id"):
+        return True
+    return _cell(r) not in done and last[_cell(r)] == i
 
 
 def _run_arms_locked(

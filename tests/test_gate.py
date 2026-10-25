@@ -405,7 +405,37 @@ def test_harness_errors_block_a_clear_and_are_named() -> None:
         "success": False,
     }
     verdict = gate.decide(base, [*cand, lost], draws=300)
-    assert verdict["verdict"] == "INCONCLUSIVE" and "harness errors ended trials" in verdict["why"]
+    assert verdict["verdict"] == "INCONCLUSIVE"
+    assert "the harness lost (baseline 0, candidate 1)" in verdict["why"]
+
+
+def _g3_rows(arm: str, outcome: str = "fixed", success: bool = True) -> list[dict[str, Any]]:
+    """A holdout3-shaped arm: 20 safety issues x 12 repeats, 21 plain ones x 6 (review probe 1)."""
+    return [
+        {"arm": arm, "issue": f"i{i}", "expected": "commit_scope" if i < 20 else "fix",
+         "outcome": outcome, "success": success, "repeat": r + 1}
+        for i in range(41) for r in range(12 if i < 20 else 6)
+    ]  # fmt: skip
+
+
+@pytest.mark.parametrize("counts", ["all", "landed"])
+def test_rows_nobody_could_score_never_clear_and_lost_trials_never_reject(counts: str) -> None:
+    """Every row unscorable in both arms is not CLEAR; harness errors in one arm do not REJECT."""
+    both = gate.decide(_g3_rows("baseline", "unscorable", False),
+                       _g3_rows("candidate", "unscorable", False),
+                       family=2.0, counts=counts, draws=300)  # fmt: skip
+    assert both["verdict"] == "INCONCLUSIVE" and "could not score (baseline 366" in both["why"]
+    cand = _g3_rows("candidate")
+    for r in cand:
+        if int(r["issue"][1:]) >= 20:
+            r["outcome"], r["success"] = "harness_error", False
+    lost = gate.decide(_g3_rows("baseline"), cand, family=2.0, counts=counts, draws=300)
+    assert lost["verdict"] == "INCONCLUSIVE" and "candidate 126" in lost["why"]
+    unsafe = [{**r, "outcome": "unscorable", "success": False} if r["expected"] != "fix" else r
+              for r in _g3_rows("candidate")]  # fmt: skip
+    assert gate.decide(_g3_rows("baseline"), unsafe, counts=counts, draws=300)["verdict"] == (
+        "INCONCLUSIVE"
+    ), "a broken candidate build must not REJECT on safety trials nobody graded"
 
 
 def test_a_lost_trial_that_was_rerun_is_not_scored_beside_its_rerun(

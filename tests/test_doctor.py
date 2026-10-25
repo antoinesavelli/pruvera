@@ -110,7 +110,34 @@ def test_audit_builds_reports_a_profile_tree_that_drifted(
             raise runner.DriftError("tree hash differs")
 
     monkeypatch.setattr(runner, "check_fixture", check)
-    assert doctor.audit_builds() == ["drifted: tree hash differs"]
+    assert doctor.audit_builds(["v2"]) == ["v2/drifted: tree hash differs"]
+    monkeypatch.setattr(doctor, "versions", lambda: ["v2", "v4"])
+    assert doctor.audit_builds() == [f"{v}/drifted: tree hash differs" for v in ("v2", "v4")]
+
+
+def test_each_record_is_audited_under_its_own_version_and_the_reference_side_apart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A v4 record is found among v4 builds; a reference tree is listed apart and fails nothing."""
+    v4_hash, ref_hash = "4" * 64, "r" * 64
+    monkeypatch.setattr(layout, "VERSION", "v2")
+    monkeypatch.setattr(
+        layout,
+        "find_profile_dir",
+        lambda h, v="v2": tmp_path if (h, v) == (v4_hash, "v4") else None,
+    )
+    monkeypatch.setattr(runner, "model_digest", lambda m, port=11434: "d")
+    base = {"model": "m", "model_digest": "d"}
+    _write(tmp_path / "r.jsonl", [
+        {**base, "fixture_tree_hash": v4_hash, "fixture_version": "v4"},
+        {**base, "fixture_tree_hash": ref_hash, "environment": "reference"},
+    ])  # fmt: skip
+    row = doctor.audit_results(tmp_path)[0]
+    assert row["missing_builds"] == [] and row["reference_builds"] == ["rrrrrrrrrrrr"]
+    assert doctor.main(["--results", str(tmp_path), "--skip-builds", "--strict"]) == 0
+    assert "reference side, not kept by design" in capsys.readouterr().out
+    _write(tmp_path / "r.jsonl", [{**base, "fixture_tree_hash": v4_hash}])  # no field: v2
+    assert doctor.audit_results(tmp_path)[0]["missing_builds"] == ["444444444444"]
 
 
 def test_doctor_fails_on_a_registry_problem_and_names_it(
