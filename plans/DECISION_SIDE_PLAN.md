@@ -9,8 +9,9 @@ plan says when they are worth spending. Tags as in ROAD_TO_A: **[C]** code, **[O
 
 ## Progress
 
-**Status 2026-10-03: steps 0 to 4 and 6 are built and tested (735 tests pass); steps 5 and 7 need GPU
-time and catalogue work that no one has approved. Nothing is installed in Paramo.**
+**Status 2026-10-24: steps 0 to 4 and 6 are built and tested; steps 5 and 7 need GPU time and catalogue
+work that no one has approved. Nothing is installed in Paramo.** The rows below were corrected against the code on 2026-10-24
+(review round 9b, D2).
 
 | Item | State |
 |---|---|
@@ -25,15 +26,16 @@ time and catalogue work that no one has approved. Nothing is installed in Paramo
 | 5.6 guardrails | **Partly:** per-hazard outcomes, interval and severity-weighted score are in every report; the verdict still rests on the gate's pooled rule (promote the per-hazard bound once a generation shows its variance). Weights are the OD4 recommendation. |
 | 6.1 stamps | Done: `harness_commit`, `harness_dirty`, `experiment_id`, `repeat` on trial records; `scorer_commit` on scored rows; confirmatory registration and runs refuse a dirty `bench/`. |
 | 6.2 state root | Done: `layout` owns fixtures, artifacts, overlays and results under `STATE` (`AGENT_TESTING_STATE`), so a verdict run can use a clean worktree. `issues/plant.py` and `issues/verify.py` still compute their own root (build-time tools, run from the main checkout). |
-| 6.3 bundles | Done: records carry `artifact_sha256` and scoring refuses a changed bundle. Old records have none and are not checked. |
-| 6.4 verdict bundles | Done: `experiment judge` writes `results/verdicts/<id>/` (spec, scored rows, verdict, `REPORT.md`, manifest with file and artifact hashes); `experiment verify` re-derives the verdict from the stored rows. |
+| 6.3 bundles | Done: records carry `artifact_sha256` and scoring refuses a changed bundle. Old records have none and are not checked. **Deviation:** `artifact` is stored as an absolute path (`runner._record`), not relative to the state root; `layout.artifact_dir` re-roots a gone path under the state. |
+| 6.4 verdict bundles | Done: `experiment judge` writes `results/verdicts/<id>/` (spec, scored rows, verdict, `REPORT.md`, manifest with file and artifact hashes); `experiment verify` re-derives the verdict from the stored rows with today's code. **Not done:** nothing re-derives a bundle with its recorded scorer commit; instead a registration records a hash of the grading code (`experiment.GRADING`) and a confirmatory `judge` on changed grading code needs `--accept-scorer-change "<reason>"` (2026-10-24). |
 | 6.5 backup | Owner: `artifacts/` into the Borg run (O3). |
-| 7.1 to 7.4 front door | Done: `new`, `register`, `run` (resumable), `interim`, `judge`, `abandon`, `status`, `retro`, `verify`, `retention` (read-only list). `doctor` does not call the registry audit yet. |
+| 7.1 to 7.4 front door | Done: `new`, `register`, `run` (resumable), `interim`, `judge`, `abandon`, `status`, `retro`, `verify`, `retention` (read-only list); `doctor` runs the registry audit. 7.3's report caveats: kind, seed, `git_primary`, `underpowered`, power, an uncommitted or changing `bench/` tree, missing artifact hashes and grading-code drift; **not** `registered_after_data` (a `retro` row is never judged) or interim stops. `judge` and `interim` refuse unscorable or harness-error rows, `judge` an unfinished design, and both another fixture version. |
 | 8.1 to 8.4 tiers and enforcement | Mechanism built (`bench/policy.py`, `policy/tiers.toml`, trailer check, verdict scope expiry, decision-row text); the Paramo hook is **drafted, not installed** (`plans/PARAMO_ENFORCEMENT.md`). |
 
 **Deviations from the text below.** (1) The legacy ledger rows were not copied into the registry:
-the registry reads `results/gate/ledger.jsonl` for spent looks and covered files, and `experiment
-judge` does not write the ledger. (2) `registry.holdout_issues` duplicates `gate.holdout_issues`.
+the registry reads `results/gate/ledger.jsonl` for spent looks and covered files, and a confirmatory
+`experiment judge` also appends its verdict to that ledger, at the registry's family. (2)
+`gate.holdout_issues` delegates to `registry.holdout_issues` (one source).
 (3) The re-pin cadence (8.4) is a recommendation only. (4) The experiment `run` cannot yet interleave
 a control study inside one confirmatory run; controls are separate registered studies.
 
