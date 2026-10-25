@@ -223,11 +223,13 @@ def test_faults_leave_the_denominator_and_are_counted() -> None:
     assert s["n_trials"] == 29 and s["faults"] == {"agent_error with 0 steps": 1}
 
 
-def test_a_subtype_with_fewer_than_six_issues_is_descriptive() -> None:
-    """The 5 and 5 split gives no subtype its own cell."""
+def test_a_subtype_is_a_cell_from_six_issues() -> None:
+    """Five issues of a subtype are descriptive only; six make it a cell (the 6 and 6 split)."""
     s = rep.summarise_model(verdicts("m", FEAT + REFS, 20))
     assert all(not part["cell"] for part in s["subtypes"].values())
     assert s["subtypes"]["feature"]["issues"] == 5
+    six = rep.summarise_model(verdicts("m", FEAT + ["te-feat-m5-1"] + REFS + ["te-ref-m5-f"], 30))
+    assert all(part["cell"] for part in six["subtypes"].values())
 
 
 # ---------------------------------------------------------------- refusals

@@ -37,11 +37,11 @@ def goal_of(prompt: str) -> str:
 
 
 def test_the_profile_holds_exactly_the_te_issues_and_the_mix_is_in_range() -> None:
-    """8 to 10 issues, at least 3 of each subtype, none of them in another te- profile or `full`."""
+    """12 issues, 6 of each subtype (the owner's approval of 2026-10-25), none of them in `full` or `all-kinds`."""
     _, ids = schema.load_profile(ROOT / "issues/profiles/tested-edit.toml")
     assert set(ids) == set(TE) and len(ids) == len(set(ids))
-    assert 8 <= len(ids) <= 10
-    assert sum(i.startswith("te-feat-") for i in ids) >= 3 and sum(i.startswith("te-ref-") for i in ids) >= 3
+    assert len(ids) == 12
+    assert sum(i.startswith("te-feat-") for i in ids) == 6 and sum(i.startswith("te-ref-") for i in ids) == 6
     for name in ("full", "all-kinds"):
         _, other = schema.load_profile(ROOT / f"issues/profiles/{name}.toml")
         assert not set(other) & set(TE), name
