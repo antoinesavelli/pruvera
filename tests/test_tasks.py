@@ -41,8 +41,25 @@ def test_no_catalogue_prompt_contains_an_edit_text_or_the_summary() -> None:
     for it in schema.load_all(ROOT / "issues").values():
         prompt = tasks.prompt_for(it)
         assert it.summary not in prompt
+        if it.id.startswith("lit-"):  # a literal hand-over's prompt is the edit text, by design
+            continue
         for edit in it.edits:
             assert not edit.new.strip() or edit.new.strip() not in prompt, it.id
+
+
+def test_every_literal_hand_over_prompt_gives_its_one_file_and_both_texts() -> None:
+    """A `lit-` issue has one edit; its prompt gives the file and both texts."""
+    catalogue = schema.load_all(ROOT / "issues")
+    lits = [it for it in catalogue.values() if it.id.startswith("lit-")]
+    assert lits, "the specified_edit screen's issues are in the catalogue"
+    files = {e.file for it in catalogue.values() for e in it.edits}
+    for it in lits:
+        assert len(it.edits) == 1, it.id
+        edit = it.edits[0]
+        prompt = tasks.prompt_for(it)
+        assert f"`{edit.file}`" in prompt, it.id
+        assert edit.new in prompt and edit.old in prompt, it.id
+        assert not [f for f in files - {edit.file} if f in prompt], it.id
 
 
 def row(
