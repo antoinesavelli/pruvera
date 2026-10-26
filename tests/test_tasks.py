@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from bench.issues import schema, tasks, trials
-from tests.helpers import make_issue
+from tests.helpers import make_issue, needs_catalogue
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -47,6 +47,7 @@ def test_no_catalogue_prompt_contains_an_edit_text_or_the_summary() -> None:
             assert not edit.new.strip() or edit.new.strip() not in prompt, it.id
 
 
+@needs_catalogue
 def test_every_literal_hand_over_prompt_gives_its_one_file_and_both_texts() -> None:
     """A `lit-` issue has one edit; its prompt gives the file and both texts."""
     catalogue = schema.load_all(ROOT / "issues")
