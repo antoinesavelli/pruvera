@@ -1,6 +1,6 @@
 # pruvera
 
-[![public-ci](https://github.com/antoinesavelli/pruvera/actions/workflows/public-ci.yml/badge.svg?branch=main)](https://github.com/antoinesavelli/pruvera/actions/workflows/public-ci.yml)
+[![ci](https://github.com/antoinesavelli/pruvera/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/antoinesavelli/pruvera/actions/workflows/ci.yml)
 
 **Evaluation and controls for AI coding agents.** Sandboxed trials, planted defects with known
 answers, pre-registered tests and a hash-chained audit trail, run on a replica of a real trading

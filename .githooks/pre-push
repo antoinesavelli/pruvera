@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Every push scans the whole history for secrets; a finding or a missing gitleaks blocks it.
+set -euo pipefail
+command -v gitleaks >/dev/null || { echo "pre-push: gitleaks not on PATH; push blocked" >&2; exit 1; }
+gitleaks git --redact --no-banner "$(git rev-parse --show-toplevel)"

@@ -1,0 +1,37 @@
+# CI for pruvera: uv sync from the committed uv.lock, then ruff, ruff format, mypy --strict and pytest.
+#
+# CI has no fixture trees, no fixture venv, no Ollama and no opencode, so the tests that need them skip
+# themselves (tests/helpers.py, "!!! N TESTS SKIPPED" banner in the pytest summary). What runs here is the part of
+# the harness that is pure code: the scorers, the statistics, the gate, the registry, the doc-consistency checks.
+# It says the code is internally consistent; it does not re-run any trial.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      # pyproject.toml has requires-python ">=3.12" and ruff's target-version py312. uv.lock pins every package,
+      # including the test-time numpy, pandas, pyarrow and PyYAML and the exact pytest, ruff and mypy: a new
+      # release's rules cannot turn a green badge red between two commits; bump them on purpose.
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest -q

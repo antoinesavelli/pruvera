@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Refuses credentials and every path matching a glob in .githooks/refuse (one per line).
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+mapfile -t globs < <(grep -vE '^\s*(#|$)' "$root/.githooks/refuse" 2>/dev/null || true)
+rejected=0
+while IFS= read -r -d '' path; do
+  hit=""
+  case "${path,,}" in .env | */.env | *.pem | *.key) hit=credential ;; esac
+  for g in "${globs[@]}"; do
+    # shellcheck disable=SC2053
+    [[ $path == $g ]] && hit=".githooks/refuse: $g"
+  done
+  if [ -n "$hit" ]; then echo "pre-commit: refusing $path ($hit)" >&2; rejected=1; fi
+done < <(git diff --cached --name-only --diff-filter=ACMR -z)
+exit "$rejected"
