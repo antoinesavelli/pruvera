@@ -32,8 +32,8 @@ def write_tree(tmp_path: Path) -> Path:
   must_contain: ["insider_cluster", "long"]
   sources: [docs/STATUS.md]
 - id: fact-not-in-docs
-  question: "What is the kill switch command?"
-  must_contain: ["svc-halt"]
+  question: "What is the restart command?"
+  must_contain: ["svc-restart"]
   sources: [docs/STATUS.md]
 - id: missing-source
   question: "Anything?"
