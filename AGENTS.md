@@ -8,7 +8,7 @@ way to touch anything real. The design is `docs/DESIGN.md`, the decisions are `d
 open is `docs/STATUS.md` (the single owner of status). This file is the rules for working ON this repo.
 Stack: Python 3.12, uv, ruff, mypy --strict, pytest. `PLAN.md` is only a pointer to where its old sections went.
 
-<!-- doctrine-core:begin (source: <system-library>/AGENT_DOCTRINE_CORE.md; edit there, then run tools/check.sh agents) -->
+<!-- doctrine-core:begin (source: /mnt/ParamoStorage/system-library/AGENT_DOCTRINE_CORE.md; edit there, then run tools/check.sh agents) -->
 ## Operating doctrine (core)
 
 Loop: OBSERVE real state (the docs/map and the actual code or system, never memory of a prior
@@ -48,7 +48,7 @@ staged. Found a hunk you didn't write? Stop and find out whose it is.
 
 **Context is spend.** Every turn re-reads the whole conversation: batch independent calls in one turn, grep before reading and read only the lines needed, cap command output (`head`, `grep -m`, `--stat`). **Don't grow a window past its task:** separable work (a follow-up, an unrelated finding, the next phase, a heavy read or search) starts in a fresh context, not here — call `spawn_task` (the chip the user clicks to open a new session; its prompt must stand alone) or delegate to a subagent; where neither exists, offer a handoff prompt at the task boundary.
 
-Full doctrine, read the section on demand (`<system-library>/AGENT_DOCTRINE.md`):
+Full doctrine, read the section on demand (`/mnt/ParamoStorage/system-library/AGENT_DOCTRINE.md`):
 *Code conventions* and *Testing* before code, *Writing* before a doc · *Concurrent sessions* before
 you stage or commit · *Before you ACT* and *Subagents* before delegating · *Cost and resources* before
 a paid or heavy job · *Skills fix themselves* if a skill misfires · when a guard fails.
