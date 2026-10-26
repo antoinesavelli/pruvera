@@ -1,4 +1,5 @@
-"""The model-sweep driver stops a study on the failure that puts the floor out of reach, and only then.
+"""The model-sweep driver stops a study on the failure that puts the floor out of reach, and only
+then.
 
 Depends on: spikes/model_sweep_run.py, pytest.
 """
@@ -118,7 +119,8 @@ def test_with_lever_two_off_nothing_stops_early(run: ModuleType) -> None:
 
 
 def test_a_study_that_fails_its_last_issues_is_complete_not_stopped(run: ModuleType) -> None:
-    """Failures on the final issue reach the limit with nothing left to skip: finished, not stopped."""
+    """Failures on the final issue reach the limit with nothing left to skip: finished, not
+    stopped."""
     script = Script({"i5": [False], "i6": [False], "i7": [False]})
     result = run.drive_study(ids(8), {}, script)
     assert script.calls == ids(8) and not result.stopped
@@ -139,7 +141,8 @@ def test_ids_files_are_read_like_campaign_sh(run: ModuleType, tmp_path: Path) ->
 
 
 def test_the_timing_gate_keeps_the_first_measurement(run: ModuleType) -> None:
-    """Lever 2 stays on only if scoring one row is within the limit; later rows do not move the figure."""
+    """Lever 2 stays on only if scoring one row is within the limit; later rows do not move the
+    figure."""
     fast = run.Timer(15.0)
     assert fast.record(4.0) and fast.record(40.0) and fast.seconds == 4.0
     slow = run.Timer(15.0)

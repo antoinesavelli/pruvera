@@ -122,7 +122,8 @@ def test_fewer_than_three_studies_gives_fewer_than_three(sweep: ModuleType) -> N
 def test_the_lowest_repeat_of_a_screened_model_is_used_and_the_others_are_not(
     sweep: ModuleType,
 ) -> None:
-    """A screen's repeat 1 is its n = 1 row; repeats 2 and 3 add nothing to k (the n = 3 cell is only printed)."""
+    """A screen's repeat 1 is its n = 1 row; repeats 2 and 3 add nothing to k (the n = 3 cell is
+    only printed)."""
     trials = []
     for i in range(N):
         trials += [
@@ -167,7 +168,8 @@ def test_missing_answers_stay_in_n_and_are_counted_apart(sweep: ModuleType) -> N
 
 
 def test_a_stopped_study_has_no_rank_and_prints_at_most(sweep: ModuleType) -> None:
-    """Three failures at N = 8: below the floor for good, no k, no rank; "at most N - F" in the table."""
+    """Three failures at N = 8: below the floor for good, no k, no rank; "at most N - F" in the
+    table."""
     stopped = sweep.Study(
         "weak",
         5.0,
@@ -193,8 +195,13 @@ def test_a_partial_study_is_not_called_stopped(sweep: ModuleType) -> None:
 def test_the_boundary_band_is_within_one_trial_of_the_third(sweep: ModuleType) -> None:
     """Models with k within one of the third-ranked k are listed; others are not."""
     result = sweep.rank(
-        [study(sweep, "a", 8, gib=1.0), study(sweep, "b", 7, gib=2.0), study(sweep, "c", 6, gib=3.0),
-         study(sweep, "d", 5, gib=4.0), study(sweep, "e", 4, gib=5.0)],
+        [
+            study(sweep, "a", 8, gib=1.0),
+            study(sweep, "b", 7, gib=2.0),
+            study(sweep, "c", 6, gib=3.0),
+            study(sweep, "d", 5, gib=4.0),
+            study(sweep, "e", 4, gib=5.0),
+        ],
         N,
     )  # fmt: skip
     assert names(result.band) == ["b", "c", "d"]
@@ -259,7 +266,8 @@ def test_sizes_come_from_the_tags_document(sweep: ModuleType, tmp_path: Path) ->
 
 
 def test_find_raw_prefers_the_sibling_then_searches(sweep: ModuleType, tmp_path: Path) -> None:
-    """A scored file beside its raw file uses it; one elsewhere finds the raw file holding the trial."""
+    """A scored file beside its raw file uses it; one elsewhere finds the raw file holding the
+    trial."""
     (tmp_path / "x.jsonl").write_text("{}\n")
     assert sweep.find_raw(tmp_path / "x.scored.jsonl", "t1", tmp_path) == tmp_path / "x.jsonl"
     out = tmp_path / "bakeoff"
