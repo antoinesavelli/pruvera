@@ -10,7 +10,7 @@ unit run with the system `python3` through `bin/campaign.sh`, and a `.venv` here
   campaign may be live (`systemctl --user status 'pruvera-campaign@*'`).
 - `pgrep -af 'python.*bench|opencode'` (the exact list is `bench.preflight.BENCH_MODULES`): do not move or
   delete anything a live run uses.
-- Read `PLAN.md` (the plan of record) and the dated doc under `plans/` for the area you touch.
+- Read `docs/STATUS.md`, the `docs/DESIGN.md` section you are touching and the dated doc under `plans/` for the area.
 - `python3 -m bench.cli check` checks the fixture pins and the host before a session that runs trials.
 
 ## MODEL
@@ -33,8 +33,8 @@ Run each yourself; one that cannot run is reported as not run.
    `--strict`) is clean.
 3. A scorer or sandbox change has a passing self-test first (`tests/test_sandbox_redteam.py`,
    `bin/sandbox_redteam.py`); re-verify against the real state, not a tool's own printed summary.
-4. Docs current: the `README.md` map; `PLAN.md` for a phase or decision; an experiment's plan doc before its
-   first trial.
+4. Docs current: the `README.md` map; `docs/STATUS.md`; a `docs/DECISIONS.md` row for a new decision or reversal;
+   an experiment's plan doc before its first trial.
 5. Committed by explicit path (`git add <paths>`, `git diff --cached` read in full). A push is never done from
    here (AGENTS.md, "No git remote").
 

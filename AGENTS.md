@@ -4,15 +4,9 @@ This file holds the content; `CLAUDE.md` only imports it (`@AGENTS.md`). Topic f
 If something you need isn't here, say so instead of guessing.
 
 **What it is.** An environment where a local agent works as close to a real Paramo session as possible, with no
-way to touch anything real. `PLAN.md` is the plan of record (goal, decisions, phases, acceptance checks);
-this file is the rules for working ON this repo. Stack: Python 3.12, uv, ruff, mypy --strict, pytest.
-
-## Status
-
-Built and in use as of 2026-10-24: sandbox (with an inference-only Ollama filter), fixture v2 with pins (v3 built, not in use), real agent config, trial runner, planted issues with a trial scorer, the rule-change gate (with a ledger and three issue-split generations, the third frozen and unused; its controls on `dev3` ran before any `holdout3` look: the known-bad was judged REJECT, the A/A CLEAR and the known-good CLEAR on 2026-10-14 (`188fa29`), so the gate passes its controls), and the
-realism check (`PLAN.md` §6 has each phase's status and what is still open). Fixture v2 (Paramo `c65a2889`) predates Paramo's commit tool (`212cf616`) and top-level git denies (`14a43c9d`), so `dev3` results do not describe production's commit regime today. Before a session run
-`python3 -m bench.cli check`; `python3 -m bench.cli trial --help` for one trial; `README.md` has the
-commands for campaigns, scoring, the gate and the tests.
+way to touch anything real. The design is `docs/DESIGN.md`, the decisions are `docs/DECISIONS.md`, and what is built, live and
+open is `docs/STATUS.md` (the single owner of status). This file is the rules for working ON this repo.
+Stack: Python 3.12, uv, ruff, mypy --strict, pytest. `PLAN.md` is only a pointer to where its old sections went.
 
 <!-- doctrine-core:begin (source: <system-library>/AGENT_DOCTRINE_CORE.md; edit there, then run tools/check.sh agents) -->
 ## Operating doctrine (core)
@@ -65,9 +59,9 @@ a paid or heavy job · *Skills fix themselves* if a skill misfires · when a gua
 | Before you... | Read |
 |---|---|
 | plan or run a change (the loop here, the Definition of Done, what a live campaign forbids) | [`docs/agents/LOOP.md`](docs/agents/LOOP.md) |
-| change behavior the plan covers, or cite a decision | [`PLAN.md`](PLAN.md) (goal, decisions, phases, known gaps) |
+| change behavior the design covers, or cite a decision | [`docs/DESIGN.md`](docs/DESIGN.md) and [`docs/DECISIONS.md`](docs/DECISIONS.md) (a new decision or a reversal adds a row in the same change) |
 | run an experiment or a campaign | the dated plan under `plans/` that pre-registers it, `bench/registry.py`, and the header of `bin/campaign.sh` |
-| touch a fixture, its pins, the sandbox or a scorer | the matching invariants below, then `PLAN.md` §4 and §6 |
+| touch a fixture, its pins, the sandbox or a scorer | the matching invariants below, then `docs/DESIGN.md` §4 and the phases in `docs/STATUS.md` |
 | delegate work to another model, edit a skill, or a guard fails | `<system-library>/AGENT_DOCTRINE.md` |
 
 ## Area maps
@@ -75,7 +69,7 @@ a paid or heavy job · *Skills fix themselves* if a skill misfires · when a gua
 | Area | Map |
 |---|---|
 | Repo layout, modules, commands | `README.md` (area map and "Operating it"), `bench/README.md` (every module) |
-| Plan of record | `PLAN.md` |
+| Design, decisions, **dynamic status** | `docs/DESIGN.md`, `docs/DECISIONS.md`, `docs/STATUS.md` (built, live, open; every phase's evidence). `PLAN.md` maps the old section numbers to them |
 | Experiments and evaluations | `plans/` (dated plan docs; they stay as written), `experiments/` (study specs), `EVAL_CARD.md` (the planted-issue suite's datasheet) |
 | Fixtures | `fixtures/` (manifests, stubs, known-red tests; trees and data are local only) |
 
@@ -136,5 +130,5 @@ or its denylist; changing `bench/` while a campaign is live.
 
 ## Definition of Done (full text `docs/agents/LOOP.md`)
 
-Tests pass, `ruff check`, `ruff format --check` and `mypy` clean, the `README.md` map and `PLAN.md` current,
+Tests pass, `ruff check`, `ruff format --check` and `mypy` clean, the `README.md` map and `docs/STATUS.md` current (a `docs/DECISIONS.md` row for a new decision or reversal),
 committed by explicit path.
