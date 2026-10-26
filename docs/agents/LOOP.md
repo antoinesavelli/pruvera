@@ -36,7 +36,7 @@ Run each yourself; one that cannot run is reported as not run.
 4. Docs current: the `README.md` map; `docs/STATUS.md`; a `docs/DECISIONS.md` row for a new decision or reversal;
    an experiment's plan doc before its first trial.
 5. Committed by explicit path (`git add <paths>`, `git diff --cached` read in full). A push is never done from
-   here (AGENTS.md, "No git remote").
+   here without the owner's go-ahead (AGENTS.md, "Public repo; local-only data").
 
 ## CLOSE
 

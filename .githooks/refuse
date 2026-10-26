@@ -1,9 +1,9 @@
 # Paths this repo never commits (bash globs, one per line; `*` also matches `/`). The pre-commit hook refuses
 # any staged path that matches. These are the licensed data slice, the fixture trees, the trial transcripts and the
-# private term lists (AGENTS.md "No git remote" and plans/PUBLIC_RELEASE.md say why).
+# private term lists (AGENTS.md "Public repo; local-only data" says why).
 #
-# `issues/` (the planted-issue catalogue) is NOT listed on purpose: it is tracked today and new issues are committed
-# there in the normal workflow, so a refusal would block it. Its removal from history is corsu Phase C (decision 10).
+# Since the 2026-10-26 history rewrite the planted-issue catalogue and the other local-only paths below are not in
+# the public history: they stay on disk and in the backup, and a commit of one is refused.
 fixtures/*/versions/*/tree/*
 fixtures/*/versions/*/profiles/*/tree/*
 fixtures/*/build/*
@@ -21,3 +21,15 @@ runs/*
 xdg/*
 venv/*
 bin/executor*
+issues/*
+fixtures/*
+synthetic/*
+legacy_bench/*
+results/issues/*
+results/gate/*
+results/experiments/*
+results/registry.jsonl
+results/trials.jsonl
+bench/issues/hand_kinds.py
+bench/issues/injections.py
+tests/test_legacy_bench.py
