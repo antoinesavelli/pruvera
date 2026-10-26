@@ -28,3 +28,5 @@ variants/*/
 issues/_miner_shortlist.local.md
 # Release terms: the private names, figures and their replacements. Sensitive by content, local only.
 release/*.local.*
+.venv/
+.mypy_cache/

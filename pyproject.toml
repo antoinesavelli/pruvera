@@ -3,10 +3,40 @@ name = "pruvera"
 version = "0.0.0"
 requires-python = ">=3.12"
 license = "MIT"
+description = "Evaluation harness for local coding agents: replays Paramo-style sessions in a sandbox and scores them on planted issues"
+dependencies = []
+
+[dependency-groups]
+# The harness itself is standard library. numpy, pandas, pyarrow and PyYAML are what the tests and the
+# docs-search code import; the exact pins are the ones the old public CI validated together.
+dev = [
+    "pytest==9.0.3",
+    "ruff==0.16.3",
+    "mypy==2.3.1",
+    "numpy==2.5.3",
+    "pandas==3.0.6",
+    "pyarrow==26.0.0",
+    "pyyaml==6.0.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bench"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+# Other checkouts (linked worktrees under .claude/) and fixture content, which is never edited in place
+# (AGENTS.md rules); neither is this repo's own code.
+extend-exclude = [".claude", "fixtures"]
+
+[tool.ruff.format]
+# Dated plans/*.md stay as written; ruff 0.16 would reformat the code blocks inside them.
+exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "C901"]
@@ -25,7 +55,9 @@ testpaths = ["tests"]
 addopts = "-p no:cacheprovider"
 
 [tool.mypy]
+python_version = "3.12"
 strict = true
+packages = ["bench"]
 
 [[tool.mypy.overrides]]
 # The harness's own venv has no pandas stubs; synthdata runs under the fixture venv.
