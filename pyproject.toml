@@ -3,7 +3,7 @@ name = "pruvera"
 version = "0.0.0"
 requires-python = ">=3.12"
 license = "MIT"
-description = "Evaluation and controls for AI coding agents: sandboxed trials on a replica of a real codebase, planted defects with known answers, pre-registered decision rules"
+description = "Evaluation and controls for AI coding agents: sandboxed trials on a replica of a real codebase, planted defects with known answers, pre-registered decision rules."
 dependencies = []
 
 [dependency-groups]
