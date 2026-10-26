@@ -1,0 +1,22 @@
+# Paths this repo never commits (bash globs, one per line; `*` also matches `/`). The pre-commit hook refuses
+# any staged path that matches. These are the licensed data slice, the fixture trees, the trial transcripts and the
+# private term lists (AGENTS.md "No git remote" and plans/PUBLIC_RELEASE.md say why).
+#
+# `issues/` (the planted-issue catalogue) is NOT listed on purpose: it is tracked today and new issues are committed
+# there in the normal workflow, so a refusal would block it. Its removal from history is corsu Phase C (decision 10).
+fixtures/*/versions/*/tree/*
+fixtures/*/versions/*/profiles/*/tree/*
+fixtures/*/build/*
+fixtures/legacy/tree/*
+fixtures/*/data/*
+fixtures/*/rag/*
+fixtures/*/scrub_tokens.local*
+fixtures/*/scrub_allow.local*
+release/*.local.*
+*scrub_tokens.local*
+dummy.key
+artifacts/*
+overlays/*
+runs/*
+xdg/*
+venv/*
