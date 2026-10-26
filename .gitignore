@@ -30,3 +30,6 @@ issues/_miner_shortlist.local.md
 release/*.local.*
 .venv/
 .mypy_cache/
+# The executor SSH tunnel script and local Claude state: host and session detail, never versioned.
+bin/executor-ollama-tunnel
+.claude/
