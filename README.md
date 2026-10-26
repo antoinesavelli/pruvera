@@ -273,6 +273,13 @@ phase status.
 | `plans/` | Plans and evaluations beyond `PLAN.md`: `REVERTED_FIX_MINER.md`, `SYNTHETIC_DATA_FILL.md`, `RAG_AND_METRICS_EVALUATION.md`, `ROAD_TO_A.md` (what it takes to bring every review grade to A), `MODEL_BAKEOFF_COMMIT.md` and `MODEL_BAKEOFF_KINDS.md` (the other session's bake-off designs), `ARCHITECTURE_SCORECARD.md` (the architecture graded in 11 dimensions, 2026-10-02), `DECISION_SIDE_PLAN.md` (how trials become decisions: registry, design, provenance, front door, enforcement in Paramo), `GENERATION_3_DESIGNS.md` (simulated sizing of the next holdout, what is built, issue designs for review). Three plans stay out of the public copy, so references to them dangle there: `GENERATION_3_DESIGNS.md` (holdout material), `PUBLIC_RELEASE.md` (how the copy is filtered) and `RENAME_TO_PRUVERA.md` (local paths only). |
 | `release/` | How the public copy of this repo is built: `allow_paths.txt` lists the paths that leave (deny by default, every commit rewritten). The private terms and replacement rules are local only. |
 | `spikes/` | One-off measurements behind an evaluation, with their result files (latency, retrieval, and the model bake-off, handoff and kinds drivers). |
+| `bin/` | Operator scripts: `campaign.sh` (runs registered experiments to completion; `pruvera-campaign@.service` is its systemd unit copy), `sandbox_redteam.py`, `precommit-check`, and the legacy lane's `new-run.sh`, `oc.sh`, `spike07.sh`. `bin/ruff` is a tracked symlink into the fixture venv. |
+| `legacy_bench/` | The imported 2026-09-23 host-run harness (the legacy lane), verbatim, with its own `README.md`; `migration/` holds the instruction-file migration benches. It runs opencode on the host and refuses to start unless `LEGACY_HOST_RUN=1`. |
+| `synthetic/` | An IP-free synthetic fixture prototype (a toy repo, 15 planted issues and their proofs); its own `README.md`. |
+| `docs/agents/` | Agent topic files: `LOOP.md` (the loop here and the Definition of Done). |
+| `pyproject.toml`, `uv.lock`, `LICENSE` | Package and tool config (uv, ruff, mypy, pytest), the locked dev dependencies, the MIT license. |
+| `.githooks/`, `.github/workflows/ci.yml` | `pre-commit` refuses credentials and the private-data paths in `.githooks/refuse`, `pre-push` runs gitleaks over the history; CI runs `uv sync --locked`, ruff, ruff format, mypy and pytest. |
+| `artifacts/`, `overlays/`, `runs/`, `xdg/` | Local only, gitignored: scorer inputs, trial overlays, trial transcripts and sandbox XDG state. |
 
 Run everything from the repo root. Most modules use only the standard library and run under the system
 `python3`; the retrieval index/experiment (numpy, PyYAML) and the synthetic-data builder (numpy, pandas) need the
@@ -289,6 +296,7 @@ python3 -m bench.gate run --baseline tune --candidate "tune+<variant>" --n 6 --o
 python3 -m bench.doctor                           # can every recorded result still be rescored? (read-only, every fixture version)
 python3 -m bench.realism --n 3 --out results/realism/study-N.jsonl
 fixtures/paramo/venv/v2/bin/python -m pytest tests -q -p no:cacheprovider   # the harness tests
+uv sync && uv run pytest -q && uv run ruff check . && uv run ruff format --check . && uv run mypy   # dev tooling (uv.lock); tests that need the fixture skip themselves
 ```
 
 Two environment variables select what a process works on, read once at start (`bench/layout.py`):
