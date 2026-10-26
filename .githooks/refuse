@@ -20,3 +20,4 @@ overlays/*
 runs/*
 xdg/*
 venv/*
+bin/executor*
