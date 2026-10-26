@@ -1,5 +1,9 @@
 """The plan of record cannot fall behind the newest issue-split generation unnoticed.
 
+Since the PLAN.md split (corsu Phase B) the repo check reads docs/STATUS.md for both rules below: it
+carries the old PLAN.md header Status line and the old AGENTS.md Status section. The labels in the
+messages keep the old names.
+
 `issues/profiles/` holds the splits as `tune<N>.toml`, `holdout<N>.toml` and `dev<N>.toml`
 (generation 1 has no number). Two rules hold PLAN.md and AGENTS.md to the newest generation that
 is committed:
@@ -166,7 +170,6 @@ def test_plan_and_agents_are_not_behind_the_newest_issue_split() -> None:
     assert generation >= 3 and stems, f"read generation {generation} with profiles {stems}"
     committed = _last_commit([f"{s}.toml" for s in stems])
     assert committed is not None, f"no commit touches {stems}"
-    problems = stale(
-        (ROOT / "PLAN.md").read_text(), (ROOT / "AGENTS.md").read_text(), stems, committed
-    )
+    status = (ROOT / "docs" / "STATUS.md").read_text()  # the old PLAN.md and AGENTS.md Status text
+    problems = stale(status, status, stems, committed)
     assert problems == [], f"{problems}: update the plan of record for generation {generation}"

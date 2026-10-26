@@ -1,4 +1,6 @@
-"""PLAN's headline numbers are recomputed from tracked results and must appear in its text.
+"""The plan's headline numbers are recomputed from tracked results and must appear in its text.
+
+The plan is docs/DESIGN.md, DECISIONS.md and STATUS.md (the old PLAN.md).
 
 The README's rates are held to the public summary, both intervals: every rate carries its Wilson and
 its issue-clustered interval, and each one is the interval the summary prints for that rate. Those
@@ -33,15 +35,17 @@ needs_bakeoff = pytest.mark.skipif(
 
 
 def _plan() -> str:
-    """PLAN with markdown emphasis removed and line wraps joined."""
-    return re.sub(r"\s+", " ", (ROOT / "PLAN.md").read_text().replace("*", ""))
+    """The design, decisions and status docs with emphasis removed and line wraps joined."""
+    docs = ROOT / "docs"
+    text = "\n".join((docs / n).read_text() for n in ("DESIGN.md", "DECISIONS.md", "STATUS.md"))
+    return re.sub(r"\s+", " ", text.replace("*", ""))
 
 
 def _expect(*claims: str) -> None:
     """Asserts that every claim string appears verbatim in the normalised PLAN text."""
     text = _plan()
     missing = [c for c in claims if c not in text]
-    assert not missing, f"PLAN.md no longer says what the tracked results compute: {missing}"
+    assert not missing, f"docs/ no longer says what the tracked results compute: {missing}"
 
 
 def _scored(*names: str) -> list[dict[str, Any]]:
