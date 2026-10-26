@@ -78,7 +78,7 @@ changes nothing); the live-config mtime check across a real trial was done in Ph
 1. [J] `sandbox.py`: the bwrap wrapper of §4.6 with read-only base plus overlay, XDG dirs,
    preflight, and the base-drift refusal. **Built as an allowlisted root, not a masked host root:**
    only `/usr` (plus the usr-merge symlinks), a short list of `/etc` files, a tmpfs `/home/trial`
-   and `/tmp`, the overlay at the real repo path `<private repo path>` (was `/work` until 2026-09-30) and explicit read-only binds exist. The real siblings under `<storage root>`, the real home,
+   and `/tmp`, the overlay at the real repo path `<private repo path>` (was `/work` until 2026-09-30) and explicit read-only binds exist. The real siblings under their common parent, the real home,
    `~/.config/opencode`, `~/.claude` and every credential path are absent, not hidden. The host
    environment is never inherited. `tree_hash`/`verify_base` implement the base-drift refusal.
    `preflight.py` refuses to start while another agent or bench process is running (found by argv in
