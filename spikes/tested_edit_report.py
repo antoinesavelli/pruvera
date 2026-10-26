@@ -30,14 +30,14 @@ import json
 import re
 import statistics
 import sys
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from bench.stats import Z95, cluster_ci, wilson  # noqa: E402
+from bench.stats import cluster_ci, wilson  # noqa: E402
 
 Row = dict[str, Any]
 PROFILE = "tested-edit"
@@ -313,7 +313,7 @@ def summarise(
     """The study: one summary per model, after the shape checks."""
     if not by_model:
         raise Refusal("no models")
-    for model, verdicts in by_model.items():
+    for _model, verdicts in by_model.items():
         check_shape(verdicts, issues, repeats)
     return {
         "issues": list(issues),
