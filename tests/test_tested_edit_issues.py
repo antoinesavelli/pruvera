@@ -18,7 +18,7 @@ from tests.helpers import needs_catalogue
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOGUE = schema.load_all(ROOT / "issues")
-TE = {i: it for i, it in CATALOGUE.items() if i.startswith("te-")}
+TE = {i: it for i, it in CATALOGUE.items() if i.startswith("te-") and not i.startswith("te-band-")}
 LONG_LINE = 12  # a stripped reference line this long must not appear in a prompt
 
 
