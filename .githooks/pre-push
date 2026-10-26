@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Every push scans the whole history for secrets; a finding or a missing gitleaks blocks it.
+# Scans the full history of every commit being pushed for secrets; a finding or a missing gitleaks
+# blocks the push. Local branches that are not being pushed are not scanned.
 set -euo pipefail
 command -v gitleaks >/dev/null || { echo "pre-push: gitleaks not on PATH; push blocked" >&2; exit 1; }
-gitleaks git --redact --no-banner "$(git rev-parse --show-toplevel)"
+root="$(git rev-parse --show-toplevel)"
+while read -r _ local_sha _ _; do
+  [[ $local_sha =~ ^0+$ ]] && continue
+  gitleaks git --redact --no-banner --log-opts="$local_sha" "$root"
+done
