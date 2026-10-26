@@ -1,20 +1,22 @@
-"""Run the registered model-sweep studies one issue at a time and stop a study early (MODEL_SWEEP.md, decision 11).
+"""Run the registered model-sweep studies one issue at a time and stop a study early
+(MODEL_SWEEP.md, decision 11).
 
-With N issues and the floor ceil(0.75 N), a model needs at least ceil(0.75 N) successes, so it is out
-after N - ceil(0.75 N) + 1 scorable failures (3 at N = 8 or 10, 2 at N = 7, 4 at N = 12). The study
-then stops, its remaining issues are not run, and the rank script reports it as "stopped after F
-failures in T trials, below the floor". Infrastructure faults never count toward the stop, and a
-fault is rerun (a harness_error cell is redone by the harness itself; an agent_error with no steps is
-reported, not forced). Resumes: a cell already in the results file is never run again.
+With N issues and the floor ceil(0.75 N), a model needs at least ceil(0.75 N) successes, so it is
+out after N - ceil(0.75 N) + 1 scorable failures (3 at N = 8 or 10, 2 at N = 7, 4 at N = 12). The
+study then stops, its remaining issues are not run, and the rank script reports it as "stopped
+after F failures in T trials, below the floor". Infrastructure faults never count toward the stop,
+and a fault is rerun (a harness_error cell is redone by the harness itself; an agent_error with no
+steps is reported, not forced). Resumes: a cell already in the results file is never run again.
 Each trial is run with `bench.experiment run ID --only ISSUE`, then scored (the new row only) and
-classified with the kind's own code (spikes/model_sweep_rank.py), which is the GPU-idle time that the
-plan's go/no-go measures: the first scored row of the first study is timed, and if scoring takes more
-than --score-limit seconds lever 2 is switched off for the rest of the run (each remaining study then
-runs whole and is scored once, as bin/campaign.sh would do it).
+classified with the kind's own code (spikes/model_sweep_rank.py), which is the GPU-idle time that
+the plan's go/no-go measures: the first scored row of the first study is timed, and if scoring
+takes more than --score-limit seconds lever 2 is switched off for the rest of the run (each
+remaining study then runs whole and is scored once, as bin/campaign.sh would do it).
 The ids file is campaign.sh's: one id a line, '#' comments; a combined file lists each model's
 specified-edit and tested-edit ids together (lever 1) and the kind is read from the id.
 Writes results/experiments/<id>.jsonl (raw) and results/experiments/<id>.scored.jsonl (scored).
-Depends on: bench.{experiment,layout,registry,runner}, bench.issues.{schema,trials}, model_sweep_rank.
+Depends on: bench.{experiment,layout,registry,runner}, bench.issues.{schema,trials},
+model_sweep_rank.
 Run from the repo root, only in a gap (no registered study live, K judged); never in parallel:
     python3 spikes/model_sweep_run.py --ids-file artifacts/sweep-specified_edit.ids [--no-lever2]
 """
@@ -55,7 +57,8 @@ class StopDecision:
 
 
 def stop_decision(n_issues: int, outcomes: Iterable[bool | None]) -> StopDecision:
-    """Stop on the (N - ceil(0.75 N) + 1)-th scorable failure. `None` is a fault: it counts for nothing."""
+    """Stop on the (N - ceil(0.75 N) + 1)-th scorable failure. `None` is a fault: it counts for
+    nothing."""
     floor = (3 * n_issues + 3) // 4
     limit = n_issues - floor + 1
     results = [o for o in outcomes if o is not None]
@@ -129,7 +132,8 @@ def read_ids(path: Path) -> list[str]:
         if line:
             if not ID_KIND.fullmatch(line):
                 raise ValueError(
-                    f"{line!r} is not a sweep study id (sweep-specified-edit-* or sweep-tested-edit-*)"
+                    f"{line!r} is not a sweep study id (sweep-specified-edit-* or "
+                    "sweep-tested-edit-*)"
                 )
             ids.append(line)
     if len(set(ids)) != len(ids):
@@ -177,7 +181,8 @@ def _write_scored(path: Path, rows: Sequence[dict[str, Any]]) -> None:
 
 
 def run_when_free(call: Callable[[], Any], what: str, poll: float = 60.0) -> Any:
-    """Call a bench entry point, waiting out another bench job instead of failing (as model_kinds does)."""
+    """Call a bench entry point, waiting out another bench job instead of failing (as
+    model_kinds does)."""
     while True:
         try:
             return call()
@@ -251,7 +256,8 @@ def run_study(study_id: str, lever2: bool, timer: Timer, poll: float) -> tuple[s
         new = [r for r in _read(out) if r.get("label") == issue and r.get("trial_id") not in seen]
         if not new:
             print(
-                f"{study_id}: {issue}: no new record (an agent_error cell is not rerun by the harness)",
+                f"{study_id}: {issue}: no new record (an agent_error cell is not rerun by the "
+                "harness)",
                 flush=True,
             )
             return None
@@ -281,7 +287,8 @@ def run_study(study_id: str, lever2: bool, timer: Timer, poll: float) -> tuple[s
     verdict = stop_decision(len(ids), result.outcomes.values())
     k = sum(result.outcomes.values())
     line = (
-        f"{study_id}: STOPPED after {verdict.failures} failures in {verdict.scored} trials, below the floor of {verdict.floor}"
+        f"{study_id}: STOPPED after {verdict.failures} failures in {verdict.scored} trials, below "
+        f"the floor of {verdict.floor}"
         if result.stopped
         else f"{study_id}: {k}/{len(ids)}"
     )
@@ -309,7 +316,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     lever2, timer, failed = not args.no_lever2, Timer(args.score_limit), 0
     for study_id in ids:
         print(
-            f"{time.strftime('%H:%M:%S')} starting {study_id} (lever 2 {'on' if lever2 else 'off'})",
+            f"{time.strftime('%H:%M:%S')} starting {study_id} (lever 2 "
+            f"{'on' if lever2 else 'off'})",
             flush=True,
         )
         try:
@@ -317,7 +325,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(line, flush=True)
         except DriftError as exc:
             print(
-                f"ABORT: fixture integrity error, the rest of the queue would fail the same way: {exc}",
+                "ABORT: fixture integrity error, the rest of the queue would fail the same way: "
+                f"{exc}",
                 flush=True,
             )
             return 2

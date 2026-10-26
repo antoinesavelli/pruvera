@@ -3,17 +3,19 @@
 One score per model: k, the count of the kind's primary metric over the kind's N issues, taking for
 each issue the lowest-numbered repeat with a scorable row (a screened model has three repeats, a
 sweep model one; its other repeats are not ranked, only printed as an n = 3 cell). Sorted by k
-descending, then the smaller model on disk (GiB to two decimals, from the Ollama API), then the lower
-median seconds per trial, then the name. The top 3 go forward only when k is at least ceil(0.75 N);
-nothing pads a short list. A study that stopped early (lever 2, decision 11) has no k and no rank: it
-prints as "at most N - F". A screened model's rows are used only when their fixture tree, harness tree
-and grading hash match the sweep's own rows (decision 4); otherwise it is listed as needing a run.
+descending, then the smaller model on disk (GiB to two decimals, from the Ollama API), then the
+lower median seconds per trial, then the name. The top 3 go forward only when k is at least
+ceil(0.75 N); nothing pads a short list. A study that stopped early (lever 2, decision 11) has no k
+and no rank: it prints as "at most N - F". A screened model's rows are used only when their fixture
+tree, harness tree and grading hash match the sweep's own rows (decision 4); otherwise it is listed
+as needing a run.
 The kind's own code classifies each trial (`analyse` of spikes/specified_edit_report.py,
 `load_verdicts` of spikes/tested_edit_report.py); nothing is re-implemented here.
 Depends on: bench.{layout,registry,stats}, spikes/{specified,tested}_edit_report.py.
 Run from the repo root once the studies are scored (scored file beside its raw file, or the raw file
 under results/experiments/):
-    python3 -B spikes/model_sweep_rank.py specified-edit A.scored.jsonl [B.scored.jsonl ...] [--out R.md]
+    python3 -B spikes/model_sweep_rank.py specified-edit A.scored.jsonl [B.scored.jsonl ...]
+        [--out R.md]
 Nothing is cleared, routed or switched by this.
 """
 
@@ -39,7 +41,11 @@ from bench import layout, registry  # noqa: E402
 from bench.stats import wilson  # noqa: E402
 
 KINDS = {
-    "specified-edit": {"profile": "specified-edit", "metric": "byte_exact", "report": "specified_edit_report"},
+    "specified-edit": {
+        "profile": "specified-edit",
+        "metric": "byte_exact",
+        "report": "specified_edit_report",
+    },
     "tested-edit": {"profile": "tested-edit", "metric": "correct", "report": "tested_edit_report"},
 }  # fmt: skip
 TAGS_URL = "http://localhost:11434/api/tags"
@@ -118,7 +124,8 @@ class Row:
 
 
 def pick(trials: Iterable[Trial]) -> dict[str, Trial]:
-    """Per issue, the lowest-numbered repeat with a scorable row (decision 4); faults are skipped."""
+    """Per issue, the lowest-numbered repeat with a scorable row (decision 4); faults are
+    skipped."""
     chosen: dict[str, Trial] = {}
     for t in trials:
         if t.fault:
@@ -208,11 +215,12 @@ def rank(studies: Sequence[Study], n_issues: int) -> Ranking:
 def fingerprint_mismatches(
     studies: Sequence[Study],
 ) -> dict[str, list[str]]:
-    """For each screened study, the fingerprint fields that differ from the sweep studies' (decision 4).
+    """For each screened study, the fingerprint fields that differ from the sweep studies'
+    (decision 4).
 
     The reference is the fingerprint all sweep studies share. Without sweep studies, or with sweep
-    studies that disagree, or a screened study of unknown fingerprint, nothing can be verified and the
-    study is listed with that reason.
+    studies that disagree, or a screened study of unknown fingerprint, nothing can be verified and
+    the study is listed with that reason.
     """
     sweep = {s.fingerprint for s in studies if not s.reused and s.fingerprint is not None}
     bad: dict[str, list[str]] = {}
@@ -247,7 +255,8 @@ def _line(place: str, r: Row, n_issues: int) -> str:
         note.append(f"screen, n = 3 cell {r.cell[0]}/{r.cell[1]}")
     if r.status == "stopped":
         note.append(
-            f"stopped after {r.failures} failures in {r.scored} trials, below the floor; at most {r.upper}"
+            f"stopped after {r.failures} failures in {r.scored} trials, below the floor; at most "
+            f"{r.upper}"
         )
     elif r.status == "partial":
         note.append(f"unfinished: {r.scored} of {n_issues} issues scored, at most {r.upper}")
@@ -257,7 +266,8 @@ def _line(place: str, r: Row, n_issues: int) -> str:
     median = f"{r.median_secs:.0f}" if r.median_secs == r.median_secs else "-"
     return (
         f"| {place} | {r.model} | {k_cell} | {interval} | {median} "
-        f"| {r.disk_gib:.2f} | {r.faults} | {r.missing} | {r.gpu or '-'} | {r.secondary} | {'; '.join(note)} |"
+        f"| {r.disk_gib:.2f} | {r.faults} | {r.missing} | {r.gpu or '-'} | {r.secondary} | "
+        f"{'; '.join(note)} |"
     )  # fmt: skip
 
 
@@ -271,11 +281,15 @@ def markdown(
     out = [
         f"# Model sweep: {kind} (plans/MODEL_SWEEP.md)",
         "",
-        f"Primary metric `{spec['metric']}`, k of N = {n} issues, one scorable trial per issue (n = 1; a screened "
-        "model's lowest-numbered repeat). Ties go to the smaller model on disk, then the lower median seconds, "
-        "then the name. Wilson 95% intervals. Nothing is cleared, routed or switched to default from this.",
+        f"Primary metric `{spec['metric']}`, k of N = {n} issues, one scorable trial per issue (n "
+        "= 1; a screened "
+        "model's lowest-numbered repeat). Ties go to the smaller model on disk, then the lower "
+        "median seconds, "
+        "then the name. Wilson 95% intervals. Nothing is cleared, routed or switched to default "
+        "from this.",
         "",
-        f"| rank | model | k/N | Wilson | median s | disk GiB | infra faults | missing | gpu | {metric2} | note |",
+        "| rank | model | k/N | Wilson | median s | disk GiB | infra faults | missing | gpu | "
+        f"{metric2} | note |",
         "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     out += [_line(str(i), r, n) for i, r in enumerate(result.ranked, 1)]
@@ -284,8 +298,13 @@ def markdown(
         "",
         f"**Floor:** k >= ceil(0.75 N) = {result.floor} of {n}.",
         f"**Top 3:** {', '.join(r.model for r in result.top3) or 'none'}.",
-        f"**Go forward** (top 3 at or above the floor): {', '.join(r.model for r in result.forward) or 'none'}"
-        + (f" ({len(result.forward)} of 3; nothing pads the list)." if len(result.forward) < 3 else "."),
+        "**Go forward** (top 3 at or above the floor): "
+        f"{', '.join(r.model for r in result.forward) or 'none'}"
+        + (
+            f" ({len(result.forward)} of 3; nothing pads the list)."
+            if len(result.forward) < 3
+            else "."
+        ),
     ]  # fmt: skip
     if result.dropped:
         out.append(
@@ -296,7 +315,8 @@ def markdown(
     if result.band:
         k3 = result.ranked[2].k
         out.append(
-            f"**Boundary band** (within one trial of the third-ranked k = {k3}; one trial moves a rate by "
+            f"**Boundary band** (within one trial of the third-ranked k = {k3}; one trial moves a "
+            "rate by "
             f"{1 / n:.3f}): " + ", ".join(f"{r.model} ({r.k})" for r in result.band) + "."
         )
         if result.possible:
@@ -310,14 +330,16 @@ def markdown(
     if rejected:
         out += [
             "",
-            "**Screen rows not used (decision 4: fingerprint differs; run these models in the sweep):**",
+            "**Screen rows not used (decision 4: fingerprint differs; run these models in the "
+            "sweep):**",
         ]
         out += [f"- {m}: {', '.join(why)}" for m, why in sorted(rejected.items())]  # fmt: skip
     every = (*result.ranked, *result.stopped, *result.partial)
     out += [
         "",
         f"Infrastructure faults (not scored): {sum(r.faults for r in every)}. "
-        f"Missing answers (kept in n): {sum(r.missing for r in result.ranked)} in complete studies.",
+        f"Missing answers (kept in n): {sum(r.missing for r in result.ranked)} in complete "
+        "studies.",
     ]
     return "\n".join(out) + "\n"
 
@@ -337,7 +359,8 @@ def _spike(name: str) -> ModuleType:
 def read_sizes(
     path: Path | None = None, fetch: Callable[[str], bytes] | None = None
 ) -> dict[str, float]:
-    """Disk GiB per model name from an `/api/tags` document (a file, or the live API; both read only)."""
+    """Disk GiB per model name from an `/api/tags` document (a file, or the live API; both read
+    only)."""
     if path is not None:
         doc = json.loads(path.read_text())
     else:
@@ -347,7 +370,8 @@ def read_sizes(
 
 
 def find_raw(scored: Path, trial_id: str, search: Path) -> Path:
-    """The raw file of a scored file: its sibling, else the file under `search` holding the trial."""
+    """The raw file of a scored file: its sibling, else the file under `search` holding the
+    trial."""
     sibling = scored.with_name(scored.name.replace(".scored.jsonl", ".jsonl"))
     if sibling != scored and sibling.exists():
         return sibling
@@ -372,7 +396,11 @@ def _fingerprint(
 ) -> tuple[str, ...] | None:
     """(fixture tree hash, harness tree, grading hash) when every record agrees, else None."""
     seen = {
-        (str(r.get("fixture_tree_hash", "")), str(r.get("harness_tree", "")), grading_hash(str(r.get("experiment_id", "")), reg))
+        (
+            str(r.get("fixture_tree_hash", "")),
+            str(r.get("harness_tree", "")),
+            grading_hash(str(r.get("experiment_id", "")), reg),
+        )
         for r in records
     }  # fmt: skip
     return next(iter(seen)) if len(seen) == 1 else None
@@ -388,7 +416,9 @@ def specified_trials(
     for row in scored:
         rec = records[row["trial_id"]]
         base: dict[str, Any] = dict(
-            issue=row["issue"], repeat=int(row.get("repeat") or 1), secs=float(row.get("secs") or 0.0),
+            issue=row["issue"],
+            repeat=int(row.get("repeat") or 1),
+            secs=float(row.get("secs") or 0.0),
             gpu=str(rec.get("gpu", "")),
         )  # fmt: skip
         if report.infra_fault(row, rec.get("steps")):
@@ -405,7 +435,8 @@ def specified_trials(
 def tested_trials(
     scored_path: Path, report: ModuleType, with_named: bool = True
 ) -> tuple[str, list[Trial]]:
-    """Trials for tested_edit from the report's own `load_verdicts` (the named test is a CPU run per trial)."""
+    """Trials for tested_edit from the report's own `load_verdicts` (the named test is a CPU run
+    per trial)."""
     saved = report.__dict__["named_pass_for"]
     if not with_named:
         report.__dict__["named_pass_for"] = lambda *a, **k: None
@@ -422,8 +453,13 @@ def tested_trials(
     }
     return model, [
         Trial(
-            issue=v.issue, repeat=int(rows[v.trial_id].get("repeat") or 1), primary=v.correct,
-            fault=bool(v.fault), missing=v.missing_answer, secs=v.secs, gpu=gpus.get(v.trial_id, ""),
+            issue=v.issue,
+            repeat=int(rows[v.trial_id].get("repeat") or 1),
+            primary=v.correct,
+            fault=bool(v.fault),
+            missing=v.missing_answer,
+            secs=v.secs,
+            gpu=gpus.get(v.trial_id, ""),
             secondary=v.silent_wrong,
         )
         for v in verdicts
