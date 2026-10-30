@@ -1773,6 +1773,39 @@ def test_the_tree_digest_catches_an_edit_whose_size_and_mtime_were_put_back(
     assert host.tree_digest(str(tmp_path / "none")) == "absent"
 
 
+def test_a_host_written_file_is_rewritten_unseen_but_any_other_change_beside_it_shows(
+    tmp_path: Path,
+) -> None:
+    """The reachability timer's rewrite of its own file (atomic, so its directory's times move
+    too) leaves the digest alone; an edit, a new file or a removal beside it still changes it."""
+    import os
+
+    (tmp_path / "runtime").mkdir()
+    written = tmp_path / "runtime" / "reach.json"
+    other = tmp_path / "runtime" / "other.json"
+    written.write_text("{}")
+    other.write_text("{}")
+    host = sr.Host(tmp_path, trees={}, host_written=frozenset({str(written)}))
+    first = host.tree_digest(str(tmp_path))
+    (tmp_path / "runtime" / "tmp").write_text('{"up": false, "longer": 1}')
+    os.replace(tmp_path / "runtime" / "tmp", written)
+    assert host.tree_digest(str(tmp_path)) == first
+    other.write_text('{"changed": 1}')
+    assert host.tree_digest(str(tmp_path)) != first
+    second = host.tree_digest(str(tmp_path))
+    (tmp_path / "runtime" / "new.json").write_text("{}")
+    assert host.tree_digest(str(tmp_path)) != second
+    (tmp_path / "runtime" / "new.json").unlink()
+    written.unlink()
+    assert host.tree_digest(str(tmp_path)) != second
+    assert sr.HOST_WRITTEN == frozenset(
+        {
+            "/srv/pruvera/trading/runtime/executor-reachability.json",
+            "/srv/pruvera/trading/reports/meta/usage_counts.json",
+        }
+    )
+
+
 def test_the_real_repo_snapshot_reads_git_without_writing_and_sees_every_change(
     tmp_path: Path,
 ) -> None:
