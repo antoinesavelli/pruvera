@@ -311,6 +311,16 @@ def _write_bundle(
     return Path(out)
 
 
+def _check_evidence(row: dict[str, Any], rows: list[dict[str, Any]], root: Path) -> None:
+    """Each restatement's evidence file must still exist, byte for byte."""
+    for r in registry.restatements(rows, row["id"]):
+        shown = root / r["evidence"]
+        if not shown.is_file() or _sha(shown) != r.get("evidence_sha256"):
+            raise registry.RegistryError(
+                f"{row['id']}: the evidence {r['evidence']} of a restatement is missing or changed"
+            )
+
+
 def _check_judgeable(row: dict[str, Any], rows: list[dict[str, Any]], root: Path) -> None:
     """Refuse to judge what is not the registered study: spec edited, never run, rules moved."""
     spec = root / "experiments" / f"{row['id']}.toml"
@@ -318,9 +328,27 @@ def _check_judgeable(row: dict[str, Any], rows: list[dict[str, Any]], root: Path
         raise registry.RegistryError(f"{row['id']}: the spec changed since it was registered")
     if not any(r["event"] == "started" and r["id"] == row["id"] for r in rows):
         raise registry.RegistryError(f"{row['id']}: registered but never run")
+    _check_evidence(row, rows, root)
     if row.get("gate_rules") and row["gate_rules"] != gate.rules():
         raise registry.RegistryError(
             f"{row['id']}: the gate's thresholds changed since registration"
+        )
+
+
+def _check_record_trees(
+    row: dict[str, Any], rows: list[dict[str, Any]], records: list[Any]
+) -> None:
+    """A restated study is judged only on trials from its registered or restated `bench/` trees."""
+    if not registry.restatements(rows, row["id"]):
+        return
+    accepted = registry.accepted_trees(rows, row)
+    other = sorted(
+        {str(t)[:12] for r in records if (t := r.get("harness_tree")) not in accepted | {None, ""}}
+    )
+    if other:
+        raise registry.RegistryError(
+            f"{row['id']}: trials ran on bench/ trees the registration and its restatements "
+            f"do not name: {', '.join(other)}"
         )
 
 
@@ -451,6 +479,7 @@ def judge(
     verdict["alpha_used"] = alpha
     results = _results(experiment_id, root)
     records = [r for r in read_jsonl(results, skip_bad=True) if "trial_id" in r]
+    _check_record_trees(row, registry_rows, records)
     caveats = [*_caveats(row, verdict, records), *filter(None, [grading])]
     text = report.render(row, verdict, report.hazard_table(base, cand, counts), caveats)
     bundle = _write_bundle(row, [*base, *cand], verdict, text, root)
@@ -553,6 +582,12 @@ def main(argv: list[str] | None = None) -> int:
     ab = sub.add_parser("abandon")
     ab.add_argument("id")
     ab.add_argument("--reason", required=True)
+    rs = sub.add_parser("restate")
+    rs.add_argument("id")
+    rs.add_argument(
+        "--evidence", required=True, help="repo-relative file showing the code is the same"
+    )
+    rs.add_argument("--reason", required=True)
     for name in ("status", "retro", "verify", "retention"):
         sub.add_parser(name)
     args = parser.parse_args(argv)
@@ -598,6 +633,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "retention": lambda: _show(retention.report()),
         "run": lambda: _done(run(args.id, args.out, n=args.n, only=args.only)),
         "abandon": lambda: _done(registry.abandon(args.id, args.reason)),
+        "restate": lambda: _show(registry.restate(args.id, args.evidence, args.reason)),
         "retro": lambda: _done(print(f"{len(registry.retro())} studies recorded after the data")),
         "status": _status,
         "verify": _verify,

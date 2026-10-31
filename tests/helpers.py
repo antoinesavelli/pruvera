@@ -1,4 +1,4 @@
-"""Shared test helpers: the sandbox probe and skip marker, a sandbox shell, and an Issue factory.
+"""Shared test helpers: sandbox probe and skip marker, sandbox shell, Issue factory, bench commit.
 
 Depends on: bench.{gitutil,sandbox}, bench.issues.schema, pytest.
 """
@@ -122,3 +122,9 @@ def spec(
         gitutil.run(root, "add", f"experiments/{sid}.toml")
         gitutil.run(root, "commit", "-qm", f"spec {sid}")
     return path
+
+
+def commit_bench(root: Path, text: str) -> None:
+    """Commits a change under bench/ in a test repo."""
+    (root / "bench" / "x.py").write_text(text)
+    subprocess.run(["git", "-C", str(root), "commit", "-qam", "bench change"], check=True)

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import random
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +18,7 @@ import pytest
 
 from bench import budget, experiment, gate, layout, registry
 from bench.issues import trials
+from tests.helpers import commit_bench
 from tests.helpers import spec as _spec
 from tests.test_decisions import STRONG, _register, _scored
 
@@ -163,12 +163,6 @@ def test_a_registration_without_the_grading_hash_or_a_non_confirmatory_change_ge
     )
 
 
-def _commit_bench(root: Path, text: str) -> None:
-    """Commits a change under bench/ in the test repo."""
-    (root / "bench" / "x.py").write_text(text)
-    subprocess.run(["git", "-C", str(root), "commit", "-qam", "bench change"], check=True)
-
-
 def test_a_confirmatory_run_or_resume_on_another_bench_tree_is_refused(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -180,10 +174,10 @@ def test_a_confirmatory_run_or_resume_on_another_bench_tree_is_refused(
     assert [r["harness_tree"] for r in registry.read(root) if r["event"] == "started"] == [
         row["harness_tree"]
     ]
-    _commit_bench(root, "x = 2\n")
+    commit_bench(root, "x = 2\n")
     with pytest.raises(registry.RegistryError, match="registered on"):
         registry.authorize("hold-1", arms, None, out, root)
-    _commit_bench(root, "x = 1\n")  # the same code again: the same tree, whatever the commit
+    commit_bench(root, "x = 1\n")  # the same code again: the same tree, whatever the commit
     assert registry.authorize("hold-1", arms, None, out, root) == "hold-1"
 
 
@@ -192,7 +186,7 @@ def test_an_exploratory_run_on_another_tree_runs_and_the_report_names_both_trees
 ) -> None:
     """Only a confirmatory study is pinned; any study's caveats list the trees its trials ran on."""
     registry.register(_spec(root, "dev-1", "exploratory", "dev", "dev+rule"), root)
-    _commit_bench(root, "x = 3\n")
+    commit_bench(root, "x = 3\n")
     assert registry.authorize("dev-1", {"b": "dev", "c": "dev+rule"}, None, root / "o", root)
     row = registry.registered("dev-1", root)
     notes = experiment._caveats(row, {}, [{"harness_tree": "f" * 40}])
@@ -252,3 +246,64 @@ def test_the_design_is_read_from_the_root_it_is_given(tmp_path: Path) -> None:
     assert gate.issue_repeats("p", 4, 8, tmp_path) == {}
     with pytest.raises(FileNotFoundError):
         gate.issue_repeats("p", 4, 8)  # no profile p under the code root
+
+
+def _records(root: Path, trees: list[str]) -> None:
+    """The study's results file, one trial record per bench/ tree named."""
+    results = registry.results_dir(root) / "experiments" / "hold-1.jsonl"
+    results.write_text(
+        "".join(
+            json.dumps({"trial_id": f"t{i}", "artifact_sha256": "a", "harness_tree": t}) + "\n"
+            for i, t in enumerate(trees)
+        )
+    )
+
+
+def test_a_restated_study_is_judged_on_the_registered_and_restated_trees_only(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Records on the registered and restated trees judge, with a note; a third tree refuses."""
+    _study(root, monkeypatch, _scored(random.Random(3)))
+    registered = registry.registered("hold-1", root)["harness_tree"]
+    commit_bench(root, "x = 2\n")
+    (root / "evidence.md").write_text("same code\n")
+    restated = registry.restate("hold-1", "evidence.md", "history rewritten", root)["harness_tree"]
+    _records(root, [registered, restated, "e" * 40])
+    with pytest.raises(registry.RegistryError, match="do not name: eeeeeeeeeeee"):
+        experiment.judge("hold-1", root)
+    assert _judged_rows(root) == []
+    _records(root, [registered, restated])
+    assert experiment.judge("hold-1", root)["verdict"]
+    text = (registry.results_dir(root) / "verdicts" / "hold-1" / "REPORT.md").read_text()
+    assert "span 2 bench/ trees" in text
+
+
+def test_a_study_without_a_restatement_is_judged_as_before(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a restatement a record on another tree is only noted in the report, as before."""
+    _study(root, monkeypatch, _scored(random.Random(3)))
+    _records(root, ["e" * 40])
+    assert experiment.judge("hold-1", root)["verdict"]
+    text = (registry.results_dir(root) / "verdicts" / "hold-1" / "REPORT.md").read_text()
+    assert "span 2 bench/ trees" in text
+
+
+@pytest.mark.parametrize("change", ["missing", "edited"])
+def test_a_restated_study_is_not_judged_when_its_evidence_is_gone_or_changed(
+    root: Path, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    """The evidence file a restatement hashed must still be there, byte for byte, at judging."""
+    _study(root, monkeypatch, _scored(random.Random(3)))
+    commit_bench(root, "x = 2\n")
+    evidence = root / "evidence.md"
+    evidence.write_text("same code\n")
+    registry.restate("hold-1", "evidence.md", "history rewritten", root)
+    if change == "missing":
+        evidence.unlink()
+    else:
+        evidence.write_text("other\n")
+    with pytest.raises(registry.RegistryError, match="evidence evidence.md .* missing or changed"):
+        experiment.judge("hold-1", root)
+    evidence.write_text("same code\n")
+    assert experiment.judge("hold-1", root)["verdict"]

@@ -5,13 +5,16 @@ Depends on: bench.{registry,experiment,gitutil,layout}, pytest, git.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from bench import experiment, gitutil, layout, registry
+from tests.helpers import commit_bench
 from tests.helpers import spec as _spec
 
 
@@ -300,3 +303,133 @@ def test_a_row_registered_before_the_field_still_verifies_and_means_v2(
     monkeypatch.setattr(layout, "VERSION", "v2")
     assert registry.authorize("dev-1", arms, None, out, root) == "dev-1"
     assert registry.verify(registry.read(root)) == []
+
+
+ARMS = {"b": "holdout", "c": "holdout+rule"}
+
+
+def _rewritten(root: Path) -> dict[str, Any]:
+    """A confirmatory study registered and started, then bench/ re-committed as another tree."""
+    registry.register(_spec(root, "hold-1", "confirmatory", "holdout", "holdout+rule"), root)
+    registry.authorize("hold-1", ARMS, None, root / "o.jsonl", root)
+    commit_bench(root, "x = 2\n")
+    (root / "docs").mkdir()
+    (root / "docs" / "same-code.md").write_text("the two trees run the same code\n")
+    return registry.registered("hold-1", root)
+
+
+def _restate(root: Path) -> dict[str, Any]:
+    """Restates `hold-1` onto HEAD's bench/ tree."""
+    return registry.restate("hold-1", "docs/same-code.md", "history rewritten", root)
+
+
+def test_a_restated_tree_lets_a_confirmatory_resume_pass_and_the_old_one_no_longer(
+    root: Path,
+) -> None:
+    """After a restatement the study resumes on the new tree; the registered one is then refused."""
+    row = _rewritten(root)
+    with pytest.raises(registry.RegistryError, match="registered on"):
+        registry.authorize("hold-1", ARMS, None, root / "o.jsonl", root)
+    restated = _restate(root)
+    assert restated["event"] == "restated" and restated["id"] == "hold-1"
+    assert restated["harness_tree"] == gitutil.tree(root, "bench") != row["harness_tree"]
+    assert restated["previous_tree"] == row["harness_tree"]
+    assert restated["evidence"] == "docs/same-code.md" and restated["reason"] == "history rewritten"
+    assert (
+        restated["evidence_sha256"]
+        == hashlib.sha256(b"the two trees run the same code\n").hexdigest()
+    )
+    assert registry.authorize("hold-1", ARMS, None, root / "o.jsonl", root) == "hold-1"
+    assert registry.verify(registry.read(root)) == []
+    commit_bench(root, "x = 1\n")  # back on the registered tree: no longer the accepted one
+    with pytest.raises(registry.RegistryError, match="restated onto .*a restatement exists"):
+        registry.authorize("hold-1", ARMS, None, root / "o.jsonl", root)
+
+
+def test_a_second_restatement_moves_the_accepted_tree_again(root: Path) -> None:
+    """The latest restatement is the accepted tree, and it records the one before as previous."""
+    _rewritten(root)
+    first = _restate(root)
+    commit_bench(root, "x = 3\n")
+    assert _restate(root)["previous_tree"] == first["harness_tree"]
+
+
+@pytest.mark.parametrize("closing", ["judged", "abandoned"])
+def test_restating_a_judged_or_abandoned_study_is_refused(root: Path, closing: str) -> None:
+    """A study whose verdict bundle or abandonment is on record is not restated."""
+    _rewritten(root)
+    registry.append(root, closing, id="hold-1")
+    with pytest.raises(registry.RegistryError, match=f"{closing}|already judged"):
+        _restate(root)
+
+
+def test_restating_an_unknown_or_non_confirmatory_study_is_refused(root: Path) -> None:
+    """Only a registered confirmatory study is pinned to a tree, so only it is restated."""
+    registry.register(_spec(root, "dev-1", "exploratory", "dev", "dev+rule"), root)
+    (root / "docs").mkdir()
+    (root / "docs" / "same-code.md").write_text("x\n")
+    commit_bench(root, "x = 2\n")
+    with pytest.raises(registry.RegistryError, match="not registered"):
+        registry.restate("nope", "docs/same-code.md", "r", root)
+    with pytest.raises(registry.RegistryError, match="only a confirmatory"):
+        registry.restate("dev-1", "docs/same-code.md", "r", root)
+
+
+@pytest.mark.parametrize("evidence", ["docs/missing.md", "docs", "../outside.md"])
+def test_restating_without_an_evidence_file_under_the_repo_is_refused(
+    root: Path, evidence: str
+) -> None:
+    """The evidence must be an existing file inside the repo."""
+    _rewritten(root)
+    (root.parent / "outside.md").write_text("x\n")
+    with pytest.raises(registry.RegistryError, match="not a file under the repo"):
+        registry.restate("hold-1", evidence, "r", root)
+    assert [r for r in registry.read(root) if r["event"] == "restated"] == []
+
+
+def test_restating_onto_a_dirty_bench_or_the_accepted_tree_is_refused(root: Path) -> None:
+    """A dirty bench/ has no tree to accept; the accepted tree needs no restatement."""
+    registry.register(_spec(root, "hold-1", "confirmatory", "holdout", "holdout+rule"), root)
+    (root / "docs").mkdir()
+    (root / "docs" / "same-code.md").write_text("x\n")
+    with pytest.raises(registry.RegistryError, match="already the accepted tree"):
+        _restate(root)
+    (root / "bench" / "new.py").write_text("y = 1\n")
+    with pytest.raises(registry.RegistryError, match="clean, committed bench"):
+        _restate(root)
+
+
+def test_restating_when_git_cannot_name_the_tree_is_refused(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tree git cannot name ("unknown") is never accepted."""
+    _rewritten(root)
+    monkeypatch.setattr(gitutil, "tree", lambda *_a: "unknown")
+    with pytest.raises(registry.RegistryError, match="clean, committed bench"):
+        _restate(root)
+
+
+def test_the_chain_notices_an_edited_or_removed_row_after_a_restatement(root: Path) -> None:
+    """A restated row is hash-chained: editing it, or dropping it, breaks `verify`."""
+    _rewritten(root)
+    _restate(root)
+    path = registry.registry_path(root)
+    lines = path.read_text().splitlines()
+    edited = [json.loads(line) for line in lines]
+    edited[-1]["harness_tree"] = "f" * 40
+    assert registry.verify(edited) != []
+    assert registry.verify(edited[:-2] + edited[-1:]) != []  # the row before it removed
+    path.write_text("\n".join([*lines[:-1], json.dumps(edited[-1])]) + "\n")
+    with pytest.raises(registry.RegistryError, match="chain is broken"):
+        registry.abandon("hold-1", "x", root)
+
+
+def test_evidence_is_stored_as_a_repo_relative_posix_path_however_it_was_typed(root: Path) -> None:
+    """An absolute or `./`-prefixed path is recorded relative to the repo."""
+    _rewritten(root)
+    row = registry.restate("hold-1", str(root / "docs" / ".." / "docs" / "same-code.md"), "r", root)
+    assert row["evidence"] == "docs/same-code.md"
+    commit_bench(root, "x = 3\n")
+    assert registry.restate("hold-1", "./docs/same-code.md", "r", root)["evidence"] == (
+        "docs/same-code.md"
+    )

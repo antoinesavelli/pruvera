@@ -16,8 +16,9 @@ config declares it a subagent); the registered value is frozen like the seed. A 
 records the fixture version the process selected (`fixture_version`, `layout.VERSION`; a row from
 before the field is `v2`), and a run on any other version is refused. `registered` and `started`
 rows record the committed tree of `bench/` (`harness_tree`), and a confirmatory run, a resume too,
-on any other tree is refused (a row from before the field is not compared). A judged study cannot
-be run again: its verdict bundle hashed the results file.
+on any other tree is refused (a row from before the field is not compared) unless a `restated` row,
+evidenced and owner-approved, moved the study's accepted tree to the current one. A judged study
+cannot be run again: its verdict bundle hashed the results file.
 Depends on: bench.{agentconfig,gitutil,jsonl,layout,ledger}, bench.issues.schema; git.
 """
 
@@ -482,7 +483,7 @@ def authorize(
     head, dirty = gitutil.code_state(root, "bench")
     tree = gitutil.tree(root, "bench")
     if row["kind"] == "confirmatory":
-        _check_confirmatory_code(row, dirty, tree)
+        _check_confirmatory_code(row, dirty, tree, restatements(rows, experiment))
     if not any(r["event"] == "started" and r["id"] == experiment for r in rows):
         append(
             root, "started", id=experiment, out=rel(out, root), harness_commit=head,
@@ -491,16 +492,70 @@ def authorize(
     return experiment
 
 
-def _check_confirmatory_code(row: dict[str, Any], dirty: bool, tree: str) -> None:
-    """A confirmatory run, a resume too, runs the committed bench/ it was registered with."""
+def restatements(rows: list[dict[str, Any]], experiment: str) -> list[dict[str, Any]]:
+    """The `restated` rows of a study, oldest first."""
+    return [r for r in rows if r["event"] == "restated" and r.get("id") == experiment]
+
+
+def accepted_trees(rows: list[dict[str, Any]], row: dict[str, Any]) -> set[str]:
+    """The `bench/` trees a study's records may name: the registered one and each restated one."""
+    named = [row.get("harness_tree"), *(r["harness_tree"] for r in restatements(rows, row["id"]))]
+    return {str(t) for t in named if t}
+
+
+def _check_confirmatory_code(
+    row: dict[str, Any], dirty: bool, tree: str, restated: list[dict[str, Any]]
+) -> None:
+    """A confirmatory run, a resume too, runs the committed bench/ it is accepted on.
+
+    That is the registered tree, or the latest of the study's `restated` rows.
+    """
     if dirty:
         raise RegistryError(f"{row['id']}: a confirmatory run needs a clean bench/")
-    registered_tree = row.get("harness_tree")  # a row from before the field: not compared
-    if registered_tree and tree != registered_tree:
+    accepted = restated[-1]["harness_tree"] if restated else row.get("harness_tree")
+    if accepted and tree != accepted:  # a row from before the field: not compared
         raise RegistryError(
-            f"{row['id']}: bench/ is tree {tree[:12]} now, but the study was registered on "
-            f"{registered_tree[:12]}; a confirmatory study runs the code it was registered with"
+            f"{row['id']}: bench/ is tree {tree[:12]} now, but the study was "
+            f"{'restated onto' if restated else 'registered on'} {accepted[:12]}"
+            f"{' (a restatement exists)' if restated else ''}; "
+            "a confirmatory study runs the code it was registered with"
         )
+
+
+def restate(
+    experiment: str, evidence: str, reason: str, root: Path = layout.ROOT
+) -> dict[str, Any]:
+    """Move a confirmatory study's accepted `bench/` tree to HEAD's, on evidence of the same code.
+
+    For a history rewrite that changed the tree hash but not the code the study runs. The row is
+    chained like any other; the registered row and the earlier trials are untouched.
+    """
+    rows = read(root)
+    row = _registered(rows, experiment)
+    if row["kind"] != "confirmatory":
+        raise RegistryError(f"{experiment}: only a confirmatory study is pinned to a tree")
+    base, shown = root.resolve(), (root / evidence).resolve()
+    if not shown.is_file() or not shown.is_relative_to(base):
+        raise RegistryError(f"{experiment}: evidence {evidence!r} is not a file under the repo")
+    _, dirty = gitutil.code_state(root, "bench")
+    tree = gitutil.tree(root, "bench")
+    if dirty or tree == "unknown":
+        raise RegistryError(f"{experiment}: restating needs a clean, committed bench/")
+    previous = (restatements(rows, experiment) or [row])[-1].get("harness_tree", "")
+
+    def check(now: list[dict[str, Any]]) -> None:
+        """The same study state and accepted tree, re-read under the lock."""
+        _registered(now, experiment)
+        if (restatements(now, experiment) or [row])[-1].get("harness_tree", "") != previous:
+            raise RegistryError(f"{experiment}: restated meanwhile")
+
+    if tree == previous:
+        raise RegistryError(f"{experiment}: bench/ is already the accepted tree {tree[:12]}")
+    return append(
+        root, "restated", check=check, id=experiment, harness_tree=tree,
+        previous_tree=previous, evidence=shown.relative_to(base).as_posix(),
+        evidence_sha256=hashlib.sha256(shown.read_bytes()).hexdigest(), reason=reason,
+    )  # fmt: skip
 
 
 def abandon(experiment: str, reason: str, root: Path = layout.ROOT) -> dict[str, Any]:
