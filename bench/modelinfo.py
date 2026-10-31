@@ -66,6 +66,17 @@ def post_json(
     return reply
 
 
+def sizes_from_tags(doc: Mapping[str, Any]) -> dict[str, int]:
+    """Disk bytes per model name from an `/api/tags` document (`:latest` dropped)."""
+    return {str(e["name"]).removesuffix(":latest"): int(e["size"]) for e in doc["models"]}
+
+
+def model_sizes(port: int = 11434) -> dict[str, int]:
+    """Disk bytes per installed model (`/api/tags`, `:latest` dropped); raises if unreadable."""
+    with _open(f"http://127.0.0.1:{port}/api/tags", 5) as resp:
+        return sizes_from_tags(json.load(resp))
+
+
 def model_parameters(model: str, port: int = 11434) -> str:
     """Ollama's default sampling and context parameters for `model` (`/api/show`), or ''."""
     # Trials are unseeded: the model's own defaults (temperature, top_p, num_ctx) are the only
