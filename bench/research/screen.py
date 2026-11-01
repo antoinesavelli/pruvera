@@ -238,9 +238,10 @@ def run(
     wait: float = 120.0,
     force: bool = False,
     tags: Path | None = None,
+    profile: str = "clean",
 ) -> Path:
     """Run the screen (resumable); returns the results file."""
-    fx = runner.load_profile(layout.VERSION, "clean")
+    fx = runner.load_profile(layout.VERSION, profile)
     questions = oracles.draw(fx.tree, seed)
     write_questions(out, seed, questions)
     record_sizes(out, raw_sizes(models, tags))
@@ -282,6 +283,7 @@ def parser() -> argparse.ArgumentParser:
     go.add_argument("--out", type=Path, required=True)
     go.add_argument("--wait", type=float, default=120.0)
     go.add_argument("--force", action="store_true")
+    go.add_argument("--profile", default="clean", help="for example clean+<variant>")
     rep = sub.add_parser("report")
     rep.add_argument("out", type=Path)
     rep.add_argument("--research-model", default=RESEARCH_MODEL)
@@ -300,7 +302,16 @@ def main(argv: list[str] | None = None) -> int:
             return dry_run(runner.load_profile(layout.VERSION, "clean").tree, args.seed)
         if args.cmd == "run":
             models = [m for m in args.models.split(",") if m]
-            run(args.seed, models, args.repeats, args.out, args.wait, args.force, args.sizes)
+            run(
+                args.seed,
+                models,
+                args.repeats,
+                args.out,
+                args.wait,
+                args.force,
+                args.sizes,
+                args.profile,
+            )
         else:
             print(report(args.out, args.research_model, args.drop, args.keep, args.sizes))
     except Refusal as exc:

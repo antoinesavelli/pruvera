@@ -475,3 +475,19 @@ def test_report_end_to_end_writes_one_graded_row_per_trial(
         "model", "question", "template", "repeat", "seconds", "outcome", "exact", "loose",
         "opened_source", "contaminated", "wrote_files",
     }  # fmt: skip
+
+
+def test_run_loads_the_named_profile(
+    tmp_path: Path, fake: Fake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[str] = []
+    load = runner.load_profile
+
+    def spy(version: str, profile: str) -> object:
+        seen.append(profile)
+        return load(version, profile)
+
+    monkeypatch.setattr(runner, "load_profile", spy)
+    out = tmp_path / "r.jsonl"
+    screen.run(1, ["small:1b"], 1, out, tags=tags_file(tmp_path), profile="clean+v")
+    assert seen == ["clean+v"]
