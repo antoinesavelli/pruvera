@@ -58,7 +58,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="sampling seed, for variance studies; omit it for an unseeded trial, like a real one",
     )
     tr.add_argument(
-        "--keep-overlay", action="store_true", help="keep the overlay even if completed"
+        "--keep-overlay",
+        action="store_true",
+        help="keep the overlay even for a completed or agent_error trial",
     )
     chk = sub.add_parser(
         "check", help="verify a fixture version against its manifest and preflight"

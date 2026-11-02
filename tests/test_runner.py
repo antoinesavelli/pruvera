@@ -116,10 +116,36 @@ def test_silent_stall_agent_error_timeout_and_hang(
     assert slow["outcome"] == "timeout" and float(slow["secs"]) > 1.5
     hang, _ = _run(fx, tmp_path, cfg, f"echo '{EVENT}'; sleep 30", hang_seconds=1.5)
     assert hang["outcome"] == "hang" and float(hang["secs"]) < 60
-    for rec in (err, slow, hang):
+    for rec in (stall, slow, hang):
         assert (tmp_path / "trials" / str(rec["trial_id"])).exists(), (
-            "unusual trials keep their overlay"
+            "rare outcomes keep their overlay"
         )
+
+
+def test_only_completed_and_agent_error_are_cleaned() -> None:
+    """The cleaned set is exactly these two; every rare outcome keeps its overlay."""
+    assert runner.CLEANED_OUTCOMES == {"completed", "agent_error"}
+    for outcome in ("silent_stall", "limit", "readback_failed", "timeout", "hang", "harness_error"):
+        assert outcome not in runner.CLEANED_OUTCOMES, outcome
+
+
+def test_routine_outcomes_drop_their_overlay_unless_kept(
+    fx: runner.Fixture, tmp_path: Path, cfg: Path
+) -> None:
+    """agent_error and completed remove the overlay; hang keeps it; keep_overlay keeps any."""
+    failing = f"echo '{EVENT}'; exit 3"
+    err, _ = _run(fx, tmp_path, cfg, failing)
+    done, _ = _run(fx, tmp_path, cfg, f"echo '{EVENT}'")
+    hang, _ = _run(fx, tmp_path, cfg, f"echo '{EVENT}'; sleep 30", hang_seconds=1.5)
+    kept, _ = _run(fx, tmp_path, cfg, failing, keep_overlay=True)
+    assert [r["outcome"] for r in (err, done, hang, kept)] == [
+        "agent_error",
+        "completed",
+        "hang",
+        "agent_error",
+    ]
+    exists = [(tmp_path / "trials" / str(r["trial_id"])).exists() for r in (err, done, hang, kept)]
+    assert exists == [False, False, True, True]
 
 
 def test_the_record_carries_the_issue_definition_hash_the_trial_started_with(
@@ -159,6 +185,7 @@ def test_harness_error_is_never_scored_as_an_agent_result(
     monkeypatch.setattr(runner, "_read_back", boom)
     rec, _ = _run(fx, tmp_path, cfg, f"echo '{EVENT}'")
     assert rec["outcome"] == "harness_error" and "read-back failed" in str(rec["detail"])
+    assert (tmp_path / "trials" / str(rec["trial_id"])).exists(), "harness_error keeps its overlay"
 
 
 def test_drifted_base_refuses_to_run(fx: runner.Fixture, tmp_path: Path, cfg: Path) -> None:
@@ -602,6 +629,7 @@ def test_a_trial_that_fills_its_overlay_is_killed_with_outcome_limit(
     script = f"echo '{EVENT}'; {fill}; sleep 20"
     rec, _ = _run(fx, tmp_path, cfg, script, timeout=20.0, hang_seconds=20.0)
     assert rec["outcome"] == "limit"
+    assert (tmp_path / "trials" / str(rec["trial_id"])).exists(), "limit keeps its overlay"
 
 
 def test_a_pinned_fixture_whose_manifest_lacks_the_git_hash_is_refused(
@@ -795,6 +823,9 @@ def test_a_git_state_failure_is_a_failed_readback_not_an_empty_state(
     monkeypatch.setattr(runner, "_git_state", broken)
     rec, _ = _run(fx, tmp_path, cfg, f"echo '{EVENT}'")
     assert rec["outcome"] == "readback_failed" and "boom" in str(rec["detail"])
+    assert (tmp_path / "trials" / str(rec["trial_id"])).exists(), (
+        "readback_failed keeps its overlay"
+    )
 
 
 def _scope_issue(hook_kind: str, hook_path: str) -> Any:

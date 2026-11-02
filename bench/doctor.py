@@ -8,8 +8,8 @@ model than `ollama` serves today. Each record is looked up under its own fixture
 and the builds of every version on disk are re-hashed. A reference-side record (the realism check's
 real-repo copy) is listed apart: its tree is never kept, by design. Exit status 1 when a fixture
 build is gone or drifted (`--strict`: any flag).
-Depends on: bench.{layout,modelinfo,registry,runner,jsonl}; a running Ollama for the model digests
-(optional).
+Depends on: bench.{layout,modelinfo,registry,retention,runner,jsonl}; a running Ollama for the
+model digests (optional).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from bench import layout, modelinfo, registry, runner
+from bench import layout, modelinfo, registry, retention, runner
 from bench.jsonl import read_jsonl
 
 
@@ -179,6 +179,8 @@ def main(argv: list[str] | None = None) -> int:
     _report(rows, builds, not args.skip_builds)
     archived = _archived(args.results)
     print(f"archive (not audited): {len(archived)} files, reasons in results/archive/INDEX.jsonl")
+    if line := retention.nudge():
+        print(line)
     problems = registry.audit() if args.results == layout.RESULTS else []
     for problem in problems:
         print(f"REGISTRY {problem}")

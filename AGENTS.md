@@ -73,6 +73,20 @@ a paid or heavy job · *Skills fix themselves* if a skill misfires · when a gua
 | Experiments and evaluations | `plans/` (dated plan docs; they stay as written), `experiments/` (study specs), `EVAL_CARD.md` (the planted-issue suite's datasheet) |
 | Fixtures | `fixtures/` (manifests, stubs, known-red tests; trees and data are local only) |
 
+## Where test output goes
+
+| Class | Home | Lifetime |
+|---|---|---|
+| Code | `bench/`, `tests/`, `experiments/`, tracked (`issues/` is not tracked: see the public-repo rule below) | Kept |
+| Evidence | `results/` (gitignored; `results/public/` is tracked) | Kept; history isn't moved, because plans and rows cite its paths |
+| Rebuildable | `fixtures/.../profiles/` | Removable when unused; `bench.issues.plant` rebuilds it |
+| Scratch | `overlays/`, `artifacts/` not cited by a result, `runs/` (hand-made scratch with no single writer) | Overlays and uncited artifacts expire (`bench.retention --apply`); `runs/` has no expiry, it is only listed |
+| One-off checks | The session's scratchpad | Never in the repo |
+
+The owner runs `python3 -m bench.retention --apply`, typically at a plan gate; it deletes only stale overlays and orphan artifacts. It refuses on anything that could hide a citation; the module docstring of `bench/retention.py` lists them. An artifact counts as cited when its name is a token, or just a substring, of any file or file path under `results/` (so `abc-def` cites `abc`: a false citation only keeps a directory), scored files and notes included. `runs/` and `profiles.old-*` are listed, never deleted by it.
+`bench.doctor` and `bench.experiment run` print a one-line nudge once stale overlays reach 50 or old profile folders reach 5; it never refuses. A `profiles.old-*` row with `cited_builds` 0 holds no cited hash that its version's `profiles/` lacks, so removing it leaves `bench.doctor` nothing to flag; above 0 the same hash may also live in another old folder, so one of them can go, but not all; `null` means `results/` could not be fully read, so nothing is known.
+A report or script a plan will re-run goes in `bench/<area>/` with a test. A one-off behind a finished evaluation goes in `spikes/`, whose docstring says so. A throwaway check stays in the session scratchpad. `variants/` holds variant data, not new scripts.
+
 ## Domain invariants (non-negotiable)
 
 Each names the test that pins it; one marked "no test" is a rule of conduct that nothing enforces yet.
@@ -91,6 +105,7 @@ Each names the test that pins it; one marked "no test" is a rule of conduct that
 | **A scorer or sandbox change needs a passing self-test first.** The scorers and the escape test are what make results trustworthy; do not trust a check's own printed summary, re-verify against the real state. | `tests/test_sandbox_redteam.py` (run by `bin/sandbox_redteam.py`), `tests/test_score.py` |
 | **Fix the cause, not the check.** Never patch or weaken a guard in a fixture to make it pass; record it as a fixture fact instead. | no test (conduct rule; the core block states the general form) |
 | **Public repo; local-only data.** The repo is public (`github.com/antoinesavelli/pruvera`) and every push is the owner's call. `issues/` (the planted-issue catalogue), `fixtures/`, `synthetic/`, `results/` (except `results/public/`), `legacy_bench/`, the two generation-3 modules in `bench/issues/`, `bin/` (except `bin/ruff`) and the plans and specs listed in `.gitignore` exist on disk only: they are gitignored, `.githooks/refuse` stops a commit of them, and the nightly encrypted Borg backup holds them. Never `git add -f` one, and never put one in a commit or a doc. **Fixture trees, `venv/`, `overlays/`, `artifacts/`, `xdg/`, `runs/` and the local token and terms files are excluded from the backup on purpose:** they hold a slice of licensed market data, gitignored strategy code, trial transcripts and the private names and figures. If you add a new directory or file of that kind, add it to the backup excludes and to `.gitignore` in the same change. | `.githooks/refuse` keeps those paths out of a commit; `tests/test_pins.py` and the registry tests pin the harness; the backup-exclude rule has no test |
+| **No new `.py` entry in `.gitignore`:** a gitignored script has no history and no review. `/bin/*` is ignored as a whole and the test does not cover it. | `tests/test_scratch_guard.py` |
 | **Never read or print `dummy.key`** or any credential-shaped file. | `.githooks/pre-commit` refuses to commit one; reading has no test |
 | **Never touch `../blobs/` or `../manifests/`** (Ollama's model store). | `tests/test_ollama_filter.py` pins that the filter blocks a blob upload; the rule itself has no test |
 

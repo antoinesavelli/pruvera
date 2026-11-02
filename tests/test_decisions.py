@@ -224,15 +224,17 @@ def test_retention_lists_old_overlays_and_artifacts_no_result_cites(tmp_path: Pa
     long_ago = time.time() - 5 * 86400
     os.utime(tmp_path / "overlays" / "old", (long_ago, long_ago))
     os.utime(tmp_path / "overlays" / ".hidden", (long_ago, long_ago))
-    for name in ("cited", "orphan", "inflight"):
+    for name in ("cited", "orphan", "inflight", "scoredonly"):
         (tmp_path / "artifacts" / name).mkdir(parents=True)
-    for name in ("cited", "orphan"):
+    for name in ("cited", "orphan", "scoredonly"):
         os.utime(tmp_path / "artifacts" / name, (long_ago, long_ago))  # old enough to be judged
     (tmp_path / "results" / "archive").mkdir(parents=True)
     (tmp_path / "results" / "archive" / "r.jsonl").write_text(
         json.dumps({"trial_id": "cited"}) + "\n"
     )
-    (tmp_path / "results" / "r.scored.jsonl").write_text(json.dumps({"trial_id": "orphan"}) + "\n")
+    (tmp_path / "results" / "r.scored.jsonl").write_text(
+        json.dumps({"trial_id": "scoredonly"}) + "\n"
+    )  # a scored-only mention cites it, on purpose
     found = retention.report(tmp_path)
     assert [o["path"] for o in found["stale_overlays"]] == ["old"] and found["stale_overlays"][0][
         "bytes"
@@ -397,3 +399,22 @@ def test_a_spec_outside_experiments_and_a_bad_new_id_are_refused_by_name(root: P
         registry.register(outside, root)
     with pytest.raises(registry.RegistryError, match="lower case"):
         experiment.new("../x", root)
+
+
+def test_run_prints_the_storage_nudge_first_and_refuses_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`experiment run` prints the nudge line before it does anything else, still runs, and
+    returns the run's own status."""
+    monkeypatch.setattr(retention, "nudge", lambda state=experiment.layout.STATE: "storage: nudge")
+
+    def fake_run(*_a: object, **_k: object) -> Path:
+        print("RUN")
+        return Path("out")
+
+    monkeypatch.setattr(experiment, "run", fake_run)
+    assert experiment.main(["run", "e1"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["storage: nudge", "RUN"]
+    monkeypatch.setattr(retention, "nudge", lambda state=experiment.layout.STATE: None)
+    assert experiment.main(["run", "e1"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["RUN"]

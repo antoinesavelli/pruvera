@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from bench import doctor, layout, runner
+from bench import doctor, layout, retention, runner
+
+
+@pytest.fixture(autouse=True)
+def _no_nudge(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the audit from reading the real state for the storage nudge."""
+    monkeypatch.setattr(retention, "nudge", lambda state=layout.STATE: None)
 
 
 def _write(path: Path, rows: list[dict[str, object]]) -> None:
@@ -153,3 +159,36 @@ def test_doctor_fails_on_a_registry_problem_and_names_it(
     assert "REGISTRY results/gate/x.jsonl" in capsys.readouterr().out
     monkeypatch.setattr(doctor.registry, "audit", lambda: [])
     assert doctor.main(["--results", str(tmp_path), "--skip-builds"]) == 0
+
+
+def test_main_prints_the_storage_nudge_without_changing_the_exit_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The nudge line follows the archive line, and the status is the same as without it."""
+    monkeypatch.setattr(layout, "find_profile_dir", lambda h, v="v2": None)
+    monkeypatch.setattr(runner, "model_digest", lambda m, port=11434: "")
+    _write(tmp_path / "r.jsonl", [{"fixture_tree_hash": "x" * 64, "model": "m"}])
+    args = ["--results", str(tmp_path), "--skip-builds"]
+    quiet = doctor.main(args)
+    assert "storage:" not in capsys.readouterr().out
+    monkeypatch.setattr(retention, "nudge", lambda state=layout.STATE: "storage: 9 nudge line")
+    assert doctor.main(args) == quiet == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-1] == "storage: 9 nudge line" and "archive" in lines[-2]
+
+
+def test_a_clean_audit_with_a_nudge_still_exits_0(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The nudge is output only: an audit that exits 0 without it exits 0 with it."""
+    monkeypatch.setattr(layout, "find_profile_dir", lambda h, v="v2": tmp_path)
+    monkeypatch.setattr(runner, "model_digest", lambda m, port=11434: "d")
+    _write(
+        tmp_path / "r.jsonl", [{"fixture_tree_hash": "x" * 64, "model": "m", "model_digest": "d"}]
+    )
+    args = ["--results", str(tmp_path), "--skip-builds"]
+    assert doctor.main(args) == 0
+    capsys.readouterr()
+    monkeypatch.setattr(retention, "nudge", lambda state=layout.STATE: "storage: 9 nudge line")
+    assert doctor.main(args) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "storage: 9 nudge line"

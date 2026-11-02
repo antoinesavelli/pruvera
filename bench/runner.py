@@ -78,6 +78,7 @@ FINAL_TEXT_CHARS = 4000
 MAX_CAPTURE = 64 * 1024 * 1024  # characters of agent output the harness keeps per stream
 MAX_LINES = 200_000  # lines of agent output kept per stream (tiny lines cost memory each)
 MAX_LINE = 4 * 1024 * 1024  # longer stdout lines are dropped: a newline-free flood cannot grow RAM
+CLEANED_OUTCOMES = frozenset({"completed", "agent_error"})  # routine: overlay not kept
 DISK_CHECK_SECONDS = 3.0  # how often a running trial's overlay is measured against its cap
 
 
@@ -692,8 +693,8 @@ def run_trial(
     (adir / "trial.json").write_text(json.dumps(record, indent=1, sort_keys=True))
     with results_file.open("a") as fh:
         fh.write(json.dumps(record, sort_keys=True) + "\n")
-    if run.outcome == "completed" and not spec.keep_overlay:
-        sandbox.remove_trial_dirs(tdir)  # unusual trials keep their overlay for inspection
+    if run.outcome in CLEANED_OUTCOMES and not spec.keep_overlay:
+        sandbox.remove_trial_dirs(tdir)  # rare outcomes keep their overlay for inspection
     return record
 
 
