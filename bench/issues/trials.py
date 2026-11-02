@@ -65,6 +65,8 @@ def run_arms(
         raise ValueError("the arms plant different issues: they are not comparable")
     profiles = {name: fx.profile for name, fx in arms.items()}
     counts = _counts(ids, n, repeats)
+    if not experiment:  # a refusal makes no directory or lock file (a registration: below)
+        registry.authorize("", profiles, models, out, seed=seed, git_primary=git_primary)
     out.parent.mkdir(parents=True, exist_ok=True)
     with preflight.session_lock():
         experiment = registry.authorize(
@@ -482,7 +484,11 @@ def main(argv: list[str] | None = None) -> int:
     rt.add_argument("--write", action="store_true")
     args = parser.parse_args(argv)
     if args.cmd == "run":
-        run(args.profile, args.n, args.out, only=args.only)
+        try:
+            run(args.profile, args.n, args.out, only=args.only)
+        except registry.RegistryError as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 2
     elif args.cmd == "score":
         out = args.results.with_suffix(".scored.jsonl")
         print(score_file(args.results, args.profile, out))

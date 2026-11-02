@@ -463,12 +463,41 @@ def test_issues_the_profile_proof_says_cannot_be_won_are_neither_run_nor_scored(
     """Regression: an issue whose detector another planted issue also fails costs trials for
     nothing, and scores every perfect fix as a miss."""
     monkeypatch.setattr(layout, "version_dir", lambda version="v2": tmp_path / "no-versions")
-    fx = _proofed(tmp_path, "holdout", [IDS[0]])
+    fx = _proofed(tmp_path, "dev", [IDS[0]])
     assert trials.unfixable(fx) == {IDS[0]}
     trials.run_arms({"baseline": fx}, 1, tmp_path / "o.jsonl")
     assert IDS[0] not in {c[1] for c in fake.calls} and fake.calls
     clean = _proofed(tmp_path, "tune", [])
     assert trials.unfixable(clean) == set()
+
+
+@needs_catalogue
+def test_run_arms_refuses_an_unregistered_holdout_profile(
+    fake: FakeRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plain `holdout` arm without a registration is refused before any trial or file."""
+    from bench import registry
+
+    monkeypatch.setattr(layout, "version_dir", lambda version="v2": tmp_path / "no-versions")
+    out = tmp_path / "made" / "o.jsonl"
+    with pytest.raises(registry.RegistryError, match="holdout"):
+        trials.run_arms({"baseline": _proofed(tmp_path, "holdout", [])}, 1, out)
+    assert fake.calls == [] and not out.parent.exists(), "a refusal makes no directory"
+    assert not preflight.SESSION_LOCK.exists(), "a refusal makes no lock file"
+
+
+@needs_catalogue
+def test_trials_run_exits_2_with_a_message_for_an_unregistered_holdout_profile(
+    fake: FakeRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:  # fmt: skip
+    """`python3 -m bench.issues.trials run --profile holdout` prints the refusal, no traceback."""
+    monkeypatch.setattr(layout, "version_dir", lambda version="v2": tmp_path / "no-versions")
+    monkeypatch.setattr(runner, "load_profile", lambda _v, p: _proofed(tmp_path, p, []))
+    out = tmp_path / "made" / "o.jsonl"
+    assert trials.main(["run", "--profile", "holdout", "--out", str(out)]) == 2
+    assert "refused:" in capsys.readouterr().err
+    assert fake.calls == [] and not out.parent.exists()
 
 
 def test_a_variant_profile_inherits_the_proof_of_the_profile_it_was_built_from(

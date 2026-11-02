@@ -156,6 +156,7 @@ def load_fixture(
     if profile in (None, "clean"):
         manifest = json.loads((version_dir / "MANIFEST.json").read_text())
         return Fixture(version_dir.name, version_dir / "tree", manifest, venv, data, pins=pins)
+    layout.check_plain_name(profile)
     pdir = version_dir / "profiles" / profile
     manifest = json.loads((pdir / "MANIFEST.json").read_text())
     ids = tuple(manifest.get("issue_ids", ()))

@@ -429,6 +429,8 @@ def test_cli_check_reports_the_fixture_and_the_preflight_and_trial_runs_one(
             "m",
             "--prompt",
             "hi",
+            "--profile",
+            "clean",
             "--hook",
             "dirty:a.py:x",
             "--force",

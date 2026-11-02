@@ -327,9 +327,10 @@ def run(
 ) -> Path:
     """Run the screen (resumable); returns the results file.
 
-    A `+variant` profile is a candidate run: it needs a live registration (`experiment`) whose
-    baseline is `clean` and whose candidate is `profile`, as `registry.authorize` checks for
-    `trials.run_arms`; otherwise `Refusal`. Nothing is written until every check has passed:
+    A `+variant` profile, or one that plants holdout issues, is a candidate run: it needs a live
+    registration (`experiment`) whose baseline is `clean` and whose candidate is `profile`, as
+    `registry.authorize` checks for `trials.run_arms`; otherwise `Refusal`. Nothing is written
+    until every check has passed:
     an unregistered run is refused first, then the profile, questions, model sizes and results
     file are checked, then the session lock is taken, the file checks are repeated, the machine,
     fixture and agent tools are checked as the first trial would, and the registration is
@@ -338,7 +339,7 @@ def run(
     """
     check_profile_name(profile)
     if not experiment:
-        _authorize("", profile, out)  # nothing registered: refuses a candidate, writes nothing
+        _authorize("", profile, out)  # nothing registered: refuses a candidate or a holdout one
     if repeats < 1 or not any(models):
         raise Refusal("nothing to run: needs at least one model and one repeat")
     try:

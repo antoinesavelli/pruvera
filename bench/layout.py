@@ -43,6 +43,7 @@ def artifact_dir(recorded: str | Path) -> Path:
 
 def version_dir(version: str = VERSION) -> Path:
     """The directory of a fixture version."""
+    check_plain_name(version)
     return FIXTURES / "versions" / version
 
 
@@ -53,6 +54,7 @@ def tree(version: str = VERSION) -> Path:
 
 def venv(version: str = VERSION) -> Path:
     """A version's virtualenv, bound into trials."""
+    check_plain_name(version)
     return FIXTURES / "venv" / version
 
 
@@ -63,7 +65,14 @@ def data_root() -> Path:
 
 def rag_dir(version: str = VERSION) -> Path:
     """A version's docs index directory."""
+    check_plain_name(version)
     return FIXTURES / "rag" / version
+
+
+def check_plain_name(name: str) -> None:
+    """ValueError for a profile or version name that could reach a directory outside its parent."""
+    if any(bad in name for bad in ("/", "\\", "..", "\0")):
+        raise ValueError(f"{name!r} is not a plain name (no path separator or '..')")
 
 
 def find_profile_dir(tree_hash: str, version: str = VERSION) -> Path | None:

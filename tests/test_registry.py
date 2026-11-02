@@ -114,6 +114,38 @@ def test_a_candidate_run_without_a_registration_is_refused_and_a_baseline_run_is
     assert registry.authorize("", {"baseline": "dev"}, None, out, root) == ""
 
 
+@pytest.mark.parametrize(
+    "profile",
+    ["holdout", "holdout2", "holdout3", "tune", "clean@h/../holdout", "clean+rule/../tune"],
+)
+def test_a_holdout_bearing_profile_needs_a_registration_and_dev_does_not(
+    root: Path, profile: str
+) -> None:
+    """`authorize` (the `trials` route) refuses an unregistered holdout-bearing profile."""
+    out = root / "o.jsonl"
+    with pytest.raises(registry.RegistryError):
+        registry.authorize("", {"baseline": profile}, None, out, root)
+    assert registry.authorize("", {"baseline": "dev"}, None, out, root) == ""
+    assert registry.authorize("", {"baseline": "clean"}, None, out, root) == ""
+    assert registry.read(root) == []
+
+
+def test_a_holdout_profile_file_that_is_missing_fails_closed(root: Path) -> None:
+    """Without `holdout2.toml`, `tune` and `dev` cannot be shown free of holdout issues."""
+    (root / "issues" / "profiles" / "holdout2.toml").unlink()
+    for profile in ("tune", "dev"):
+        with pytest.raises(registry.RegistryError, match="cannot be checked"):
+            registry.authorize("", {"baseline": profile}, None, root / "o", root)
+    assert registry.authorize("", {"baseline": "clean"}, None, root / "o", root) == ""
+
+
+def test_a_registered_holdout_run_still_authorizes(root: Path) -> None:
+    """A live registration lets its holdout profiles run."""
+    registry.register(_spec(root, "hold-1", "confirmatory", "holdout", "holdout+rule"), root)
+    arms = {"b": "holdout", "c": "holdout+rule"}
+    assert registry.authorize("hold-1", arms, None, root / "o", root) == "hold-1"
+
+
 def test_a_run_must_match_what_was_registered(root: Path) -> None:
     """A run is recorded as started once; changed arms, models or variant files are refused."""
     registry.register(_spec(root, "dev-1", "exploratory", "dev", "dev+rule"), root)

@@ -99,6 +99,8 @@ def root(tmp_path: Path) -> Path:
     _profile(tmp_path, "holdout", ["h1", "h2"])
     _profile(tmp_path, "dev", ["d1"])
     _profile(tmp_path, "tune", ["h1", "t1"])
+    _profile(tmp_path, "holdout2", ["h3"])  # the guard reads every generation's profile file
+    _profile(tmp_path, "holdout3", ["h4"])
     (tmp_path / "variants" / "rule" / "files").mkdir(parents=True)
     (tmp_path / "variants" / "rule" / "files" / "AGENTS.md").write_text("rule v1\n")
     (tmp_path / "bench").mkdir()

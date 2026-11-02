@@ -905,3 +905,69 @@ def test_a_read_only_existing_file_is_refused_with_no_started_row(
     finally:
         path.chmod(0o600)
     assert events_of(at) == ["registered"] and len(fake.specs) == n
+
+
+# ---- a profile that plants holdout issues needs a registration -----------------------------------
+
+
+@pytest.fixture
+def holdouts(at: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The holdout check reads the temporary repo's profiles, not the real ones."""
+    real = registry.refuse_unregistered_holdout
+    monkeypatch.setattr(registry, "refuse_unregistered_holdout", lambda p, r=None: real(p, at))
+    return at
+
+
+UNREGISTERED = [
+    "holdout",
+    "holdout2",
+    "holdout3",
+    "tune",
+    "clean@hist/../holdout",
+    "clean@hist/../tune",
+    "clean@hist/../holdout2",
+    "clean+research-t0-rule/../holdout",
+]
+
+
+@pytest.mark.parametrize("profile", UNREGISTERED)
+def test_a_holdout_profile_without_a_registration_refuses_and_writes_nothing(
+    holdouts: Path, fake: Fake, tmp_path: Path, profile: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = screen_out(holdouts)
+    with pytest.raises(screen.Refusal):
+        go(out, tmp_path, profile=profile, exp="")
+    argv = ["run", "--seed", "1", "--models", "small:1b", "--out", str(out)]
+    argv += ["--sizes", str(tags_file(tmp_path)), "--profile", profile]
+    assert screen.main(argv) == 2 and "refused:" in capsys.readouterr().err
+    assert fake.specs == [] and events_of(holdouts) == ["registered"]
+    assert list(out.parent.iterdir()) == []
+
+
+def test_a_missing_holdout_profile_file_refuses_tune_and_still_allows_clean(
+    holdouts: Path, fake: Fake, tmp_path: Path
+) -> None:
+    (holdouts / "issues" / "profiles" / "holdout2.toml").unlink()
+    out = screen_out(holdouts)
+    with pytest.raises(screen.Refusal, match="cannot be checked"):
+        go(out, tmp_path, profile="tune", exp="")
+    assert fake.specs == [] and list(out.parent.iterdir()) == []
+    go(out, tmp_path, profile="clean", exp="")
+    assert fake.specs
+
+
+def test_clean_still_runs_unregistered_when_holdout_profiles_exist(
+    holdouts: Path, fake: Fake, tmp_path: Path
+) -> None:
+    go(screen_out(holdouts), tmp_path, profile="clean", exp="")
+    assert fake.specs and {s.experiment_id for s in fake.specs} == {""}
+
+
+def test_a_registered_holdout_screen_runs(holdouts: Path, fake: Fake, tmp_path: Path) -> None:
+    registry.register(_spec(holdouts, "h-1", "confirmatory", "clean", "holdout"), holdouts)
+    go(screen_out(holdouts), tmp_path, profile="holdout", exp="h-1")
+    assert fake.specs and {s.experiment_id for s in fake.specs} == {"h-1"}
+    assert [r["event"] for r in registry.read(holdouts) if r.get("id") == "h-1"] == [
+        "registered",
+        "started",
+    ]
