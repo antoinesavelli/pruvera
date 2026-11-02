@@ -1,0 +1,8 @@
+id = "m5-t0-rule-64k"
+question = "Does the t0-rule prompt hold on the 64k tag, as the control for the ported prompt's retest?"
+kind = "exploratory"
+baseline = "clean"
+candidate = "clean+research-t0-rule"
+repeats = 1
+decision_rule = "qwen3.6:27b-64k, lookup screen, seed 20261106, one run. Keep the ported prompt if its Wilson lower bound is at least 0.90 and it misses no more than one question beyond the t0-rule arm on the same seed and tag. This is the one retest the m5-global-prompt rule allows."
+safety_counts = "landed"
