@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import shutil
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -15,8 +16,9 @@ import pytest
 
 pytest.importorskip("yaml")
 
-from bench import modelinfo, preflight, runner, stats  # noqa: E402
+from bench import experiment, modelinfo, preflight, registry, runner, stats  # noqa: E402
 from bench.research import Question, grade, oracles, screen, screen_report  # noqa: E402
+from tests.helpers import spec as _spec  # noqa: E402
 from tests.test_research_oracles import build  # noqa: E402
 
 GIB = 2**30
@@ -61,7 +63,8 @@ class Fake:
         rec = {
             "trial_id": spec.trial_id, "label": spec.label, "arm": spec.arm,
             "repeat": spec.repeat, "model": spec.model, "outcome": outcome, "secs": 10.0,
-            "artifact": str(adir),
+            "artifact": str(adir), "fixture_profile": fx.profile,
+            "experiment_id": spec.experiment_id,
         }  # fmt: skip
         with out.open("a") as fh:
             fh.write(json.dumps(rec) + "\n")
@@ -77,7 +80,9 @@ def tree(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def fake(tmp_path: Path, tree: Path, monkeypatch: pytest.MonkeyPatch) -> Fake:
     f = Fake(tmp_path / "artifacts")
     monkeypatch.setattr(runner, "run_trial", f)
-    monkeypatch.setattr(runner, "load_profile", lambda *_a: SimpleNamespace(tree=tree))
+    monkeypatch.setattr(runner, "load_profile", lambda _v, p: SimpleNamespace(tree=tree, profile=p))
+    monkeypatch.setattr(runner, "check_fixture", lambda _fx: None)
+    monkeypatch.setattr(runner, "require_agent_tools", lambda _argv: None)
     monkeypatch.setattr(preflight, "wait_clear", lambda *_a, **_k: [])
     monkeypatch.setattr(preflight, "session_lock", lambda: contextlib.nullcontext())
     return f
@@ -477,17 +482,426 @@ def test_report_end_to_end_writes_one_graded_row_per_trial(
     }  # fmt: skip
 
 
-def test_run_loads_the_named_profile(
+def test_a_registered_run_checks_then_locks_then_authorizes_then_writes_then_runs(
     tmp_path: Path, fake: Fake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seen: list[str] = []
-    load = runner.load_profile
+    events: list[str] = []
+    asked: list[tuple[str, dict[str, str], Any]] = []
+    load, lock = runner.load_profile, preflight.session_lock
+    questions, sizes = screen.write_questions, screen.record_sizes
+    checks, raw, clear, drift = (
+        screen._checks,
+        screen.raw_sizes,
+        preflight.wait_clear,
+        runner.check_fixture,
+    )
 
     def spy(version: str, profile: str) -> object:
-        seen.append(profile)
+        events.append(f"load {profile}")
         return load(version, profile)
 
+    def authorize(experiment: str, profiles: dict[str, str], models: Any, *_a: Any) -> str:
+        events.append("authorize")
+        asked.append((experiment, profiles, models))
+        return experiment
+
+    @contextlib.contextmanager
+    def locked() -> Any:
+        events.append("lock")
+        with lock():
+            yield
+
+    def noted(name: str, real: Callable[..., Any]) -> Callable[..., Any]:
+        def wrapper(*a: Any, **k: Any) -> Any:
+            events.append(name)
+            return real(*a, **k)
+
+        return wrapper
+
     monkeypatch.setattr(runner, "load_profile", spy)
+    monkeypatch.setattr(registry, "authorize", authorize)
+    monkeypatch.setattr(preflight, "session_lock", locked)
+    monkeypatch.setattr(screen, "write_questions", noted("questions", questions))
+    monkeypatch.setattr(screen, "record_sizes", noted("sizes", sizes))
+    monkeypatch.setattr(screen, "_checks", noted("checks", checks))
+    monkeypatch.setattr(screen, "raw_sizes", noted("raw_sizes", raw))
+    monkeypatch.setattr(preflight, "wait_clear", noted("wait_clear", clear))
+    monkeypatch.setattr(runner, "check_fixture", noted("check_fixture", drift))
+    monkeypatch.setattr(runner, "require_caps", noted("require_caps", runner.require_caps))
+    monkeypatch.setattr(
+        runner, "require_agent_tools", noted("require_agent_tools", runner.require_agent_tools)
+    )
+    monkeypatch.setattr(runner, "run_trial", noted("trial", fake))
     out = tmp_path / "r.jsonl"
-    screen.run(1, ["small:1b"], 1, out, tags=tags_file(tmp_path), profile="clean+v")
-    assert seen == ["clean+v"]
+    screen.run(
+        1, ["small:1b"], 1, out, tags=tags_file(tmp_path), profile="clean+v", experiment="exp-1"
+    )
+    assert events[:14] == [
+        "load clean+v", "checks", "raw_sizes", "lock", "checks", "wait_clear", "check_fixture",
+        "require_caps", "require_agent_tools", "authorize", "questions", "sizes", "wait_clear",
+        "trial",
+    ]  # fmt: skip
+    assert asked == [("exp-1", {"baseline": "clean", "candidate": "clean+v"}, None)]
+    assert fake.specs and {s.experiment_id for s in fake.specs} == {"exp-1"}
+
+
+def test_a_variant_profile_without_a_registration_refuses_and_runs_nothing(
+    tmp_path: Path, fake: Fake, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "r.jsonl"
+    with pytest.raises(screen.Refusal, match="registered experiment"):
+        screen.run(1, ["small:1b"], 1, out, tags=tags_file(tmp_path), profile="clean+v")
+    assert fake.specs == [] and not out.exists() and not screen.questions_path(out).exists()
+    argv = ["run", "--seed", "1", "--models", "small:1b", "--out", str(out)]
+    assert screen.main([*argv, "--profile", "clean+v"]) == 2
+    assert "refused:" in capsys.readouterr().err and fake.specs == []
+    assert not list(tmp_path.glob("r*"))  # no results, questions or sizes file
+
+
+def test_a_variant_profile_with_an_unknown_experiment_refuses(
+    tmp_path: Path, fake: Fake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(registry, "read", lambda *_a: [])
+    with pytest.raises(screen.Refusal, match="not registered"):
+        screen.run(
+            1,
+            ["small:1b"],
+            1,
+            tmp_path / "r",
+            tags=tags_file(tmp_path),
+            profile="clean+v",
+            experiment="nope",
+        )
+    assert fake.specs == []
+
+
+def test_plain_clean_needs_no_registration_and_its_trials_name_no_experiment(
+    tmp_path: Path, fake: Fake
+) -> None:
+    screen.run(1, ["small:1b"], 1, tmp_path / "r.jsonl", tags=tags_file(tmp_path))
+    assert fake.specs and {s.experiment_id for s in fake.specs} == {""}
+
+
+# ---- the real registry, in a temporary repo ------------------------------------------------------
+
+
+@pytest.fixture
+def at(root: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """`registry.authorize` over the temporary repo's registry, never the real one."""
+    real = registry.authorize
+    monkeypatch.setattr(
+        registry, "authorize", lambda e, p, m, o, r=None, **k: real(e, p, m, o, root, **k)
+    )
+    experiment.register(_spec(root, "e-1", "exploratory", "clean", "clean+rule"), root)
+    return root
+
+
+def events_of(root: Path) -> list[str]:
+    return [r["event"] for r in registry.read(root) if r.get("id") == "e-1"]
+
+
+def screen_out(root: Path, name: str = "s.jsonl") -> Path:
+    out = root / "results" / "research" / name
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return out
+
+
+def go(out: Path, tmp_path: Path, profile: str = "clean+rule", exp: str = "e-1") -> Path:
+    return screen.run(
+        1, ["small:1b"], 1, out, tags=tags_file(tmp_path), profile=profile, experiment=exp
+    )
+
+
+def test_a_real_registration_lets_the_screen_run_and_records_one_started_row(
+    at: Path, fake: Fake, tmp_path: Path
+) -> None:
+    out = screen_out(at)
+    go(out, tmp_path)
+    assert fake.specs and {s.experiment_id for s in fake.specs} == {"e-1"}
+    assert events_of(at) == ["registered", "started"]
+    started = [r for r in registry.read(at) if r["event"] == "started"]
+    assert started[0]["out"] == "results/research/s.jsonl"
+    n = len(fake.specs)
+    go(out, tmp_path)  # a resume
+    assert len(fake.specs) == n and events_of(at) == ["registered", "started"]
+    assert registry.verify(registry.read(at)) == []
+
+
+def test_a_bad_model_after_a_registration_leaves_no_started_row_and_no_files(
+    at: Path, fake: Fake, tmp_path: Path
+) -> None:
+    out = screen_out(at)
+    with pytest.raises(screen.Refusal, match="no disk size"):
+        screen.run(
+            1, ["typo:1b"], 1, out, tags=tags_file(tmp_path), profile="clean+rule", experiment="e-1"
+        )
+    assert events_of(at) == ["registered"] and fake.specs == []
+    assert list(out.parent.iterdir()) == []
+
+
+def test_a_held_lock_leaves_no_started_row_and_no_files(
+    at: Path, fake: Fake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    @contextlib.contextmanager
+    def held() -> Any:
+        raise preflight.PreflightError("another run of trials holds the lock")
+        yield
+
+    monkeypatch.setattr(preflight, "session_lock", held)
+    out = screen_out(at)
+    with pytest.raises(preflight.PreflightError):
+        go(out, tmp_path)
+    assert events_of(at) == ["registered"] and fake.specs == []
+    assert list(out.parent.iterdir()) == []
+
+
+def test_questions_on_disk_for_another_seed_leave_no_started_row(
+    at: Path, fake: Fake, tmp_path: Path
+) -> None:
+    out = screen_out(at)
+    screen.run(2, ["small:1b"], 1, out, tags=tags_file(tmp_path))  # plain clean, seed 2
+    with pytest.raises(screen.Refusal, match="other questions"):
+        go(out, tmp_path)
+    assert events_of(at) == ["registered"]
+
+
+def test_a_variant_run_over_a_clean_results_file_refuses_before_any_start(
+    at: Path, fake: Fake, tmp_path: Path
+) -> None:
+    out = screen_out(at)
+    go(out, tmp_path, profile="clean", exp="")
+    n = len(fake.specs)
+    with pytest.raises(screen.Refusal, match="profile"):
+        go(out, tmp_path)
+    assert len(fake.specs) == n and events_of(at) == ["registered"]
+
+
+def test_a_clean_run_over_a_variant_results_file_refuses(
+    at: Path, fake: Fake, tmp_path: Path
+) -> None:
+    out = screen_out(at)
+    go(out, tmp_path)
+    n = len(fake.specs)
+    with pytest.raises(screen.Refusal, match="profile"):
+        go(out, tmp_path, profile="clean", exp="")
+    assert len(fake.specs) == n
+
+
+def test_a_plain_resume_still_runs_only_the_missing_cells(tmp_path: Path, fake: Fake) -> None:
+    out = tmp_path / "r.jsonl"
+    screen.run(1, ["small:1b"], 1, out, tags=tags_file(tmp_path))
+    n = len(fake.specs)
+    screen.run(1, ["small:1b"], 1, out, tags=tags_file(tmp_path))
+    assert n and len(fake.specs) == n
+
+
+def test_rows_without_a_profile_field_are_not_a_mismatch(tmp_path: Path) -> None:
+    out = tmp_path / "r.jsonl"
+    out.write_text(json.dumps({"arm": "m", "label": "q", "repeat": 1}) + "\n")
+    screen.check_profile(out, "clean+rule")
+    screen.check_profile(tmp_path / "missing.jsonl", "clean")
+
+
+# ---- refusals before the study is marked started -------------------------------------------------
+
+
+def only_registered(root: Path, out: Path) -> None:
+    assert events_of(root) == ["registered"]
+    assert not list(out.parent.glob("s.jsonl*"))
+
+
+def test_main_forwards_the_experiment_to_the_run(at: Path, fake: Fake, tmp_path: Path) -> None:
+    out = screen_out(at)
+    argv = ["run", "--seed", "1", "--models", "small:1b", "--out", str(out)]
+    argv += ["--sizes", str(tags_file(tmp_path)), "--profile", "clean+rule"]
+    assert screen.main([*argv, "--experiment", "e-1"]) == 0
+    assert {s.experiment_id for s in fake.specs} == {"e-1"}
+    assert events_of(at) == ["registered", "started"]
+
+
+def test_an_unregistered_variant_is_refused_before_the_profile_is_even_loaded(
+    tmp_path: Path, fake: Fake, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def missing(_v: str, _p: str) -> object:
+        raise FileNotFoundError("no manifest")
+
+    monkeypatch.setattr(runner, "load_profile", missing)
+    argv = ["run", "--seed", "1", "--models", "small:1b", "--out", str(tmp_path / "r.jsonl")]
+    assert screen.main([*argv, "--profile", "clean+v"]) == 2
+    assert "registered experiment" in capsys.readouterr().err
+
+
+def test_a_profile_that_does_not_exist_is_a_refusal_not_a_traceback(
+    at: Path, fake: Fake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:  # fmt: skip
+    def missing(_v: str, _p: str) -> object:
+        raise FileNotFoundError("no manifest")
+
+    monkeypatch.setattr(runner, "load_profile", missing)
+    out = screen_out(at)
+    argv = ["run", "--seed", "1", "--models", "small:1b", "--out", str(out)]
+    argv += ["--sizes", str(tags_file(tmp_path)), "--profile", "clean+rule", "--experiment", "e-1"]
+    assert screen.main(argv) == 2 and "no such profile" in capsys.readouterr().err
+    only_registered(at, out)
+
+
+@pytest.mark.parametrize("profile", ["clean+", "clean+@h", "tune+@x"])
+def test_a_plus_profile_naming_no_variant_is_refused(
+    at: Path, fake: Fake, tmp_path: Path, profile: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = screen_out(at)
+    for exp in ("", "e-1"):
+        argv = ["run", "--seed", "1", "--models", "small:1b", "--out", str(out)]
+        argv += ["--sizes", str(tags_file(tmp_path)), "--profile", profile, "--experiment", exp]
+        assert screen.main(argv) == 2 and "names no variant" in capsys.readouterr().err
+    assert fake.specs == []
+    only_registered(at, out)
+
+
+@pytest.mark.parametrize("other", ["", "e-0"])
+def test_a_registered_run_over_another_experiments_rows_refuses_before_any_start(
+    at: Path, fake: Fake, tmp_path: Path, other: str
+) -> None:
+    out = screen_out(at)
+    go(out, tmp_path)
+    rows = [json.loads(x) for x in out.read_text().splitlines()]
+    out.write_text("".join(json.dumps({**r, "experiment_id": other}) + "\n" for r in rows))
+    n = len(fake.specs)
+    with pytest.raises(screen.Refusal, match="experiment"):
+        go(out, tmp_path)
+    assert len(fake.specs) == n and events_of(at) == ["registered", "started"]
+
+
+def test_a_plain_run_over_any_experiments_rows_is_unchanged(tmp_path: Path, fake: Fake) -> None:
+    out = tmp_path / "r.jsonl"
+    screen.run(1, ["small:1b"], 1, out, tags=tags_file(tmp_path))
+    n = len(fake.specs)
+    out.write_text(out.read_text().replace('"experiment_id": ""', '"experiment_id": "x"'))
+    screen.run(1, ["small:1b"], 1, out, tags=tags_file(tmp_path))
+    assert len(fake.specs) == n
+
+
+@pytest.mark.parametrize(("models", "repeats"), [(["small:1b"], 0), ([], 1), ([""], 1)])
+def test_an_empty_plan_is_refused_before_the_study_is_started(
+    at: Path, fake: Fake, tmp_path: Path, models: list[str], repeats: int
+) -> None:
+    out = screen_out(at)
+    with pytest.raises(screen.Refusal, match="nothing to run"):
+        screen.run(
+            1,
+            models,
+            repeats,
+            out,
+            tags=tags_file(tmp_path),
+            profile="clean+rule",
+            experiment="e-1",
+        )
+    only_registered(at, out)
+    argv = ["run", "--seed", "1", "--models", ",", "--out", str(out), "--profile", "clean+rule"]
+    assert screen.main([*argv, "--experiment", "e-1"]) == 2
+    only_registered(at, out)
+
+
+def test_a_blocked_machine_at_the_first_trial_leaves_no_started_row(
+    at: Path, fake: Fake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(preflight, "wait_clear", lambda *_a, **_k: [SimpleNamespace(code="gpu")])
+    out = screen_out(at)
+    with pytest.raises(RuntimeError, match="gpu"):
+        go(out, tmp_path)
+    only_registered(at, out)
+    assert fake.specs == []
+
+
+def test_a_drifted_fixture_leaves_no_started_row(
+    at: Path, fake: Fake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def drifted(_fx: object) -> None:
+        raise runner.DriftError("base drifted")
+
+    monkeypatch.setattr(runner, "check_fixture", drifted)
+    out = screen_out(at)
+    with pytest.raises(runner.DriftError):
+        go(out, tmp_path)
+    only_registered(at, out)
+
+
+def test_the_checks_are_repeated_under_the_lock_against_a_racing_session(
+    at: Path, fake: Fake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = screen_out(at)
+
+    @contextlib.contextmanager
+    def racing() -> Any:
+        out.write_text(json.dumps({"fixture_profile": "clean+rule", "experiment_id": ""}) + "\n")
+        yield
+
+    monkeypatch.setattr(preflight, "session_lock", racing)
+    with pytest.raises(screen.Refusal, match="experiment"):
+        go(out, tmp_path)
+    assert events_of(at) == ["registered"] and fake.specs == []
+
+
+def test_the_model_check_comes_before_the_lock(
+    at: Path, fake: Fake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    @contextlib.contextmanager
+    def held() -> Any:
+        raise preflight.PreflightError("another run of trials holds the lock")
+        yield
+
+    monkeypatch.setattr(preflight, "session_lock", held)
+    with pytest.raises(screen.Refusal, match="no disk size"):
+        screen.run(
+            1, ["typo:1b"], 1, screen_out(at), tags=tags_file(tmp_path),
+            profile="clean+rule", experiment="e-1",
+        )  # fmt: skip
+
+
+def test_an_uncreatable_out_or_a_corrupt_sizes_file_leaves_no_started_row(
+    at: Path, fake: Fake, tmp_path: Path
+) -> None:
+    locked = tmp_path / "ro"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        if os.access(locked, os.W_OK):  # running as root: permissions cannot refuse
+            pytest.skip("directory permissions do not bind this user")
+        with pytest.raises(screen.Refusal, match="cannot write"):
+            go(locked / "deep" / "s.jsonl", tmp_path)
+    finally:
+        locked.chmod(0o700)
+    out = screen_out(at)
+    screen.sizes_path(out).write_text("{not json")
+    with pytest.raises(screen.Refusal, match="corrupt"):
+        go(out, tmp_path)
+    assert events_of(at) == ["registered"] and fake.specs == []
+    assert [p.name for p in out.parent.iterdir()] == [screen.sizes_path(out).name]
+
+
+@pytest.mark.parametrize("which", ["out", "questions", "sizes"])
+def test_a_read_only_existing_file_is_refused_with_no_started_row(
+    at: Path, fake: Fake, tmp_path: Path, which: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = screen_out(at)
+    path = {"out": out, "questions": screen.questions_path(out), "sizes": screen.sizes_path(out)}[
+        which
+    ]
+    seed = tmp_path / "seed.jsonl"  # valid questions and sizes files, from a plain clean run
+    screen.run(1, ["small:1b"], 1, seed, tags=tags_file(tmp_path))
+    n = len(fake.specs)
+    shutil.copy(screen.questions_path(seed), screen.questions_path(out))
+    shutil.copy(screen.sizes_path(seed), screen.sizes_path(out))
+    out.write_text("")
+    path.chmod(0o400)
+    try:
+        if os.access(path, os.W_OK):  # running as root: permissions cannot refuse
+            pytest.skip("file permissions do not bind this user")
+        argv = ["run", "--seed", "1", "--models", "small:1b", "--out", str(out)]
+        argv += ["--sizes", str(tags_file(tmp_path)), "--profile", "clean+rule"]
+        assert screen.main([*argv, "--experiment", "e-1"]) == 2
+        assert "is not writable" in capsys.readouterr().err
+    finally:
+        path.chmod(0o600)
+    assert events_of(at) == ["registered"] and len(fake.specs) == n
