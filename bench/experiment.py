@@ -604,10 +604,12 @@ def _show(value: Any) -> int:
     return 0
 
 
-def _nudge() -> None:
-    """Print the storage nudge, when there is one; it never refuses a run."""
+def _run(args: argparse.Namespace) -> int:
+    """Print the storage nudge, when there is one (it never refuses a run), then run the study."""
     if line := retention.nudge():
         print(line, flush=True)
+    run(args.id, args.out, n=args.n, only=args.only)
+    return 0
 
 
 def _verify() -> int:
@@ -637,7 +639,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "interim": lambda: _show(interim(args.id, args.after)),
         "judge": lambda: _show(judge(args.id, accept_scorer_change=args.accept_scorer_change)),
         "retention": lambda: _show(retention.report()),
-        "run": lambda: _done(_nudge(), run(args.id, args.out, n=args.n, only=args.only)),
+        "run": lambda: _run(args),
         "abandon": lambda: _done(registry.abandon(args.id, args.reason)),
         "restate": lambda: _show(registry.restate(args.id, args.evidence, args.reason)),
         "retro": lambda: _done(print(f"{len(registry.retro())} studies recorded after the data")),
