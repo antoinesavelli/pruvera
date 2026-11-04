@@ -5,7 +5,7 @@ working tree is never touched, chunked. Questions: docs/eval/knowledge_questions
 its source files). Retrievers: BM25 (no model) and nomic-embed-text on the local Ollama, brute-force
 cosine in numpy (no vector database). Metric: file-level recall@k and MRR of the first declared
 source. Writes only file names and scores. Run with Paramo's venv python (numpy, pyyaml).
-Depends on: numpy, pyyaml, git, a local Ollama with nomic-embed-text.
+Depends on: bench.layout, numpy, pyyaml, git, a local Ollama with nomic-embed-text.
 """
 
 from __future__ import annotations
@@ -24,7 +24,12 @@ from typing import Any
 import numpy as np
 import yaml
 
-REPO = Path("/srv/pruvera/Paramo")
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from bench import layout  # noqa: E402
+
+REPO = layout.REAL_REPO
 COMMIT = "c65a28899774110e5cf19d66e5eddb6c674a826b"
 CHUNK = 1500
 OLLAMA = "http://127.0.0.1:11434/api/embed"

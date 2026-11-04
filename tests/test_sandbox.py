@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from bench import runner, sandbox
+from bench import paths, runner, sandbox
 from bench.sandbox import SandboxError, Spec
 from tests.helpers import bwrap_works, needs_bwrap, sh
 
@@ -81,8 +81,9 @@ def test_argv_clears_env_and_allowlists_root(spec: Spec) -> None:
     assert "--clearenv" in argv
     binds = [argv[i + 1] for i, a in enumerate(argv) if a == "--ro-bind"]
     assert "/" not in binds, "the host root must never be bound wholesale"
-    host_paths = {a for a in argv if a.startswith("/mnt")}
-    assert host_paths == {sandbox.WORKDIR}, "the fixture mount is the only /mnt path"
+    disk = "/" + Path(sandbox.WORKDIR).parts[1]
+    host_paths = {a for a in argv if a.startswith(disk)}
+    assert host_paths == {sandbox.WORKDIR}, f"the fixture mount is the only {disk} path"
 
 
 def test_argv_overlay_over_base(spec: Spec) -> None:
@@ -197,9 +198,13 @@ def test_writes_land_in_overlay_and_base_is_untouched(spec: Spec) -> None:
 def test_host_filesystem_is_absent(spec: Spec) -> None:
     """Host data directories, home, credentials and system paths are not visible in the sandbox."""
     home = str(Path.home())
+    disk = Path(sandbox.WORKDIR).parent
     real = ["AIModels", "system-library", "harness", "trading", "archive", "ParamoLLC"]
-    probes = [f"/srv/pruvera/{d}" for d in real]
+    probes = [f"{disk}/{d}" for d in real]
     probes += ["/mnt/Media", "/root", "/media", home, f"{home}/.config/opencode"]
+    probes += [f"{home}/.config/pruvera"]
+    probes += [paths.PATHS.data_root, paths.PATHS.archive_root, paths.PATHS.opencode_global]
+    probes += list(paths.PATHS.reference_overlays)
     probes += [f"{home}/.claude", "/etc/shadow", "/var/lib", f"/home/{Path.home().name}"]
     script = "for p in " + " ".join(f"'{p}'" for p in probes)
     script += '; do test -e "$p" && echo "VISIBLE:$p"; done; true'
@@ -404,7 +409,7 @@ def test_argv_mounts_data_at_real_path_with_throwaway_writes(spec: Spec, tmp_pat
     argv = sandbox.build_argv(with_data, ["true"])
     i = argv.index("--tmp-overlay")
     assert argv[i - 2 : i + 2] == ["--overlay-src", str(data), "--tmp-overlay", with_data.data_dest]
-    assert with_data.data_dest == "/srv/pruvera/trading"
+    assert with_data.data_dest == paths.PATHS.data_root
 
 
 @needs_bwrap
@@ -416,20 +421,29 @@ def test_data_slice_is_visible_at_the_real_path_and_writes_are_discarded(
     (data / "backtesting data").mkdir(parents=True)
     (data / "backtesting data" / "f.txt").write_text("slice\n")
     with_data = Spec(**{**spec.__dict__, "data_base": data})
+    repo, data_root, archive_root = (
+        paths.PATHS.repo,
+        with_data.data_dest,
+        paths.PATHS.archive_root,
+    )
+    disk = str(Path(repo).parent)
+    assert {str(Path(p).parent) for p in (data_root, archive_root)} == {disk}
     script = (
-        "cat '/srv/pruvera/trading/backtesting data/f.txt'; "
-        "echo new > /srv/pruvera/trading/new.txt; "
-        "ls /srv/pruvera; ls /srv/pruvera/archive | wc -l"
+        f"cat '{data_root}/backtesting data/f.txt'; "
+        f"echo new > {data_root}/new.txt; "
+        f"ls {disk}; ls {archive_root} | wc -l"
     )
     result = _sh(with_data, script)
     listing = result.stdout.split()
-    assert "slice" in listing and {"trading", "archive", "Paramo"} <= set(listing)
+    assert "slice" in listing and {Path(p).name for p in (repo, data_root, archive_root)} <= set(
+        listing
+    )
     assert not (data / "new.txt").exists(), "trial writes must never reach the data base"
     assert sorted(p.name for p in data.iterdir()) == ["backtesting data"]
-    hidden = _sh(with_data, "ls /srv/pruvera")
-    assert sorted(hidden.stdout.split()) == ["Paramo", "archive", "trading"], (
-        "only the fixture, the data root and the archive exist under /srv/pruvera"
-    )
+    hidden = _sh(with_data, f"ls {disk}")
+    assert sorted(hidden.stdout.split()) == sorted(
+        Path(p).name for p in (repo, data_root, archive_root)
+    ), "only the fixture, the data root and the archive exist under the disk root"
 
 
 _FIXTURE_VENV = Path(__file__).resolve().parents[1] / "fixtures/paramo/venv/v2"

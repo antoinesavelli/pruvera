@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from bench import cli, layout, preflight, runner, sandbox
+from bench import cli, layout, paths, preflight, runner, sandbox
 from bench.fixture import denylist, scrub
 from bench.fixture import venv as fixture_venv
 from bench.issues import campaign, check, mine, miner, mutate, schema, seed, verify
@@ -268,19 +268,38 @@ def test_mine_main_dispatches_to_reevaluate_accept_and_mine(
 def test_the_read_audit_logs_a_missing_data_path_once_per_test(tmp_path: Path) -> None:
     """The read audit logs a missing data path once per test and ignores other missing paths."""
     log = tmp_path / "log.jsonl"
+    data_root = paths.PATHS.data_root
     code = (
         "import audit_reads as a\n"
         "a.pytest_runtest_setup(type('I', (), {'nodeid': 't1'})())\n"
         "for _ in range(2):\n"
-        "    try: open('/srv/pruvera/trading/__missing__/x')\n"
+        f"    try: open('{data_root}/__missing__/x')\n"
         "    except OSError: pass\n"
         "try: open('/tmp/elsewhere-missing')\n"
         "except OSError: pass\n"
     )
-    env = {**os.environ, "AUDIT_READS_LOG": str(log), "PYTHONPATH": str(ROOT / "bench" / "fixture")}
+    env = {
+        **os.environ,
+        "AUDIT_READS_LOG": str(log),
+        "AUDIT_READS_ROOTS": os.pathsep.join((data_root, paths.PATHS.archive_root)),
+        "PYTHONPATH": str(ROOT / "bench" / "fixture"),
+    }
     subprocess.run([sys.executable, "-c", code], env=env, check=True)
     rows = [json.loads(line) for line in log.read_text().splitlines()]
-    assert rows == [{"test": "t1", "path": "/srv/pruvera/trading/__missing__/x"}]
+    assert rows == [{"test": "t1", "path": f"{data_root}/__missing__/x"}]
+
+
+def test_the_read_audit_refuses_to_run_without_roots() -> None:
+    """With no AUDIT_READS_ROOTS the plugin's pytest_configure fails loudly, never logs nothing."""
+    env = {k: v for k, v in os.environ.items() if k != "AUDIT_READS_ROOTS"}
+    env["PYTHONPATH"] = str(ROOT / "bench" / "fixture")
+    result = subprocess.run(
+        [sys.executable, "-c", "import audit_reads as a; a.pytest_configure(None)"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0 and "AUDIT_READS_ROOTS" in result.stderr
 
 
 # ------------------------------------------------------------------ campaign

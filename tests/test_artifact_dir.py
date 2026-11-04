@@ -1,6 +1,6 @@
 """A trial record's recorded artifact path still resolves after the repo moves.
 
-Depends on: bench.{layout,compare,doctor}.
+Depends on: bench.{layout,compare,doctor,paths}.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from bench import compare, doctor, layout
+from bench import compare, doctor, layout, paths
 
 
 @pytest.fixture
@@ -50,8 +50,8 @@ def test_compare_reads_a_transcript_through_an_old_root(moved_root: Path) -> Non
     compare.transcript({"artifact": "/old/home/agent-testing/artifacts/abc"})
 
 
-@pytest.mark.parametrize("name", ["agent-testing", "pruvera"])
-def test_normalise_strips_either_repo_name(name: str) -> None:
-    """Normalising reduces an overlay work path under either repo name to the bare file path."""
-    text = f"/srv/pruvera/AIModels/{name}/overlays/ref-0a1b/work/x.py"
+@pytest.mark.parametrize("overlays", paths.PATHS.reference_overlays)
+def test_normalise_strips_either_repo_name(overlays: str) -> None:
+    """Normalising reduces an overlay work path under any configured overlay root to the file."""
+    text = f"{overlays}/ref-0a1b/work/x.py"
     assert compare.normalise(text) == "x.py"

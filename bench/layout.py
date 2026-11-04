@@ -3,7 +3,7 @@
 One place for the default version, the data-slice version, the real repo's path and a version's
 pinned source commit (read from its manifest, never retyped), so a new fixture version is one
 edit here and nothing drifts between the runner, the miner, the studies and the index.
-Depends on: the standard library.
+Depends on: bench.paths.
 
 Code and catalogue (`bench/`, `issues/`, `variants/`, `experiments/`) are read from `ROOT`.
 Everything a run reads or writes that is local or large (fixtures, artifacts, overlays, results)
@@ -20,8 +20,10 @@ import os
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-STATE = Path(os.environ.get("AGENT_TESTING_STATE") or ROOT).resolve()
+from bench import paths
+
+ROOT = paths.ROOT
+STATE = paths.STATE
 FIXTURES = STATE / "fixtures" / "paramo"
 ARTIFACTS = STATE / "artifacts"
 OVERLAYS = STATE / "overlays"
@@ -30,7 +32,7 @@ VERSION = os.environ.get("AGENT_TESTING_FIXTURE_VERSION") or "v2"
 if not re.fullmatch(r"v[0-9]+", VERSION):  # it becomes part of a path
     raise ValueError(f"AGENT_TESTING_FIXTURE_VERSION must look like v2, v3 or v4, not {VERSION!r}")
 DATA_VERSION = "v3"  # v2 data plus synthetic aggregates and the public Nasdaq directory
-REAL_REPO = Path("/srv/pruvera/Paramo")
+REAL_REPO = Path(paths.PATHS.repo)
 
 
 def artifact_dir(recorded: str | Path) -> Path:

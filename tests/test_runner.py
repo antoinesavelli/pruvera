@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from bench import preflight, runner, sandbox
+from bench import paths, preflight, runner, sandbox
 from bench.readback import ReadBackError
 from bench.runner import DriftError, Hook, TrialSpec
 from tests.helpers import bwrap_works as _bwrap_works
@@ -453,7 +453,7 @@ def test_an_experiment_may_add_an_mcp_server_and_bind_harness_files_under_opt_on
             agent="a",
             model="m",
             prompt="p",
-            extra_binds=((Path("/srv/pruvera/Paramo"), "/opt/x"),),
+            extra_binds=((Path(paths.PATHS.repo), "/opt/x"),),
         ),
         TrialSpec(
             agent="a",
@@ -596,7 +596,7 @@ def test_experiment_binds_are_an_allowlist_not_a_denylist(tmp_path: Path) -> Non
         with pytest.raises(ValueError):
             attempt(host, "/opt/x")
     for dest in (
-        "/opt/../srv/pruvera/Paramo/AGENTS.md",
+        f"/opt/..{sandbox.WORKDIR}/AGENTS.md",
         "/opt/bin/opencode",
         "/opt/bin",
         "/optx/y",

@@ -5,7 +5,8 @@ agent could do. The strongest signal is a tool call that errors on one side only
 binary, a path that does not exist), then differences in which tools and commands the agent
 used. Model output varies run to run, so everything is reported per task over repeats, never per
 single trial.
-Depends on: bench.{layout,transcript,stats,jsonl}; the records and artifacts the two runners write.
+Depends on: bench.{layout,paths,transcript,stats,jsonl}; the records and artifacts the two runners
+write.
 """
 
 from __future__ import annotations
@@ -16,13 +17,13 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from bench import layout, stats
+from bench import layout, paths, stats
 from bench.jsonl import read_jsonl
 from bench.transcript import Transcript
 
 _PATHS = re.compile(
-    r"/srv/pruvera/Paramo/"
-    r"|/srv/pruvera/AIModels/(?:agent-testing|pruvera)/overlays/ref-[0-9a-f]+/work/"
+    re.escape(paths.PATHS.repo + "/")
+    + "".join(f"|{re.escape(o)}/ref-[0-9a-f]+/work/" for o in paths.PATHS.reference_overlays)
 )
 
 

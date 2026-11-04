@@ -2,6 +2,10 @@
 
 A pytest plugin (`-p audit_reads`, bound into the sandbox) that installs an audit hook: one JSON
 line per missing path, tagged with the running test. For an inventory run only, never a trial.
+The data roots to watch come from `AUDIT_READS_ROOTS` (`os.pathsep`-separated), set by whoever
+runs the inventory: the plugin runs inside the sandbox, where `bench` and the paths file do not
+exist, and a generic default would watch the wrong root and read as "nothing is missing", so a
+run without it fails.
 Depends on: stdlib only.
 """
 
@@ -11,7 +15,7 @@ import json
 import os
 import sys
 
-DATA_ROOTS = ("/srv/pruvera/trading", "/srv/pruvera/archive")
+DATA_ROOTS = tuple(p for p in os.environ.get("AUDIT_READS_ROOTS", "").split(os.pathsep) if p)
 EVENTS = {"open", "os.listdir", "os.scandir"}
 LOG = os.environ.get("AUDIT_READS_LOG", "/tmp/audit_reads.jsonl")
 _current = {"test": ""}
@@ -33,6 +37,12 @@ def _hook(event: str, args: tuple[object, ...]) -> None:
     _seen.add(key)
     with open(LOG, "a") as fh:
         fh.write(json.dumps({"test": _current["test"], "path": path}) + "\n")
+
+
+def pytest_configure(config: object) -> None:
+    """Pytest hook: refuse to run with no roots to watch."""
+    if not DATA_ROOTS:
+        raise RuntimeError("audit_reads: set AUDIT_READS_ROOTS to the data roots to watch")
 
 
 def pytest_runtest_setup(item: object) -> None:

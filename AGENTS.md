@@ -73,6 +73,8 @@ a paid or heavy job · *Skills fix themselves* if a skill misfires · when a gua
 | Experiments and evaluations | `plans/` (dated plan docs; they stay as written), `experiments/` (study specs), `EVAL_CARD.md` (the planted-issue suite's datasheet) |
 | Fixtures | `fixtures/` (manifests, stubs, known-red tests; trees and data are local only) |
 
+The machine's real disk paths live in `~/.config/pruvera/paths.json`, not in tracked files (`README.md` "The paths file"); never write one into a tracked file.
+
 ## Where test output goes
 
 | Class | Home | Lifetime |

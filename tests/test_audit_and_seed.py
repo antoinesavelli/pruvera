@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from bench import paths
 from bench.fixture import audit_reads
 from bench.issues import seed
 from bench.issues.schema import Edit, Issue
@@ -23,8 +24,11 @@ def test_the_audit_hook_logs_each_missing_data_path_once_per_test(
     log = tmp_path / "log.jsonl"
     monkeypatch.setattr(audit_reads, "LOG", str(log))
     monkeypatch.setattr(audit_reads, "_seen", set())
+    monkeypatch.setattr(
+        audit_reads, "DATA_ROOTS", (paths.PATHS.data_root, paths.PATHS.archive_root)
+    )
     audit_reads.pytest_runtest_setup(type("Item", (), {"nodeid": "t.py::a"})())
-    missing = "/srv/pruvera/trading/definitely/missing.parquet"
+    missing = f"{paths.PATHS.data_root}/definitely/missing.parquet"
     audit_reads._hook("open", (missing,))
     audit_reads._hook("open", (missing,))
     audit_reads._hook("open", (missing.encode(),))

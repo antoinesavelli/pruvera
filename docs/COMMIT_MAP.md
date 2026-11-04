@@ -8,3 +8,6 @@ the map belongs to a commit that touched only paths that are not published, and 
 ```
 awk -F'\t' -v h=<old-hash-prefix> 'index($1,h)==1 {print $2}' docs/COMMIT_MAP.tsv
 ```
+
+On 2026-11-03 the published line was rewritten again (`docs/DECISIONS.md` row 13), so a hash published before then, here or
+elsewhere, does not resolve on it. That map is kept locally. Local checkouts keep the old hashes.

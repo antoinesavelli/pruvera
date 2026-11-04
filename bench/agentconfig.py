@@ -10,7 +10,7 @@ in the same inline config, as `options.seed` of every Ollama model the trial can
 1.18.31 sends a model's options with every request to it; an agent's `options` miss its auxiliary
 requests and a provider's are ignored, probed 2026-10-10).
 
-Depends on: the real global config file (system-library); stdlib only.
+Depends on: bench.paths; the real global config file (system-library).
 """
 
 from __future__ import annotations
@@ -22,7 +22,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-REAL_GLOBAL = Path("/srv/pruvera/system-library/machines/workstation/opencode/opencode.json")
+from bench import paths
+
+REAL_GLOBAL = Path(paths.PATHS.opencode_global)
 
 
 class ParityError(RuntimeError):

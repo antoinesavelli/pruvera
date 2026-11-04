@@ -4,7 +4,20 @@
 set -euo pipefail
 command -v gitleaks >/dev/null || { echo "pre-push: gitleaks not on PATH; push blocked" >&2; exit 1; }
 root="$(git rev-parse --show-toplevel)"
+# The disk root stays off the public line: this machine's history still names it, so a plain push of
+# local main would republish it. Whole history, like the scan above; no paths file means no check, so blocked.
+disk="$(python3 -c 'import json, pathlib as p
+print(p.PurePosixPath(json.loads((p.Path.home() / ".config/pruvera/paths.json").read_text())["repo"]).parent)')" \
+  || { echo "pre-push: no readable paths file, cannot check for the disk root; push blocked" >&2; exit 1; }
 while read -r _ local_sha _ _; do
   [[ $local_sha =~ ^0+$ ]] && continue
+  # Assigned first, so `set -e` stops on a git failure (unknown sha, missing object) instead of
+  # reading it as "no hit".
+  in_files="$(git -C "$root" -c log.showRoot=true log -m -S "$disk" --format=%h -1 "$local_sha")"
+  in_messages="$(git -C "$root" -c log.showRoot=true log -F --grep="$disk" --format=%h -1 "$local_sha")"
+  if [[ -n "$in_files" || -n "$in_messages" ]]; then
+    echo "pre-push: the history of $local_sha names the disk root; push from the published line, not local main" >&2
+    exit 1
+  fi
   gitleaks git --redact --no-banner --log-opts="$local_sha" "$root"
 done

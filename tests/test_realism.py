@@ -636,7 +636,7 @@ MIXED_TOOLS: list[tuple[str, dict[str, Any], str]] = [
     ("bash", {"command": "git commit -m 'fix: x'"}, "completed"),
     (
         "bash",
-        {"command": "cd /srv/pruvera/Paramo && git add a.py && git commit -m x"},
+        {"command": f"cd {sandbox.WORKDIR} && git add a.py && git commit -m x"},
         "completed",
     ),
 ]

@@ -13,7 +13,7 @@ from types import ModuleType
 
 import pytest
 
-from bench import bundle, layout, runner
+from bench import bundle, layout, paths, runner
 from bench.issues import score, trials
 
 
@@ -108,6 +108,7 @@ def test_the_state_root_can_name_another_checkout(
     """The state-root environment variable points results and fixtures paths at another checkout."""
     monkeypatch.setenv("AGENT_TESTING_STATE", str(tmp_path))
     try:
+        importlib.reload(paths)  # the state root is computed there, and layout reuses it
         fresh = importlib.reload(layout)
         assert fresh.STATE == tmp_path.resolve()
         assert fresh.RESULTS == tmp_path.resolve() / "results"
@@ -115,6 +116,7 @@ def test_the_state_root_can_name_another_checkout(
         assert fresh.ROOT != fresh.STATE
     finally:
         monkeypatch.delenv("AGENT_TESTING_STATE")
+        importlib.reload(paths)
         importlib.reload(layout)
 
 
