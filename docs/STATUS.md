@@ -28,6 +28,7 @@ commands for campaigns, scoring, the gate and the tests.
   corsu Phase B changes; `uv run pytest -q` and the system `python3 -m pytest -q` both show 2 failed). Fixtures are
   never edited in place, so rebuilding the tree (`fixtures/legacy/fetch.sh`) is a decision for whoever owns the lane.
 - The sandbox red-team is re-registered with the corsu path (`plans/SANDBOX_REDTEAM_2026-10-25.md`, prompt set `92a9ebbb`; R1-R3 change only in the repo root, `plans/SANDBOX_REDTEAM.md` is kept as written). No trial has run on it; running it is the owner's call.
+- The disk root is no longer in tracked files (2026-11-02, `DECISIONS.md` row 12): this machine's paths live in `~/.config/pruvera/paths.json` (`README.md` "The paths file"); a bench process that reads a path refuses at import when a fixture is built and the file is missing.
 - The other open items are in each phase's status below.
 
 ## Phases: status and evidence (the old PLAN.md §6)
